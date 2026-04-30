@@ -241,6 +241,7 @@ CREATE TABLE hc_style_snippets (
     context_summary   TEXT,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_used_at      TIMESTAMPTZ,
+    retired_at        TIMESTAMPTZ,                      -- set by P7 retirement sweep when snippet is stale
     relevance_tags    TEXT[],
     use_count         INTEGER NOT NULL DEFAULT 0
 );
@@ -331,7 +332,61 @@ CREATE INDEX idx_content_assignments_client ON content_assignments (client_id, a
 
 ### `llm_calls`
 
-(Per ADR-0003 §4.) Schema in that ADR.
+(Per ADR-0003 §4, schema reconciled 2026-04-30.)
+
+```sql
+CREATE TABLE llm_calls (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    hc_user_id        UUID NOT NULL REFERENCES users(id),
+    client_id         UUID REFERENCES clients(id),
+    session_id        UUID REFERENCES sessions(id),
+    request_id        UUID,
+    use_case          TEXT NOT NULL,
+    prompt_version    TEXT NOT NULL,
+    model_requested   TEXT NOT NULL,
+    model_served      TEXT,
+    fallback_count    INTEGER NOT NULL DEFAULT 0,
+    input_tokens      INTEGER NOT NULL,
+    output_tokens     INTEGER NOT NULL,
+    latency_ms        INTEGER NOT NULL,
+    validation_failed BOOLEAN NOT NULL DEFAULT FALSE,
+    snippet_count     INTEGER NOT NULL DEFAULT 0,
+    snippet_tokens    INTEGER NOT NULL DEFAULT 0,
+    inr_cost_estimate NUMERIC(10, 4),
+    raw_request_id    TEXT,
+    error_message     TEXT
+);
+
+CREATE INDEX idx_llm_calls_created_at ON llm_calls (created_at DESC);
+CREATE INDEX idx_llm_calls_hc_use_case ON llm_calls (hc_user_id, use_case);
+CREATE INDEX idx_llm_calls_validation_failed ON llm_calls (validation_failed) WHERE validation_failed = TRUE;
+```
+
+### `auth_refresh_tokens`
+
+(Per ADR-0005 §10.)
+
+```sql
+CREATE TABLE auth_refresh_tokens (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash      TEXT NOT NULL UNIQUE,
+    issued_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at      TIMESTAMPTZ NOT NULL,
+    last_used_at    TIMESTAMPTZ,
+    revoked_at      TIMESTAMPTZ,
+    successor_id    UUID REFERENCES auth_refresh_tokens(id),
+    user_agent      TEXT,
+    ip_at_issue     INET,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_refresh_tokens_user_id ON auth_refresh_tokens (user_id);
+CREATE INDEX idx_refresh_tokens_token_hash ON auth_refresh_tokens (token_hash);
+CREATE INDEX idx_refresh_tokens_active ON auth_refresh_tokens (user_id)
+    WHERE revoked_at IS NULL AND expires_at > NOW();
+```
 
 ### `audit_log`
 
@@ -365,13 +420,18 @@ CREATE INDEX idx_audit_log_target ON audit_log (target_hc_user_id, created_at DE
 
 ## Migration order (when first implementing)
 
+Dependency-constrained order — `llm_calls` must precede `moms`/`briefs` (which FK into it):
+
 1. `users`
 2. `clients`
-3. `sessions`, `moms`, `briefs`, `action_items`, `check_ins`
-4. `consents`
-5. `hc_style_snippets`
-6. `llm_calls`, `audit_log`
-7. `diet_charts`, `prep_recipes`, `diet_chart_recipes`, `content_assignments`
+3. `sessions`
+4. `llm_calls` (references users, clients, sessions)
+5. `moms`, `briefs` (reference llm_calls)
+6. `action_items`, `check_ins`
+7. `consents`
+8. `hc_style_snippets`
+9. `audit_log`, `auth_refresh_tokens`
+10. `diet_charts`, `prep_recipes`, `diet_chart_recipes`, `content_assignments`
 
 Each migration as its own Alembic file, named `NNNN_description.py`.
 
@@ -391,3 +451,4 @@ Each migration as its own Alembic file, named `NNNN_description.py`.
 | Date | Change |
 |---|---|
 | 2026-04-28 | Fresh draft incorporating snippets, llm_calls, consents, content libraries. MERGE-REQUIRED with existing repo file. |
+| 2026-04-30 | Reconciled llm_calls schema (model_id → model_requested/model_served, added prompt_version, request_id). Added retired_at to hc_style_snippets. Added auth_refresh_tokens (from ADR-0005). Fixed migration order (llm_calls before moms/briefs). |

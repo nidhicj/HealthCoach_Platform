@@ -78,23 +78,26 @@ Every LLM call writes one row to `llm_calls`. No exceptions. This is the data fo
 
 ```sql
 CREATE TABLE llm_calls (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    hc_user_id      UUID NOT NULL REFERENCES users(id),
-    client_id       UUID REFERENCES clients(id),  -- nullable: not all calls are client-scoped
-    session_id      UUID REFERENCES sessions(id), -- nullable
-    use_case        TEXT NOT NULL,                -- 'mom_generation', 'brief_generation', 'action_items', etc.
-    model_id        TEXT NOT NULL,                -- e.g., 'meta-llama/llama-3.3-70b-instruct:free'
-    fallback_count  INTEGER NOT NULL DEFAULT 0,   -- how many models in the chain were tried before success
-    input_tokens    INTEGER NOT NULL,
-    output_tokens   INTEGER NOT NULL,
-    latency_ms      INTEGER NOT NULL,
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    hc_user_id        UUID NOT NULL REFERENCES users(id),
+    client_id         UUID REFERENCES clients(id),       -- nullable: not all calls are client-scoped
+    session_id        UUID REFERENCES sessions(id),      -- nullable
+    request_id        UUID,                              -- FastAPI request_id for tracing
+    use_case          TEXT NOT NULL,                     -- 'mom_generation', 'brief_generation', 'action_items', etc.
+    prompt_version    TEXT NOT NULL,                     -- e.g., 'mom_v2' — semver string, pinned in code
+    model_requested   TEXT NOT NULL,                     -- first model in chain e.g., 'meta-llama/llama-3.3-70b-instruct:free'
+    model_served      TEXT,                              -- actual model that responded (may differ if fallback)
+    fallback_count    INTEGER NOT NULL DEFAULT 0,        -- how many models in the chain were tried before success
+    input_tokens      INTEGER NOT NULL,
+    output_tokens     INTEGER NOT NULL,
+    latency_ms        INTEGER NOT NULL,
     validation_failed BOOLEAN NOT NULL DEFAULT FALSE,
-    snippet_count   INTEGER NOT NULL DEFAULT 0,   -- how many snippets were injected
-    snippet_tokens  INTEGER NOT NULL DEFAULT 0,   -- token count of injected snippets
-    inr_cost_estimate NUMERIC(10, 4),             -- nullable: ~0 for free models, real value for paid
-    raw_request_id  TEXT,                         -- OpenRouter request ID for support tickets
-    error_message   TEXT                          -- nullable: populated on hard failure
+    snippet_count     INTEGER NOT NULL DEFAULT 0,        -- how many snippets were injected
+    snippet_tokens    INTEGER NOT NULL DEFAULT 0,        -- token count of injected snippets
+    inr_cost_estimate NUMERIC(10, 4),                    -- nullable: ~0 for free models, real value for paid
+    raw_request_id    TEXT,                              -- OpenRouter request ID for support tickets
+    error_message     TEXT                               -- nullable: populated on hard failure
 );
 
 CREATE INDEX idx_llm_calls_created_at ON llm_calls (created_at DESC);
