@@ -384,8 +384,9 @@ CREATE TABLE auth_refresh_tokens (
 
 CREATE INDEX idx_refresh_tokens_user_id ON auth_refresh_tokens (user_id);
 CREATE INDEX idx_refresh_tokens_token_hash ON auth_refresh_tokens (token_hash);
+-- NOW() is volatile; partial index covers revoked_at IS NULL only; expires_at filtered in queries
 CREATE INDEX idx_refresh_tokens_active ON auth_refresh_tokens (user_id)
-    WHERE revoked_at IS NULL AND expires_at > NOW();
+    WHERE revoked_at IS NULL;
 ```
 
 ### `audit_log`

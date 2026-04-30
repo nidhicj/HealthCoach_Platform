@@ -17,7 +17,7 @@ class AuthRefreshToken(Base):
         Index(
             "idx_refresh_tokens_active",
             "user_id",
-            postgresql_where="revoked_at IS NULL AND expires_at > NOW()",
+            postgresql_where="revoked_at IS NULL",  # NOW() is volatile; filter expires_at in queries
         ),
     )
 
