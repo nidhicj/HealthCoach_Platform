@@ -2,7 +2,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import ARRAY, Date, ForeignKey, Index, Integer, Text, func
+from sqlalchemy import ARRAY, Date, ForeignKey, Index, Integer, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,7 +25,7 @@ class Mom(Base):
     client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     draft_text: Mapped[str] = mapped_column(Text, nullable=False)
     final_text: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="'draft'")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="draft", server_default=text("'draft'"))
     sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     sent_to_email: Mapped[str | None] = mapped_column(Text)
     llm_call_id: Mapped[UUID | None] = mapped_column(ForeignKey("llm_calls.id"))
@@ -60,7 +60,7 @@ class ActionItem(Base):
     hc_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     due_date: Mapped[date | None] = mapped_column(Date)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="'open'")
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="open", server_default=text("'open'"))
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 

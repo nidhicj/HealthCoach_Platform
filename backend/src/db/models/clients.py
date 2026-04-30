@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Index, Text, func
+from sqlalchemy import ForeignKey, Index, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,7 +21,7 @@ class Client(Base):
     email: Mapped[str | None] = mapped_column(Text)
     phone: Mapped[str | None] = mapped_column(Text)
     timezone: Mapped[str | None] = mapped_column(Text)
-    journey_stage: Mapped[str] = mapped_column(Text, nullable=False, server_default="'onboarding'")
+    journey_stage: Mapped[str] = mapped_column(Text, nullable=False, default="onboarding", server_default=text("'onboarding'"))
     course_start_date: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     course_end_date: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     course_goal: Mapped[str | None] = mapped_column(Text)
