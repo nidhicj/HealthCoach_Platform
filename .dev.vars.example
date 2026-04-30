@@ -1,0 +1,11 @@
+# Cloudflare Workers dev environment secrets (.dev.vars is gitignored)
+# Copy to .dev.vars and fill in real values for local Workers dev
+DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/parivarthan_dev
+JWT_PRIVATE_KEY=
+JWT_PUBLIC_KEY=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+OPENROUTER_API_KEY=
+SENTRY_DSN=
+APP_ENV=dev
+API_BASE_URL=http://localhost:8787
