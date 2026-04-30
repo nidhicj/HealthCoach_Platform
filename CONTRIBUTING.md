@@ -88,8 +88,51 @@ Don't write production code in claude.ai. Don't write strategic docs solo in Cla
 
 ---
 
+## Local dev commands
+
+### Backend
+
+```bash
+cd backend
+
+# Install / sync deps into hc_pf venv (backend/.venv is a symlink)
+uv sync
+
+# Run tests
+uv run pytest
+
+# Lint / type-check
+uv run ruff check src tests
+uv run mypy src
+
+# Run Cloudflare Worker locally (requires Node 22 — use nvm)
+PATH="$HOME/.nvm/versions/node/v22.15.1/bin:$PATH" wrangler dev
+# → boots on http://localhost:8787
+```
+
+### Frontend
+
+```bash
+cd frontend
+
+# Install deps (requires Node 22)
+PATH="$HOME/.nvm/versions/node/v22.15.1/bin:$PATH" npm install
+
+# Dev server
+PATH="$HOME/.nvm/versions/node/v22.15.1/bin:$PATH" npm run dev
+# → http://localhost:3000
+
+# Production build (static export)
+PATH="$HOME/.nvm/versions/node/v22.15.1/bin:$PATH" npm run build
+```
+
+> **Node version**: system Node is 18; Node 22 is under `~/.nvm/versions/node/v22.15.1/`. Frontend and wrangler both require Node ≥ 20. Prepend the PATH line above or add an `.nvmrc` file to auto-switch.
+
+---
+
 ## Changelog
 
 | Date | Change |
 |---|---|
 | 2026-04-28 | Initial. |
+| 2026-04-30 | Added local dev commands; documented venv symlink and Node 22 requirement. |
