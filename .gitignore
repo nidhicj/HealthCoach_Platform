@@ -1,0 +1,36 @@
+# Secrets
+.env
+.env.local
+.dev.vars
+*.pem
+*.key
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Cloudflare / Wrangler
+.wrangler/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/settings.local.json
