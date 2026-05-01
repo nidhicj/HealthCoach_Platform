@@ -4,10 +4,9 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 
 ---
 
-## P2 — Auth Service (current)
+## P2 — Auth Service ✅
 
-**Status**: ready to verify  
-**Date**: 2026-05-01
+**Status**: verified 2026-05-01
 
 ### Automated (run first)
 
