@@ -62,12 +62,12 @@ async def rotate_refresh_token(
     if token.expires_at.replace(tzinfo=timezone.utc) < now:
         raise ValueError("refresh token expired")
 
-    if token.revoked_at is not None:
-        raise ValueError("refresh token revoked")
-
     if token.successor_id is not None:
         await _revoke_all_for_user(db, token.user_id)
         raise ValueError("refresh token replay detected — all sessions revoked")
+
+    if token.revoked_at is not None:
+        raise ValueError("refresh token revoked")
 
     new_raw = _generate_raw_token()
     new_token = AuthRefreshToken(
