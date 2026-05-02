@@ -21,9 +21,9 @@ uv run pytest -v
 Start the server in a second terminal:
 ```bash
 cd backend
-uv run uvicorn src.main:app --reload --port 8000 --env-file .env
+uv run uvicorn src.main:app --reload --port 8000 --env-file ../.env
 ```
-(Requires `.env` with `DATABASE_URL`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `API_BASE_URL`. See `.env.example`.)
+(Uses the root `.env`. See `.env.example` for the required variables.)
 
 ### 2. All P3 routes registered
 
