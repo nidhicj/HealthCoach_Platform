@@ -4,9 +4,9 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 
 ---
 
-## P3 — Domain CRUD + Client OAuth
+## P3 — Domain CRUD + Client OAuth ✅
 
-**Status**: awaiting manual verification
+**Status**: verified 2026-05-02
 
 ### Setup
 
@@ -196,7 +196,7 @@ curl -s 'http://localhost:8000/api/clients?cursor=notvalidbase64!!!' \
 ```
 
 - [ ]
-- [ ] Invalid cursor → 400
+- [X] Invalid cursor → 400
 
 ### 11. Brief stub returns correct message
 
@@ -206,7 +206,7 @@ curl -s http://localhost:8000/api/sessions/$SESSION_ID/brief \
 # Expected: 404 {"detail":"Brief not found (generation is P5)"}
 ```
 
-- [ ] Brief endpoint → 404 with P5 message
+- [X] Brief endpoint → 404 with P5 message
 
 ### 12. Grep hygiene
 
@@ -219,25 +219,25 @@ grep -r "\bSession(" src/ | grep -v "AsyncSession\|async_sessionmaker\|class Ses
 # Expected: no output (all Session( usages are model instantiation or class definition)
 ```
 
-- [ ] No raw httpx.AsyncClient outside factory
-- [ ] No sync Session() usage
+- [X] No raw httpx.AsyncClient outside factory
+- [X] No sync Session() usage
 
 ### Summary table
 
 | Check                           | Pass | Notes |
 | ------------------------------- | ---- | ----- |
-| 107 automated tests pass        |      |       |
-| All routes registered           |      |       |
-| Client CRUD + cross-tenant 404  |      |       |
-| Session + MOM lifecycle         |      |       |
-| Action items + completed_at     |      |       |
-| Invite URL + start endpoint     |      |       |
-| Unlinked client JWT → 404      |      |       |
-| HC JWT on /api/me/* → 401/403  |      |       |
-| Coach-reviewed gate grep        |      |       |
-| Pagination >20 + invalid cursor |      |       |
-| Brief → 404 with P5 message    |      |       |
-| Grep hygiene (httpx, Session)   |      |       |
+| 107 automated tests pass        | ✅   |       |
+| All routes registered           | ✅   |       |
+| Client CRUD + cross-tenant 404  | ✅   |       |
+| Session + MOM lifecycle         | ✅   |       |
+| Action items + completed_at     | ✅   |       |
+| Invite URL + start endpoint     | ✅   |       |
+| Unlinked client JWT → 404      | ✅   |       |
+| HC JWT on /api/me/* → 401/403  | ✅   |       |
+| Coach-reviewed gate grep        | ✅   |       |
+| Pagination >20 + invalid cursor | ✅   |       |
+| Brief → 404 with P5 message    | ✅   |       |
+| Grep hygiene (httpx, Session)   | ✅   |       |
 
 ---
 

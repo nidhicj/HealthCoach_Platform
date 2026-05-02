@@ -30,11 +30,17 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 - **107 tests passing**.
 - `VERIFICATION.md` updated with full P3 manual-check section (12 checks).
 
-**P3 status**: implementation complete; awaiting SoJo manual verification.
+**P3 status**: ✅ complete — manual verification passed 2026-05-02.
+
+**Issues found during manual verification** (fixed in same session):
+- `env_file=".env"` in config.py didn't find root `.env` when running from `backend/` → fixed to `(".env", "../.env")`
+- Verification step 3 generated a random JWT sub with no users row → replaced with `scripts/create_hc_user.py` that inserts a real user first
+- Heredoc in verification instructions caused terminal issues → moved to script file
+- 15-minute JWT expiry too short for full manual verification → script now issues 8-hour tokens
+- `!!!` in curl URL triggered bash history expansion → switched to single-quoted URL
 
 **Pending / next session**:
-- SoJo runs P3 VERIFICATION.md checks
-- P4 begins only after manual verification passes
+- P4: LLM integration (brief generation, MOM draft assist)
 
 ---
 
