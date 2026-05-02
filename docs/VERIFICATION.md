@@ -19,10 +19,12 @@ uv run pytest -v
 ```
 
 Start the server in a second terminal:
+
 ```bash
 cd backend
 uv run uvicorn src.main:app --reload --port 8000 --env-file ../.env
 ```
+
 (Uses the root `.env`. See `.env.example` for the required variables.)
 
 ### 2. All P3 routes registered
@@ -35,26 +37,48 @@ p3 = [r.path for r in app.routes if any(x in r.path for x in ['/clients','/sessi
 for p in sorted(set(p3)): print(p)
 "
 ```
+
 Expected output includes all of:
 `/api/auth/client/callback`, `/api/auth/client/start`, `/api/check-ins/{check_in_id}/flag`, `/api/clients`, `/api/clients/{client_id}`, `/api/clients/{client_id}/check-ins`, `/api/clients/{client_id}/invite`, `/api/action-items`, `/api/action-items/{item_id}`, `/api/me/action-items`, `/api/me/action-items/{item_id}`, `/api/me/check-ins`, `/api/me/moms`, `/api/me/moms/{mom_id}`, `/api/sessions`, `/api/sessions/{session_id}`, `/api/sessions/{session_id}/brief`, `/api/sessions/{session_id}/end`, `/api/sessions/{session_id}/mom`, `/api/sessions/{session_id}/mom/send`
 
-- [ ] All routes listed above present
+- [X] All routes listed above present
 
-### 3. Generate HC JWT for curl testing
+### 3. Create a real HC user in the dev DB and generate a JWT
+
+`clients.hc_user_id` is a FK to `users` — the JWT sub must be a real user row.
 
 ```bash
 cd backend
 uv run python3 - <<'EOF'
-import uuid
+import asyncio, uuid
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from src.db.models import User
 from src.auth.jwt_utils import create_access_token
 from src.config import get_settings
 
-hc_id = str(uuid.uuid4())
-token = create_access_token(sub=hc_id, role="hc", hc_id=hc_id, private_key=get_settings().jwt_private_key)
-print("export HC_JWT=" + token)
-print("export HC_ID=" + hc_id)
+async def main():
+    settings = get_settings()
+    engine = create_async_engine(settings.database_url)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as db:
+        user = User(
+            email=f"hc-verify-{uuid.uuid4().hex[:6]}@test.com",
+            google_sub=f"g-verify-{uuid.uuid4().hex}",
+            role="hc",
+        )
+        db.add(user)
+        await db.flush()
+        await db.commit()
+        hc_id = str(user.id)
+    await engine.dispose()
+    token = create_access_token(sub=hc_id, role="hc", hc_id=hc_id, private_key=settings.jwt_private_key)
+    print("export HC_JWT=" + token)
+    print("export HC_ID=" + hc_id)
+
+asyncio.run(main())
 EOF
 ```
+
 Run the printed `export` commands before steps 4–8.
 
 ### 4. HC — create client, list, cross-tenant
@@ -197,7 +221,7 @@ curl -s "http://localhost:8000/api/clients?cursor=notvalidbase64!!!" -H "Authori
 # Expected: 400
 ```
 
-- [ ] >20 items → next_cursor present on first page
+- [ ] 
 - [ ] Invalid cursor → 400
 
 ### 11. Brief stub returns correct message
@@ -226,20 +250,20 @@ grep -r "\bSession(" src/ | grep -v "AsyncSession\|async_sessionmaker\|class Ses
 
 ### Summary table
 
-| Check | Pass | Notes |
-|---|---|---|
-| 107 automated tests pass | | |
-| All routes registered | | |
-| Client CRUD + cross-tenant 404 | | |
-| Session + MOM lifecycle | | |
-| Action items + completed_at | | |
-| Invite URL + start endpoint | | |
-| Unlinked client JWT → 404 | | |
-| HC JWT on /api/me/* → 401/403 | | |
-| Coach-reviewed gate grep | | |
-| Pagination >20 + invalid cursor | | |
-| Brief → 404 with P5 message | | |
-| Grep hygiene (httpx, Session) | | |
+| Check                           | Pass | Notes |
+| ------------------------------- | ---- | ----- |
+| 107 automated tests pass        |      |       |
+| All routes registered           |      |       |
+| Client CRUD + cross-tenant 404  |      |       |
+| Session + MOM lifecycle         |      |       |
+| Action items + completed_at     |      |       |
+| Invite URL + start endpoint     |      |       |
+| Unlinked client JWT → 404      |      |       |
+| HC JWT on /api/me/* → 401/403  |      |       |
+| Coach-reviewed gate grep        |      |       |
+| Pagination >20 + invalid cursor |      |       |
+| Brief → 404 with P5 message    |      |       |
+| Grep hygiene (httpx, Session)   |      |       |
 
 ---
 
@@ -253,6 +277,7 @@ grep -r "\bSession(" src/ | grep -v "AsyncSession\|async_sessionmaker\|class Ses
 cd backend
 uv run pytest -v
 ```
+
 Expected: **37 passed**
 
 ### 1. Auth routes registered
@@ -260,20 +285,24 @@ Expected: **37 passed**
 ```bash
 uv run python -c "from src.main import app; print([r.path for r in app.routes])"
 ```
+
 Expected output includes: `/api/auth/google/start`, `/api/auth/google/callback`, `/api/auth/refresh`, `/api/auth/logout`
 
 ### 2. `/api/auth/google/start` returns an auth URL
 
 Start the server:
+
 ```bash
 DATABASE_URL=postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev \
   uv run uvicorn src.main:app --reload --port 8000
 ```
 
 Then in another terminal:
+
 ```bash
 curl -s http://localhost:8000/api/auth/google/start | python3 -m json.tool
 ```
+
 Expected: `{"auth_url": "https://accounts.google.com/o/oauth2/v2/auth?..."}` (even with empty `GOOGLE_CLIENT_ID` — URL is still constructed)
 
 ### 3. Protected endpoint returns 401 without token
@@ -290,6 +319,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/healthz
 ### 4. JWT decode at jwt.io
 
 Generate a test token:
+
 ```bash
 cd backend
 uv run python3 - <<'EOF'
@@ -305,6 +335,7 @@ token = create_access_token(
 print(token)
 EOF
 ```
+
 Paste into https://jwt.io and confirm payload contains: `sub`, `role`, `hc_id`, `iss: https://api.parivarthan.com`, `aud: parivarthan-api`, `exp`
 
 ### 5. Refresh token rotation (DB check)
@@ -341,7 +372,9 @@ async def main():
 asyncio.run(main())
 EOF
 ```
+
 Expected:
+
 ```
 Rotation OK — user_id: <uuid>
 Old token correctly rejected: refresh token replay detected — all sessions revoked
@@ -352,6 +385,7 @@ Old token correctly rejected: refresh token replay detected — all sessions rev
 ```bash
 grep -r "httpx.AsyncClient(" backend/src | grep -v "lib/http.py"
 ```
+
 Expected: **no output** (all httpx usage goes through `make_http_client()`)
 
 ---
@@ -360,15 +394,15 @@ Expected: **no output** (all httpx usage goes through `make_http_client()`)
 
 **Status**: verified 2026-05-01
 
-| Check | Result |
-|---|---|
-| `uv run pytest -v` → 29 passed | ✅ |
-| `alembic upgrade head` — 16 tables created | ✅ |
-| `alembic downgrade base` then `upgrade head` — clean roundtrip | ✅ |
-| `\d clients` → `journey_stage DEFAULT 'onboarding'` (no extra quotes) | ✅ |
-| `\d moms` → `status DEFAULT 'draft'` | ✅ |
-| Partial index `idx_refresh_tokens_active` uses `WHERE revoked_at IS NULL` | ✅ |
-| All 16 tables present in `pg_tables` | ✅ |
+| Check                                                                         | Result |
+| ----------------------------------------------------------------------------- | ------ |
+| `uv run pytest -v` → 29 passed                                             | ✅     |
+| `alembic upgrade head` — 16 tables created                                 | ✅     |
+| `alembic downgrade base` then `upgrade head` — clean roundtrip           | ✅     |
+| `\d clients` → `journey_stage DEFAULT 'onboarding'` (no extra quotes)    | ✅     |
+| `\d moms` → `status DEFAULT 'draft'`                                     | ✅     |
+| Partial index `idx_refresh_tokens_active` uses `WHERE revoked_at IS NULL` | ✅     |
+| All 16 tables present in `pg_tables`                                        | ✅     |
 
 ---
 
@@ -376,12 +410,12 @@ Expected: **no output** (all httpx usage goes through `make_http_client()`)
 
 **Status**: partially verified (test suite green; wrangler/frontend manual steps pending)
 
-| Check | Result |
-|---|---|
-| `uv run pytest tests/unit/` passes | ✅ |
-| `uv run pytest tests/integration/test_health.py` passes | ✅ |
-| `GET /healthz` returns `{"status":"ok","version":"0.1.0"}` | pending |
-| `X-Request-ID` echoed in response headers | pending |
+| Check                                                             | Result  |
+| ----------------------------------------------------------------- | ------- |
+| `uv run pytest tests/unit/` passes                              | ✅      |
+| `uv run pytest tests/integration/test_health.py` passes         | ✅      |
+| `GET /healthz` returns `{"status":"ok","version":"0.1.0"}`    | pending |
+| `X-Request-ID` echoed in response headers                       | pending |
 | Frontend `npm run dev` starts without errors (requires Node 22) | pending |
-| `.env` not committed (in `.gitignore`) | ✅ |
-| `docker-compose up` brings up postgres healthy | ✅ |
+| `.env` not committed (in `.gitignore`)                        | ✅      |
+| `docker-compose up` brings up postgres healthy                  | ✅      |
