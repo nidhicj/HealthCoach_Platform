@@ -76,9 +76,9 @@ curl -s http://localhost:8000/api/clients/$CLIENT_ID -H "Authorization: Bearer $
 # Expected: {"detail":"Client not found"}
 ```
 
-- [ ] Client created → 201 with journey_stage="onboarding"
-- [ ] Own client in list
-- [ ] Cross-tenant GET by ID → 404
+- [X] Client created → 201 with journey_stage="onboarding"
+- [X] Own client in list
+- [X] Cross-tenant GET by ID → 404
 
 ### 5. Session + MOM lifecycle
 
@@ -101,9 +101,9 @@ export MOM_ID=<id from send response>
 # Expected: status="sent", sent_at not null
 ```
 
-- [ ] Session created → 201
-- [ ] MOM created → status=draft
-- [ ] MOM sent → status=sent, sent_at populated
+- [X] Session created → 201
+- [X] MOM created → status=draft
+- [X] MOM sent → status=sent, sent_at populated
 
 ### 6. Action items
 
@@ -120,8 +120,8 @@ curl -s -X PATCH http://localhost:8000/api/action-items/$AI_ID \
 # Expected: status="completed", completed_at not null
 ```
 
-- [ ] Action item created with due_date, default status=open
-- [ ] Marked completed → completed_at populated
+- [X] Action item created with due_date, default status=open
+- [X] Marked completed → completed_at populated
 
 ### 7. Invite flow
 
@@ -140,9 +140,9 @@ curl -s "http://localhost:8000/api/auth/client/start?invite=totallyfaketoken" | 
 # Expected: 400
 ```
 
-- [ ] invite_url contains `/api/auth/client/start?invite=`
-- [ ] Valid invite → 200 with Google auth URL
-- [ ] Invalid invite → 400
+- [X] invite_url contains `/api/auth/client/start?invite=`
+- [X] Valid invite → 200 with Google auth URL
+- [X] Invalid invite → 400
 
 ### 8. Client-facing endpoints
 
@@ -161,8 +161,8 @@ curl -s http://localhost:8000/api/me/moms -H "Authorization: Bearer $HC_JWT"
 # HC token on /api/me route → Expected: 401 or 403 (role=hc not allowed on /api/me/*)
 ```
 
-- [ ] Unlinked client JWT → /api/me/* returns 404 (not 500)
-- [ ] HC JWT on /api/me/* → 401/403
+- [X] Unlinked client JWT → /api/me/* returns 404 (not 500)
+- [X] HC JWT on /api/me/* → 401/403
 
 ### 9. Coach-reviewed gate grep
 
@@ -175,8 +175,8 @@ grep -rn "mom_text\|final_text\|draft_text" src/api/me.py
 # Expected: no output — me.py exposes MomOut schema, doesn't reference raw text field names
 ```
 
-- [ ] status="sent" filter present in me.py for both MOM endpoints
-- [ ] No raw text field manipulation in me.py
+- [X] status="sent" filter present in me.py for both MOM endpoints
+- [X] No raw text field manipulation in me.py
 
 ### 10. Pagination with >20 items
 
@@ -190,11 +190,12 @@ done
 curl -s "http://localhost:8000/api/clients?limit=20" -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
 # Expected: 20 items, next_cursor is not null
 
-curl -s "http://localhost:8000/api/clients?cursor=notvalidbase64!!!" -H "Authorization: Bearer $HC_JWT"
-# Expected: 400
+curl -s 'http://localhost:8000/api/clients?cursor=notvalidbase64!!!' \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected: 400 {"detail": "Invalid cursor"}
 ```
 
-- [ ] 
+- [ ]
 - [ ] Invalid cursor → 400
 
 ### 11. Brief stub returns correct message
