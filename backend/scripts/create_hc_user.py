@@ -35,6 +35,7 @@ async def main() -> None:
     token = create_access_token(
         sub=hc_id, role="hc", hc_id=hc_id,
         private_key=settings.jwt_private_key,
+        ttl_seconds=8 * 3600,  # 8 hours for manual verification sessions
     )
     print(f"export HC_JWT={token}")
     print(f"export HC_ID={hc_id}")
