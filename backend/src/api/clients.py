@@ -130,7 +130,7 @@ async def create_invite(
     await db.commit()
 
     settings = get_settings()
-    invite_url = f"{settings.api_base_url}/api/auth/client/callback?invite={raw_token}"
+    invite_url = f"{settings.api_base_url}/api/auth/client/start?invite={raw_token}"
     return InviteOut(invite_token=raw_token, expires_at=expires_at, invite_url=invite_url)
 
 

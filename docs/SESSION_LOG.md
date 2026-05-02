@@ -25,10 +25,14 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 - Cross-tenant responses are always 404 (never 403) to prevent existence leakage.
 - Client ME endpoints use `claims.sub` as client's user_id; `hc_id` from JWT pins the tenant.
 
+- **`src/auth/router.py` — client OAuth** (added same session): `GET /api/auth/client/start?invite=<token>` (verify invite, initiate Google OAuth), `GET /api/auth/client/callback` (exchange code, link Client record, mark invite used, issue role=client JWT). Fixed `/api/auth/refresh` to use `user.role` instead of hardcoded `"hc"` and look up `hc_user_id` from client record for client users.
+- **102 tests passing** (was 92 after domain CRUD).
+
+**P3 complete.**
+
 **Pending / next session**:
-- P3 remaining: client OAuth callback (invite token verification + client role JWT), auth router extension
 - P4: LLM integration (brief generation, MOM draft assist)
-- Run manual verification checklist against a live dev server
+- Manual verification checklist against a live dev server
 
 ---
 
