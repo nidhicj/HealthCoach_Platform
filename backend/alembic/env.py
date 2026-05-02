@@ -1,5 +1,6 @@
 import asyncio
 import os
+from dotenv import load_dotenv
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -12,6 +13,7 @@ from alembic import context
 import src.db.models  # noqa: F401
 from src.db.base import Base
 
+load_dotenv()
 config = context.config
 
 if config.config_file_name is not None:

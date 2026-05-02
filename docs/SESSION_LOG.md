@@ -4,6 +4,34 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-05-02 — P3: Domain CRUD + Client-Facing Endpoints
+
+**Done**:
+- **Schema extensions** (migration `60775f9338d3`): `users.role`, `clients.user_id` (FK to users, nullable, for client OAuth linking), `sessions.deleted_at` (soft-delete), `client_invite_tokens` table (SHA256 hash, 30-day TTL, single-use). Schema decisions D-1/D-2/D-3 confirmed.
+- **`src/api/deps.py`**: `HcClaimsDep`, `ClientClaimsDep`, `TenantDep`, `DbDep`, `LimitDep`, `PaginatedList[T]`, `encode_cursor()` / `decode_cursor()` shared by all routers.
+- **`src/api/clients.py`**: POST /api/clients, GET /api/clients (cursor paginated), GET /api/clients/{id}, POST /api/clients/{id}/invite (SHA256 token, invalidates prior unused tokens). Cross-tenant 404 via `_get_owned_client()`.
+- **`src/api/sessions.py`**: Sessions CRUD (create/list/get/end), MOM lifecycle (create/get/patch/send), GET brief (404 stub at P3). Duplicate session_number → 409. Idempotent `end` and `send`.
+- **`src/api/action_items.py`**: POST/GET/GET/{id}/PATCH action items. `completed_at` set/cleared on status transitions. All HC transitions allowed.
+- **`src/api/check_ins.py`**: GET /api/clients/{id}/check-ins (HC reads), PATCH /api/check-ins/{id}/flag (set/clear `sentiment_flag`). `model_fields_set` used to distinguish explicit `null` from omitted.
+- **`src/api/me.py`**: POST /api/me/check-ins (client submits), GET /api/me/moms (sent only), GET /api/me/action-items. Client resolved from JWT `sub` + `hc_id` claims.
+- **conftest.py rewrite**: savepoint-based test isolation (`join_transaction_mode="create_savepoint"`), test JWT keys injected before src imports, `client_user` / `client_rec` / `client_headers` fixtures added.
+- **92 tests passing** (was 37 after P2).
+
+**Decided**:
+- D-1: `users.role` column (server_default `'hc'`) — role stamped at account creation, not derived at query time.
+- D-2: `client_invite_tokens` table — separate table (not inline on clients) to support TTL, single-use, audit trail.
+- D-3: Invite TTL = 30 days.
+- Deleted redundant `docs/specs/0002-domain-crud.md`; `0001-hc-core-cycle.md` is the authoritative P3 spec.
+- Cross-tenant responses are always 404 (never 403) to prevent existence leakage.
+- Client ME endpoints use `claims.sub` as client's user_id; `hc_id` from JWT pins the tenant.
+
+**Pending / next session**:
+- P3 remaining: client OAuth callback (invite token verification + client role JWT), auth router extension
+- P4: LLM integration (brief generation, MOM draft assist)
+- Run manual verification checklist against a live dev server
+
+---
+
 ## 2026-05-01 — P0 / P1 / P2: Scaffold → Data Layer → Auth
 
 **Done**:

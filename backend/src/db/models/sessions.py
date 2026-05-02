@@ -27,4 +27,5 @@ class Session(Base):
     transcript_s3_key: Mapped[str | None] = mapped_column(Text)
     summary_s3_key: Mapped[str | None] = mapped_column(Text)
     notes_internal: Mapped[str | None] = mapped_column(Text)
+    deleted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())

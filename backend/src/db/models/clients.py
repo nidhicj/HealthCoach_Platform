@@ -25,6 +25,9 @@ class Client(Base):
     course_start_date: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     course_end_date: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     course_goal: Mapped[str | None] = mapped_column(Text)
+    user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), unique=True, nullable=True
+    )
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())

@@ -1,5 +1,5 @@
 """Re-export all models so Alembic autogenerate sees them via a single import."""
-from src.db.models.auth import AuthRefreshToken
+from src.db.models.auth import AuthRefreshToken, ClientInviteToken
 from src.db.models.clients import Client
 from src.db.models.coaching import ActionItem, Brief, CheckIn, HcStyleSnippet, Mom
 from src.db.models.compliance import AuditLog, Consent
@@ -11,6 +11,6 @@ from src.db.models.users import User
 __all__ = [
     "User", "Client", "Session", "LlmCall",
     "Mom", "Brief", "ActionItem", "CheckIn", "HcStyleSnippet",
-    "Consent", "AuditLog", "AuthRefreshToken",
+    "Consent", "AuditLog", "AuthRefreshToken", "ClientInviteToken",
     "DietChart", "PrepRecipe", "DietChartRecipe", "ContentAssignment",
 ]

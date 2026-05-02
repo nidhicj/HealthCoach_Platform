@@ -6,6 +6,11 @@ from typing import Any, AsyncGenerator
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.api.action_items import router as action_items_router
+from src.api.check_ins import router as check_ins_router
+from src.api.clients import router as clients_router
+from src.api.me import router as me_router
+from src.api.sessions import router as sessions_router
 from src.auth.router import router as auth_router
 from src.config import get_settings
 from src.telemetry.log import get_logger
@@ -43,6 +48,11 @@ async def request_id_middleware(request: Request, call_next: Any) -> Response:
 
 
 app.include_router(auth_router)
+app.include_router(clients_router)
+app.include_router(sessions_router)
+app.include_router(action_items_router)
+app.include_router(check_ins_router)
+app.include_router(me_router)
 
 
 @app.get("/healthz", include_in_schema=False)
