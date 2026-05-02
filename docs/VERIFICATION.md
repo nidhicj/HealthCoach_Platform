@@ -4,6 +4,245 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 
 ---
 
+## P3 — Domain CRUD + Client OAuth
+
+**Status**: awaiting manual verification
+
+### Setup
+
+```bash
+cd backend
+
+# 1. Automated suite (run this first — must be green before manual steps)
+uv run pytest -v
+# Expected: 107 passed
+```
+
+Start the server in a second terminal:
+```bash
+cd backend
+uv run uvicorn src.main:app --reload --port 8000 --env-file .env
+```
+(Requires `.env` with `DATABASE_URL`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `API_BASE_URL`. See `.env.example`.)
+
+### 2. All P3 routes registered
+
+```bash
+cd backend
+uv run python3 -c "
+from src.main import app
+p3 = [r.path for r in app.routes if any(x in r.path for x in ['/clients','/sessions','/action-items','/check-ins','/me/','/auth/client'])]
+for p in sorted(set(p3)): print(p)
+"
+```
+Expected output includes all of:
+`/api/auth/client/callback`, `/api/auth/client/start`, `/api/check-ins/{check_in_id}/flag`, `/api/clients`, `/api/clients/{client_id}`, `/api/clients/{client_id}/check-ins`, `/api/clients/{client_id}/invite`, `/api/action-items`, `/api/action-items/{item_id}`, `/api/me/action-items`, `/api/me/action-items/{item_id}`, `/api/me/check-ins`, `/api/me/moms`, `/api/me/moms/{mom_id}`, `/api/sessions`, `/api/sessions/{session_id}`, `/api/sessions/{session_id}/brief`, `/api/sessions/{session_id}/end`, `/api/sessions/{session_id}/mom`, `/api/sessions/{session_id}/mom/send`
+
+- [ ] All routes listed above present
+
+### 3. Generate HC JWT for curl testing
+
+```bash
+cd backend
+uv run python3 - <<'EOF'
+import uuid
+from src.auth.jwt_utils import create_access_token
+from src.config import get_settings
+
+hc_id = str(uuid.uuid4())
+token = create_access_token(sub=hc_id, role="hc", hc_id=hc_id, private_key=get_settings().jwt_private_key)
+print("export HC_JWT=" + token)
+print("export HC_ID=" + hc_id)
+EOF
+```
+Run the printed `export` commands before steps 4–8.
+
+### 4. HC — create client, list, cross-tenant
+
+```bash
+# Create client
+curl -s -X POST http://localhost:8000/api/clients \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"full_name": "Priya Sharma"}' | python3 -m json.tool
+export CLIENT_ID=<id from response>
+
+# List → Priya appears
+curl -s http://localhost:8000/api/clients -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+
+# Second HC tries to read Priya → 404
+uv run python3 -c "
+import uuid; from src.auth.jwt_utils import create_access_token; from src.config import get_settings
+hc2=str(uuid.uuid4()); t=create_access_token(sub=hc2,role='hc',hc_id=hc2,private_key=get_settings().jwt_private_key)
+print('export HC2_JWT='+t)"
+# run the export, then:
+curl -s http://localhost:8000/api/clients/$CLIENT_ID -H "Authorization: Bearer $HC2_JWT"
+# Expected: {"detail":"Client not found"}
+```
+
+- [ ] Client created → 201 with journey_stage="onboarding"
+- [ ] Own client in list
+- [ ] Cross-tenant GET by ID → 404
+
+### 5. Session + MOM lifecycle
+
+```bash
+# Create session
+curl -s -X POST http://localhost:8000/api/sessions \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d "{\"client_id\":\"$CLIENT_ID\",\"session_number\":1,\"scheduled_at\":\"2026-06-01T10:00:00Z\"}" | python3 -m json.tool
+export SESSION_ID=<id>
+
+# Create MOM (status should be "draft")
+curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/mom \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"draft_text":"Discussed nutrition goals."}' | python3 -m json.tool
+
+# Send MOM
+curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/mom/send \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+export MOM_ID=<id from send response>
+# Expected: status="sent", sent_at not null
+```
+
+- [ ] Session created → 201
+- [ ] MOM created → status=draft
+- [ ] MOM sent → status=sent, sent_at populated
+
+### 6. Action items
+
+```bash
+curl -s -X POST http://localhost:8000/api/action-items \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d "{\"client_id\":\"$CLIENT_ID\",\"description\":\"Drink 2L water daily\",\"due_date\":\"2026-06-08\"}" | python3 -m json.tool
+# Expected: 201, status="open", due_date="2026-06-08"
+export AI_ID=<id>
+
+curl -s -X PATCH http://localhost:8000/api/action-items/$AI_ID \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"status":"completed"}' | python3 -m json.tool
+# Expected: status="completed", completed_at not null
+```
+
+- [ ] Action item created with due_date, default status=open
+- [ ] Marked completed → completed_at populated
+
+### 7. Invite flow
+
+```bash
+curl -s -X POST http://localhost:8000/api/clients/$CLIENT_ID/invite \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected: 201 with invite_token, invite_url containing /api/auth/client/start?invite=
+export INVITE_TOKEN=<invite_token>
+
+# Valid invite → Google URL
+curl -s "http://localhost:8000/api/auth/client/start?invite=$INVITE_TOKEN" | python3 -m json.tool
+# Expected: {"auth_url": "https://accounts.google.com/..."}
+
+# Invalid invite → 400
+curl -s "http://localhost:8000/api/auth/client/start?invite=totallyfaketoken" | python3 -m json.tool
+# Expected: 400
+```
+
+- [ ] invite_url contains `/api/auth/client/start?invite=`
+- [ ] Valid invite → 200 with Google auth URL
+- [ ] Invalid invite → 400
+
+### 8. Client-facing endpoints
+
+```bash
+# Generate unlinked client JWT (no client record in DB)
+uv run python3 -c "
+import uuid,os; from src.auth.jwt_utils import create_access_token; from src.config import get_settings
+t=create_access_token(sub=str(uuid.uuid4()),role='client',hc_id=os.environ['HC_ID'],private_key=get_settings().jwt_private_key)
+print('export CLIENT_JWT='+t)"
+# run the export
+
+curl -s http://localhost:8000/api/me/moms -H "Authorization: Bearer $CLIENT_JWT"
+# Expected: 404 {"detail":"Client record not found"}  — not 500, not 200
+
+curl -s http://localhost:8000/api/me/moms -H "Authorization: Bearer $HC_JWT"
+# HC token on /api/me route → Expected: 401 or 403 (role=hc not allowed on /api/me/*)
+```
+
+- [ ] Unlinked client JWT → /api/me/* returns 404 (not 500)
+- [ ] HC JWT on /api/me/* → 401/403
+
+### 9. Coach-reviewed gate grep
+
+```bash
+cd backend
+grep -n "status.*sent\|sent.*status" src/api/me.py
+# Expected: lines showing WHERE status = "sent" filter in list_my_moms and get_my_mom
+
+grep -rn "mom_text\|final_text\|draft_text" src/api/me.py
+# Expected: no output — me.py exposes MomOut schema, doesn't reference raw text field names
+```
+
+- [ ] status="sent" filter present in me.py for both MOM endpoints
+- [ ] No raw text field manipulation in me.py
+
+### 10. Pagination with >20 items
+
+```bash
+for i in $(seq 1 25); do
+  curl -s -X POST http://localhost:8000/api/clients \
+    -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+    -d "{\"full_name\":\"Bulk $i\"}" > /dev/null
+done
+
+curl -s "http://localhost:8000/api/clients?limit=20" -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected: 20 items, next_cursor is not null
+
+curl -s "http://localhost:8000/api/clients?cursor=notvalidbase64!!!" -H "Authorization: Bearer $HC_JWT"
+# Expected: 400
+```
+
+- [ ] >20 items → next_cursor present on first page
+- [ ] Invalid cursor → 400
+
+### 11. Brief stub returns correct message
+
+```bash
+curl -s http://localhost:8000/api/sessions/$SESSION_ID/brief \
+  -H "Authorization: Bearer $HC_JWT"
+# Expected: 404 {"detail":"Brief not found (generation is P5)"}
+```
+
+- [ ] Brief endpoint → 404 with P5 message
+
+### 12. Grep hygiene
+
+```bash
+cd backend
+grep -r "httpx.AsyncClient(" src/ | grep -v "lib/http.py"
+# Expected: no output
+
+grep -r "\bSession(" src/ | grep -v "AsyncSession\|async_sessionmaker\|class Session"
+# Expected: no output (all Session( usages are model instantiation or class definition)
+```
+
+- [ ] No raw httpx.AsyncClient outside factory
+- [ ] No sync Session() usage
+
+### Summary table
+
+| Check | Pass | Notes |
+|---|---|---|
+| 107 automated tests pass | | |
+| All routes registered | | |
+| Client CRUD + cross-tenant 404 | | |
+| Session + MOM lifecycle | | |
+| Action items + completed_at | | |
+| Invite URL + start endpoint | | |
+| Unlinked client JWT → 404 | | |
+| HC JWT on /api/me/* → 401/403 | | |
+| Coach-reviewed gate grep | | |
+| Pagination >20 + invalid cursor | | |
+| Brief → 404 with P5 message | | |
+| Grep hygiene (httpx, Session) | | |
+
+---
+
 ## P2 — Auth Service ✅
 
 **Status**: verified 2026-05-01

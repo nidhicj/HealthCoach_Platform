@@ -122,3 +122,85 @@ async def test_client_sees_empty_action_items(http_client, client_headers, clien
     r = await http_client.get("/api/me/action-items", headers=client_headers)
     assert r.status_code == 200
     assert r.json()["items"] == []
+
+
+# ── GET /api/me/moms/{id} ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_client_can_read_sent_mom_by_id(http_client, hc_headers, client_headers, client_rec):
+    sess = await _make_session(http_client, hc_headers, str(client_rec.id))
+    sent = await _make_mom_sent(http_client, hc_headers, sess["id"])
+
+    r = await http_client.get(f"/api/me/moms/{sent['id']}", headers=client_headers)
+    assert r.status_code == 200
+    assert r.json()["status"] == "sent"
+
+
+@pytest.mark.asyncio
+async def test_client_cannot_read_draft_mom_by_id(http_client, hc_headers, client_headers, client_rec):
+    sess = await _make_session(http_client, hc_headers, str(client_rec.id))
+    draft_r = await http_client.post(
+        f"/api/sessions/{sess['id']}/mom", headers=hc_headers,
+        json={"draft_text": "Draft only"},
+    )
+    draft_id = draft_r.json()["id"]
+
+    r = await http_client.get(f"/api/me/moms/{draft_id}", headers=client_headers)
+    assert r.status_code == 404
+
+
+# ── PATCH /api/me/action-items/{id} ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_client_can_mark_action_item_in_progress(http_client, hc_headers, client_headers, client_rec):
+    ai_r = await http_client.post(
+        "/api/action-items", headers=hc_headers,
+        json={"client_id": str(client_rec.id), "description": "Walk daily"},
+    )
+    ai_id = ai_r.json()["id"]
+
+    r = await http_client.patch(
+        f"/api/me/action-items/{ai_id}", headers=client_headers,
+        json={"status": "in_progress"},
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_client_can_mark_action_item_completed(http_client, hc_headers, client_headers, client_rec):
+    ai_r = await http_client.post(
+        "/api/action-items", headers=hc_headers,
+        json={"client_id": str(client_rec.id), "description": "Drink water"},
+    )
+    ai_id = ai_r.json()["id"]
+
+    r = await http_client.patch(
+        f"/api/me/action-items/{ai_id}", headers=client_headers,
+        json={"status": "completed"},
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "completed"
+    assert r.json()["completed_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_client_cannot_patch_other_clients_action_item(http_client, hc_headers, client_headers, db):
+    """Client cannot update an action item belonging to a different client."""
+    other_client_r = await http_client.post(
+        "/api/clients", headers=hc_headers, json={"full_name": "Other Client"},
+    )
+    other_client_id = other_client_r.json()["id"]
+    ai_r = await http_client.post(
+        "/api/action-items", headers=hc_headers,
+        json={"client_id": other_client_id, "description": "Other's task"},
+    )
+    ai_id = ai_r.json()["id"]
+
+    r = await http_client.patch(
+        f"/api/me/action-items/{ai_id}", headers=client_headers,
+        json={"status": "completed"},
+    )
+    assert r.status_code == 404

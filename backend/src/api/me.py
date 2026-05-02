@@ -1,4 +1,5 @@
 """Client-facing /api/me/* endpoints. Requires role=client JWT."""
+from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
@@ -20,6 +21,10 @@ router = APIRouter(prefix="/api/me", tags=["me"])
 
 class CheckInSubmit(BaseModel):
     payload: dict
+
+
+class ClientActionItemPatch(BaseModel):
+    status: str
 
 
 # ── shared helper ──────────────────────────────────────────────────────────────
@@ -121,3 +126,45 @@ async def list_my_action_items(
         next_cursor = encode_cursor(rows[-1].created_at, rows[-1].id)
 
     return PaginatedList(items=[ActionItemOut.model_validate(r) for r in rows], next_cursor=next_cursor)
+
+
+@router.get("/moms/{mom_id}")
+async def get_my_mom(
+    mom_id: UUID,
+    claims: ClientClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> MomOut:
+    client = await _resolve_client(db, claims, hc_id)
+    mom = (await db.execute(
+        select(Mom).where(Mom.id == mom_id, Mom.client_id == client.id, Mom.status == "sent")
+    )).scalar_one_or_none()
+    if mom is None:
+        raise HTTPException(status_code=404, detail="MOM not found")
+    return MomOut.model_validate(mom)
+
+
+@router.patch("/action-items/{item_id}")
+async def patch_my_action_item(
+    item_id: UUID,
+    body: ClientActionItemPatch,
+    claims: ClientClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> ActionItemOut:
+    client = await _resolve_client(db, claims, hc_id)
+    item = (await db.execute(
+        select(ActionItem).where(ActionItem.id == item_id, ActionItem.client_id == client.id)
+    )).scalar_one_or_none()
+    if item is None:
+        raise HTTPException(status_code=404, detail="Action item not found")
+
+    item.status = body.status
+    if body.status == "completed":
+        item.completed_at = datetime.now(timezone.utc)
+    else:
+        item.completed_at = None
+
+    await db.flush()
+    await db.commit()
+    return ActionItemOut.model_validate(item)
