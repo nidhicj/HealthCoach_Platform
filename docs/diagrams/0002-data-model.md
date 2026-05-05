@@ -1,7 +1,5 @@
 # Data Model (ERD + Schema)
 
-> **MERGE-REQUIRED**: existing data model in repo from prior session lacked snippets, llm_calls, identities, consents, content libraries. This is a fresh draft incorporating all entities from current ADRs. Visual ERD lives on Miro; this file is the textual companion + DDL sketches.
-
 > **Schema is authoritative**; field names here are what code/migrations should use.
 
 ---
@@ -110,6 +108,7 @@ The HC's clients. **Tenanted by `hc_user_id`** — every query joins through thi
 CREATE TABLE clients (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     hc_user_id      UUID NOT NULL REFERENCES users(id),
+    code            VARCHAR NOT NULL UNIQUE,              -- unique client identifier (e.g., "C001", "C-JANE-2026")
     full_name       TEXT NOT NULL,
     email           TEXT,
     phone           TEXT,
@@ -144,6 +143,7 @@ CREATE TABLE sessions (
     transcript_s3_key TEXT,                           -- S3 reference to raw transcript
     summary_s3_key    TEXT,                           -- Zoom AI Companion summary
     notes_internal  TEXT,                             -- HC private notes
+    session_notes   TEXT,                             -- AI-assisted notes/recap from LLM (P5)
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -355,7 +355,9 @@ CREATE TABLE llm_calls (
     snippet_tokens    INTEGER NOT NULL DEFAULT 0,
     inr_cost_estimate NUMERIC(10, 4),
     raw_request_id    TEXT,
-    error_message     TEXT
+    error_message     TEXT,
+    prompt_text       BYTEA,                            -- encrypted prompt content (P4)
+    completion_text   BYTEA                             -- encrypted LLM completion (P4)
 );
 
 CREATE INDEX idx_llm_calls_created_at ON llm_calls (created_at DESC);
@@ -453,3 +455,4 @@ Each migration as its own Alembic file, named `NNNN_description.py`.
 |---|---|
 | 2026-04-28 | Fresh draft incorporating snippets, llm_calls, consents, content libraries. MERGE-REQUIRED with existing repo file. |
 | 2026-04-30 | Reconciled llm_calls schema (model_id → model_requested/model_served, added prompt_version, request_id). Added retired_at to hc_style_snippets. Added auth_refresh_tokens (from ADR-0005). Fixed migration order (llm_calls before moms/briefs). |
+| 2026-05-05 | Added sessions.session_notes (P5), clients.code (P4 delta), llm_calls.prompt_text/completion_text (P4 delta) | P4/P5 schema additions | Diagram now matches DB schema |
