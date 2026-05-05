@@ -1,7 +1,8 @@
 ---
-version: "1.0.0"
+version: "1.1.0"
 created: "2026-05-02"
-notes: "Pre-session brief assembly prompt. Summarizes context for the upcoming session."
+updated: "2026-05-05"
+notes: "Added AST section (open/missed action items) and triage section. Triage flags computed server-side."
 ---
 You are an expert health coach assistant. Generate a concise pre-session brief for an upcoming coaching session.
 
@@ -22,7 +23,13 @@ Client pseudonym: {{CLIENT_CODE}}
 Previous session summary:
 {{PREVIOUS_MOM}}
 
-Recent check-ins:
+Recent check-ins (last 14 days):
 {{RECENT_CHECK_INS}}
+
+Action item status:
+{{AST_SECTION}}
+
+Triage flags:
+{{TRIAGE_SECTION}}
 
 {{SNIPPET_SECTION}}
