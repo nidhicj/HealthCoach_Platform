@@ -1,9 +1,15 @@
-# Spec-NNNN: [Feature Name]
+# SPEC-NNNN: [Feature Name]
+
+> Use for SPEC-NNNN files inside a `Unit_NNN_PascalCaseName/` directory.
+> SPEC files are **durable, feature-scoped specs** that describe what the product does for users. They may span multiple build phases.
+> For phase-scoped implementation records (what was built in a specific sprint), use `template-phase-plan.md` (PHASE-NN files) instead.
+> Naming: `SPEC-NNNN-kebab-case-title.md` — four-digit number, numbering resets per unit.
 
 **Status**: Draft | Proposed | Accepted | Implemented | Deprecated
 **Date**: YYYY-MM-DD
 **Owner**: [name]
 **Relates to**: [ADRs, other specs, domain docs]
+**Implemented by phases**: [list of PHASE-NN files that build this spec — updated as phases complete; e.g., "PHASE-03-domain-crud.md, PHASE-04-llm-service.md"]
 
 ---
 
