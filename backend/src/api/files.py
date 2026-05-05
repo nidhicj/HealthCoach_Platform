@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from src.api.deps import DbDep, HcClaimsDep, TenantDep
+from src.api.sessions import _get_owned_session
 from src.db.models import Client, ClientFile, Session
 from src.lib.s3 import _get_session_date_ist, build_session_file_key, s3_delete, s3_put
 from src.telemetry.log import get_logger
@@ -38,18 +39,6 @@ class ClientFileOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ── helpers ────────────────────────────────────────────────────────────────────
-
-
-async def _get_owned_session(db: DbDep, session_id: UUID, hc_id: str) -> Session:
-    row = (await db.execute(
-        select(Session).where(Session.id == session_id, Session.hc_user_id == UUID(hc_id))
-    )).scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return row
-
-
 # ── routes ─────────────────────────────────────────────────────────────────────
 
 
@@ -73,11 +62,27 @@ async def upload_files(
     if client is None:
         raise HTTPException(status_code=404, detail="Client not found")
 
+    if client.code is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Client has no code assigned; assign a client code before uploading files",
+        )
+
     session_date = _get_session_date_ist(session.scheduled_at)
 
     created_files: list[ClientFile] = []
 
+    # TODO(P7): on mid-loop S3 upload failure, S3 objects from earlier iterations
+    # in this batch are orphaned. DB is rolled back atomically but S3 is not.
+    # Track successful puts and attempt cleanup on exception for a full saga.
     for file in files:
+        # Explicit None check before MIME validation (curl without Content-Type gives None)
+        if not file.content_type:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File '{file.filename}' is missing a Content-Type header",
+            )
+
         # Validate MIME type
         if file.content_type not in ALLOWED_MIME_TYPES:
             raise HTTPException(
@@ -107,7 +112,7 @@ async def upload_files(
             file.filename or "unnamed",
         )
         await s3_put(key, content, file.content_type)
-        logger.info("s3_upload_ok", extra={"key": key, "size_bytes": len(content)})
+        logger.info("s3_upload_ok", key=key, size_bytes=len(content))
 
         cf = ClientFile(
             session_id=session_id,
@@ -124,7 +129,7 @@ async def upload_files(
 
     await db.commit()
 
-    # Refresh all created rows to populate server-side defaults (id, uploaded_at)
+    # Refresh to populate server-side defaults (id, uploaded_at)
     for cf in created_files:
         await db.refresh(cf)
 
@@ -176,7 +181,7 @@ async def delete_file(
     try:
         await s3_delete(cf.storage_path)
     except Exception as exc:
-        logger.warning("s3_delete_failed", extra={"key": cf.storage_path, "error": str(exc)})
+        logger.warn("s3_delete_failed", key=cf.storage_path, error=str(exc))
 
     await db.delete(cf)
     await db.commit()
