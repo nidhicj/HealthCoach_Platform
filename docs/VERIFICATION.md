@@ -84,19 +84,18 @@ for r in app.routes:
 
 - [ ] All three file routes present
 
-### 4. Setup — assign client code (required for S3 key builder)
+### 4. Setup — confirm client code (required for R2 key builder)
 
-Using the HC user, client, and M00N session from Part A verification (`$HC_JWT`, `$CLIENT_ID`, `$SESSION_ID`):
+Using the HC user, client, and session from Part A verification (`$HC_JWT`, `$CLIENT_ID`, `$SESSION_ID`):
 
 ```bash
-# Assign a client code (required before file upload)
-curl -s -X PATCH http://localhost:8000/api/clients/$CLIENT_ID \
-  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
-  -d '{"code": "CP0001"}' | python3 -m json.tool
-# Expected: 200, code = "CP0001"
+# Code is auto-assigned on client creation — just confirm it
+curl -s http://localhost:8000/api/clients/$CLIENT_ID \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected: "code": "CP0001" (first client for this HC)
 ```
 
-- [ ] Client code assigned (CP0001)
+- [ ] Client has code CP0001 in response
 
 ### 5. POST /sessions//files — upload a file
 
@@ -269,20 +268,20 @@ curl -s -o /dev/null -w "%{http_code}" \
 
 ### Summary table
 
-| Check | Pass | Notes |
-|---|---|---|
-| 157 automated tests pass | [ ] | |
-| client_files table — 10 columns + 3 indexes | [ ] | |
-| All 3 file routes registered | [ ] | |
-| Upload file → 201, row in DB, object in R2 | [ ] | |
-| GET /files → uploaded file appears | [ ] | |
-| PATCH session_notes → session_notes.txt in R2 | [ ] | |
-| Second PATCH → R2 overwritten | [ ] | |
-| MOM draft prompt contains HC's typed notes + Uploaded files sections | [ ] | |
-| Zoom filename auto-detect → is_zoom_summary=true | [ ] | |
-| Zoom file present → zero hc_style_snippets after PATCH mom | [ ] | |
-| DELETE → 204, row gone, R2 object gone | [ ] | |
-| Invalid MIME → 400; cross-tenant → 404 | [ ] | |
+| Check                                                                | Pass | Notes |
+| -------------------------------------------------------------------- | ---- | ----- |
+| 157 automated tests pass                                             | [ ]  |       |
+| client_files table — 10 columns + 3 indexes                         | [ ]  |       |
+| All 3 file routes registered                                         | [ ]  |       |
+| Upload file → 201, row in DB, object in S3                          | [ ]  |       |
+| GET /files → uploaded file appears                                  | [ ]  |       |
+| PATCH session_notes → session_notes.txt in S3                       | [ ]  |       |
+| Second PATCH → S3 overwritten                                       | [ ]  |       |
+| MOM draft prompt contains HC's typed notes + Uploaded files sections | [ ]  |       |
+| Zoom filename auto-detect → is_zoom_summary=true                    | [ ]  |       |
+| Zoom file present → zero hc_style_snippets after PATCH mom          | [ ]  |       |
+| DELETE → 204, row gone, S3 object gone                              | [ ]  |       |
+| Invalid MIME → 400; cross-tenant → 404                             | [ ]  |       |
 
 ---
 
