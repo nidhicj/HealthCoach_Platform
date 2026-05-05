@@ -255,6 +255,10 @@ async def draft_mom(
 ) -> MomOut:
     sess = await _get_owned_session(db, session_id, hc_id)
 
+    # Persist session_notes to DB before LLM call — protects notes against timeout loss
+    sess.session_notes = body.session_notes
+    await db.flush()
+
     from src.llm_service import generate_mom_draft
     draft_text, llm_call_id = await generate_mom_draft(
         db,
