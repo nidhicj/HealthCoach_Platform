@@ -189,8 +189,8 @@ async def generate_brief(
     # ── M000: first-session preparation brief ─────────────────────────────────
     if session.session_number == 0:
         intake_notes = (
-            client.metadata.get("intake_notes", "None provided")
-            if client and client.metadata
+            client.metadata_.get("intake_notes", "None provided")
+            if client and client.metadata_
             else "None provided"
         )
         brief_text = (
