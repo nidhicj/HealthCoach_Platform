@@ -121,8 +121,21 @@
 
 ---
 
+## Session data terms
+
+**`session_notes`** — HC's typed observations entered during or immediately after a session. Persisted to the `sessions.session_notes` column; the DB column is the canonical source of truth. Fed into LLM prompts (pre-session brief, MOM draft) as structured context. Mirrored read-only to S3 as `session_notes.txt` on every PATCH to `sessions.session_notes`; the S3 copy is never read back by the system.
+
+**`session_notes.txt` (S3 mirror)** — read-only copy of `session_notes`, written to S3 on every PATCH to `sessions.session_notes`. The HC may download or view it for reference. It is never read back by the platform. If the file were edited on disk, the next platform save would overwrite it with the DB value.
+
+**`client_files`** — per-session uploaded files contributed by the HC: Zoom AI Companion summaries, PDFs, handwritten notes scans, or similar. File content is stored in AWS S3 Mumbai bucket at the documented path pattern. File metadata (filename, MIME type, S3 key, `is_zoom_summary` flag, upload timestamp, session reference) is stored in the `client_files` table.
+
+**`is_zoom_summary` flag** — boolean column on `client_files`. Marks a file as originating from Zoom AI Companion. Files with this flag set have their text content included in LLM context (pre-session brief, MOM draft). They do not contribute to HC style snippets, because Zoom-generated text does not reflect the HC's voice.
+
+---
+
 ## Changelog
 
 | Date | Change |
 |---|---|
 | 2026-04-28 | Fresh draft from current ADR-0001 + HC cycle spec. MERGE-REQUIRED with existing repo file. |
+| 2026-05-05 | Added "Session data terms" section: `session_notes`, `session_notes.txt` (S3 mirror), `client_files`, `is_zoom_summary` flag — per PHASE-05 §B11. |
