@@ -373,6 +373,53 @@ grep -rn "llama-3.3\|gemma-3\|nemotron\|gpt-oss" src/ --include="*.py"
 
 ---
 
+## P3.5 — Naming cleanup ⏳
+
+**Status**: awaiting verification
+
+### Structure
+
+- [ ] `docs/specs/Unit_001_HcCoreCycle/` exists
+- [ ] `SPEC-0001-hc-core-cycle.md` is inside it (not in `docs/specs/` flat)
+- [ ] `SPEC-0002-llm-service.md` is inside it
+- [ ] All four PHASE files (`PHASE-00`, `PHASE-01`, `PHASE-02`, `PHASE-03`) are inside it
+- [ ] `git log --follow docs/specs/Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` shows full history pre-rename
+- [ ] `git log --follow docs/specs/Unit_001_HcCoreCycle/SPEC-0002-llm-service.md` shows full history pre-rename
+
+### File quality
+
+- [ ] Each PHASE file is substantive (P0/P1/P2 ≥ 80 lines; P3 ≥ 120 lines)
+- [ ] Each PHASE file links its source SESSION_LOG entry (`2026-05-01` or `2026-05-02`)
+- [ ] Each PHASE file links its corresponding VERIFICATION section
+- [ ] Each PHASE file lists ADRs implemented with links
+- [ ] No fabricated content — every claim traceable to SESSION_LOG, ADR, or migration commit
+
+### Cross-references
+
+- [ ] `grep -rn "specs/0001\|specs/0002\|specs/0003\|specs/0004" --include="*.md" .` returns only historical SESSION_LOG/starter-prompt entries (not rewritten) and the PHASE-03 recording of the 0002-domain-crud.md deletion
+- [ ] `docs/build-plan.md` phase sections (P0–P9) each have a "Phase plan" link
+- [ ] `CLAUDE.md` §6 describes the unit/SPEC/PHASE naming convention
+
+### Templates and skills
+
+- [ ] `docs/specs/template-phase-plan.md` exists and is structurally distinct from `docs/specs/0000-template_SPEC.md`
+- [ ] `.claude/skills/skill-write-phase-plan.md` exists
+- [ ] `.claude/skills/skill-write-spec.md` exists
+- [ ] `docs/specs/0000-template_SPEC.md` has the SPEC-vs-PHASE distinction header and "Implemented by phases" field
+
+### Project instructions
+
+- [ ] `PROJECT-CUSTOM-INSTRUCTIONS.md` exists at repo root with the naming convention section and updated "What's in Project knowledge" table
+- [ ] (Manual) Content uploaded to claude.ai Project knowledge — SoJo to confirm
+
+### Untouched (regression check)
+
+- [ ] No file under `backend/` was modified in this session
+- [ ] No file under `docs/decisions/`, `docs/diagrams/`, `docs/domain/` was structurally moved
+- [ ] All existing tests still pass: `cd backend && source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate && pytest -v` (expected: 144 passed)
+
+---
+
 ## P3 — Domain CRUD + Client OAuth ✅
 
 **Status**: verified 2026-05-02

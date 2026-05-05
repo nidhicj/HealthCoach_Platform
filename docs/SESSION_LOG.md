@@ -4,6 +4,47 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-05-04 — Naming cleanup: Unit-scoped specs + retroactive phase plans
+
+**Done**:
+- Committed all uncommitted P4 work (43 files, migration `95df31e31f5f`, full `llm_service/` module, 144/144 tests)
+- Created `docs/specs/Unit_001_HcCoreCycle/`
+- Moved `0001-hc-core-cycle.md` → `Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` (history preserved via `git mv`)
+- Moved `0004-llm-service.md` → `Unit_001_HcCoreCycle/SPEC-0002-llm-service.md`; updated internal header from `Spec-0004` to `SPEC-0002`
+- Wrote retroactive PHASE plans for P0–P3 (`PHASE-00-repo-scaffolding.md`, `PHASE-01-data-layer.md`, `PHASE-02-auth-service.md`, `PHASE-03-domain-crud.md`); all content sourced strictly from SESSION_LOG and ADRs — no fabrication
+- Created `docs/specs/template-phase-plan.md` and `.claude/skills/skill-write-phase-plan.md`
+- Created `.claude/skills/skill-write-spec.md`; updated `docs/specs/0000-template_SPEC.md` with SPEC-vs-PHASE distinction header and "Implemented by phases" field
+- Updated `CLAUDE.md` — added new §6 "Working with product files" (naming convention, unit structure, cross-cutting docs stay flat); renumbered subsequent sections §7–§12
+- Created `PROJECT-CUSTOM-INSTRUCTIONS.md` at repo root (SoJo to upload to claude.ai Project knowledge)
+- Updated cross-references across all active docs to new paths: `docs/decisions/0001, 0003, 0004`, `docs/diagrams/0002-data-model.md`, `docs/ops/secrets-management.md`, `docs/ops/incident-response.md`, `docs/REPO-INDEX.md`, `PREFLIGHT.md`
+- Updated `docs/build-plan.md` — each phase section now links to its `PHASE-NN-...md` file
+
+**Decided**:
+- Naming convention locked: `docs/specs/Unit_NNN_PascalCaseName/SPEC-NNNN-...md` and `PHASE-NN-...md`
+- Phase numbering resets per unit; SPEC numbering resets per unit
+- LLM Service is `SPEC-0002` inside `Unit_001_HcCoreCycle` — not a separate unit; it serves the HC core cycle
+- ADRs and diagrams stay flat in existing folders; no per-unit subfolders
+- Retroactive PHASE plans are thorough, not thin; accuracy sourced strictly from SESSION_LOG and ADRs
+- `PROJECT-CUSTOM-INSTRUCTIONS.md` lives at repo root; SoJo uploads to Claude Project knowledge after updates
+
+**Bugs fixed mid-session**:
+- None (doc-only session; no code changes)
+
+**Pending / next session**:
+- P5: HC Cycle Workflows
+- Write retroactive PHASE-04 (LLM service) before P5 starts, or at start of P5 session
+
+**Context the next session needs**:
+- All future phases follow the same convention: write SPEC first (if new unit/feature), then write PHASE plan, then implement
+- The phase plan for P5 uses `docs/specs/template-phase-plan.md` and lives at `docs/specs/Unit_001_HcCoreCycle/PHASE-05-hc-cycle-workflows.md`
+- `PROJECT-CUSTOM-INSTRUCTIONS.md` at repo root needs to be uploaded to claude.ai Project knowledge before the P5 session
+
+**Open questions for SoJo**:
+- Should LLM Service eventually become its own unit (`Unit_002_LlmService`) as the module grows? Currently it's `SPEC-0002` inside `Unit_001_HcCoreCycle`. Fine for MVP; revisit if the LLM service becomes product-facing rather than internal.
+- `PHASE-04-llm-service.md` not written in this session (scope was P0–P3 only). Write retroactively before P5, or defer?
+
+---
+
 ## 2026-05-04 — P4: LLM Service
 
 **Done**:
