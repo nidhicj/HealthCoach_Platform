@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     llm_call_encryption_key: str = ""
 
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_s3_bucket_name: str = ""
+    aws_region: str = "ap-south-1"
+
     sentry_dsn: str = ""
     app_env: str = "dev"
     app_version: str = "0.1.0"
