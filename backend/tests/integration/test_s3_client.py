@@ -88,10 +88,10 @@ async def test_s3_put_sends_auth_header():
     mock_client.put = fake_put
 
     with patch("src.lib.s3.get_settings") as mock_settings:
-        mock_settings.return_value.aws_access_key_id = "AKIAIOSFODNN7EXAMPLE"
-        mock_settings.return_value.aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-        mock_settings.return_value.aws_s3_bucket_name = "test-bucket"
-        mock_settings.return_value.aws_region = "ap-south-1"
+        mock_settings.return_value.r2_access_key_id = "AKIAIOSFODNN7EXAMPLE"
+        mock_settings.return_value.r2_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        mock_settings.return_value.r2_bucket_name = "test-bucket"
+        mock_settings.return_value.r2_account_id = "abc123testaccountid"
 
         with patch("src.lib.s3.make_http_client", return_value=mock_client):
             await s3_put("test/key.txt", b"hello world", "text/plain")
@@ -119,10 +119,10 @@ async def test_s3_delete_sends_auth_header():
     mock_client.delete = fake_delete
 
     with patch("src.lib.s3.get_settings") as mock_settings:
-        mock_settings.return_value.aws_access_key_id = "AKIAIOSFODNN7EXAMPLE"
-        mock_settings.return_value.aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-        mock_settings.return_value.aws_s3_bucket_name = "test-bucket"
-        mock_settings.return_value.aws_region = "ap-south-1"
+        mock_settings.return_value.r2_access_key_id = "AKIAIOSFODNN7EXAMPLE"
+        mock_settings.return_value.r2_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        mock_settings.return_value.r2_bucket_name = "test-bucket"
+        mock_settings.return_value.r2_account_id = "abc123testaccountid"
 
         with patch("src.lib.s3.make_http_client", return_value=mock_client):
             await s3_delete("test/key.txt")

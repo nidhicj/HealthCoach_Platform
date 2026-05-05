@@ -10,13 +10,13 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 
 ### Prerequisites
 
-`.env` must have all four S3 vars set before any file-related step:
+`.env` must have all four R2 vars set before any file-related step:
 
 ```bash
-AWS_ACCESS_KEY_ID=<from IAM>
-AWS_SECRET_ACCESS_KEY=<from IAM>
-AWS_S3_BUCKET_NAME=<bucket in ap-south-1>
-AWS_REGION=ap-south-1
+R2_ACCOUNT_ID=<from Cloudflare dashboard → R2 → Overview>
+R2_ACCESS_KEY_ID=<from R2 API token>
+R2_SECRET_ACCESS_KEY=<from R2 API token>
+R2_BUCKET_NAME=<bucket name>
 ```
 
 Also requires `OPENROUTER_API_KEY` for prompt-injection checks. Run migrations first:
@@ -113,7 +113,7 @@ export FILE_ID=<id from response>
 ```
 
 - [ ] 201 returned, file row in response with correct mime_type and size_bytes
-- [ ] S3 object exists at `hc-{hc_user_id}/client_session_library/CP0001_Priya_Sharma/2026-06-01_session-01/test_note.txt`
+- [ ] R2 object exists at `hc-{hc_user_id}/client_session_library/CP0001_Priya_Sharma/2026-06-01_session-01/test_note.txt`
 
 ### 6. GET /sessions//files — list files
 
@@ -125,7 +125,7 @@ curl -s http://localhost:8000/api/sessions/$SESSION_ID/files \
 
 - [ ] Uploaded file appears in list
 
-### 7. PATCH /sessions// — session_notes.txt S3 mirror
+### 7. PATCH /sessions// — session_notes.txt R2 mirror
 
 ```bash
 curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID \
@@ -134,18 +134,19 @@ curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID \
 # Expected: 200
 ```
 
-Verify S3 object was created (check AWS console or aws-cli):
+Verify R2 object was created (check R2 dashboard → bucket → Objects, or use wrangler CLI):
 
 ```bash
-aws s3 ls s3://$AWS_S3_BUCKET_NAME/hc-$HC_ID/client_session_library/CP0001_Priya_Sharma/2026-06-01_session-01/session_notes.txt
-# Expected: file present with recent timestamp
+# wrangler r2 object get $R2_BUCKET_NAME \
+#   "hc-$HC_ID/client_session_library/CP0001_Priya_Sharma/2026-06-01_session-01/session_notes.txt" \
+#   --file /tmp/verify_notes.txt && cat /tmp/verify_notes.txt
 ```
 
 - [ ] PATCH returns 200
-- [ ] `session_notes.txt` present in S3 at correct path
+- [ ] `session_notes.txt` present in R2 at correct path
 - [ ] Content matches patched notes
 
-Second PATCH → S3 overwritten:
+Second PATCH → R2 overwritten:
 
 ```bash
 curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID \
@@ -153,7 +154,7 @@ curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID \
   -d '{"session_notes": "Updated notes — overwrite test."}' | python3 -m json.tool
 ```
 
-- [ ] `session_notes.txt` content updated in S3 (not a second object)
+- [ ] `session_notes.txt` content updated in R2 (not a second object)
 
 ### 8. POST /mom/draft — file content in LLM prompt
 
@@ -219,7 +220,7 @@ SELECT COUNT(*) FROM hc_style_snippets WHERE hc_user_id = '$HC_ID';
 - [ ] PATCH mom 200 returned
 - [ ] Zero rows in `hc_style_snippets` (Zoom file present → no snippet)
 
-### 11. DELETE /sessions//files/ — removes row and S3 object
+### 11. DELETE /sessions//files/ — removes row and R2 object
 
 ```bash
 curl -s -X DELETE http://localhost:8000/api/sessions/$SESSION_ID/files/$FILE_ID \
@@ -232,16 +233,18 @@ curl -s http://localhost:8000/api/sessions/$SESSION_ID/files \
 # Expected: list no longer contains $FILE_ID
 ```
 
-Verify S3 object deleted:
+Verify R2 object deleted (check R2 dashboard or wrangler CLI):
 
 ```bash
-aws s3 ls s3://$AWS_S3_BUCKET_NAME/hc-$HC_ID/client_session_library/CP0001_Priya_Sharma/2026-06-01_session-01/test_note.txt
-# Expected: no output (object gone)
+# wrangler r2 object get $R2_BUCKET_NAME \
+#   "hc-$HC_ID/client_session_library/CP0001_Priya_Sharma/2026-06-01_session-01/test_note.txt" \
+#   --file /dev/null 2>&1 | grep -i "not found\|error"
+# Expected: "not found" error (object gone)
 ```
 
 - [ ] DELETE returns 204
 - [ ] File no longer appears in GET /files
-- [ ] S3 object deleted
+- [ ] R2 object deleted
 
 ### 12. Invalid upload checks
 
@@ -271,14 +274,14 @@ curl -s -o /dev/null -w "%{http_code}" \
 | 157 automated tests pass | [ ] | |
 | client_files table — 10 columns + 3 indexes | [ ] | |
 | All 3 file routes registered | [ ] | |
-| Upload file → 201, row in DB, object in S3 | [ ] | |
+| Upload file → 201, row in DB, object in R2 | [ ] | |
 | GET /files → uploaded file appears | [ ] | |
-| PATCH session_notes → session_notes.txt in S3 | [ ] | |
-| Second PATCH → S3 overwritten | [ ] | |
+| PATCH session_notes → session_notes.txt in R2 | [ ] | |
+| Second PATCH → R2 overwritten | [ ] | |
 | MOM draft prompt contains HC's typed notes + Uploaded files sections | [ ] | |
 | Zoom filename auto-detect → is_zoom_summary=true | [ ] | |
 | Zoom file present → zero hc_style_snippets after PATCH mom | [ ] | |
-| DELETE → 204, row gone, S3 object gone | [ ] | |
+| DELETE → 204, row gone, R2 object gone | [ ] | |
 | Invalid MIME → 400; cross-tenant → 404 | [ ] | |
 
 ---

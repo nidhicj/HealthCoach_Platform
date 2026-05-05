@@ -1,4 +1,4 @@
-"""AWS S3 client using Signature Version 4. No boto3 (Pyodide-incompatible). Per Decision C."""
+"""Cloudflare R2 client using Signature Version 4. No boto3 (Pyodide-incompatible). Per Decision C."""
 from __future__ import annotations
 
 import hashlib
@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 from src.config import get_settings
 from src.lib.http import make_http_client
+
+_R2_REGION = "auto"
 
 
 def _sanitize(s: str, max_len: int = 40) -> str:
@@ -30,7 +32,7 @@ def build_session_file_key(
     filename: str,
 ) -> str:
     """
-    Returns S3 key:
+    Returns R2 key:
     hc-{hc_user_id}/client_session_library/{CP####}_{sanitized_name}/{YYYY-MM-DD}_session-{NN:02d}/{sanitized_filename}
     """
     sanitized_name = _sanitize(client_full_name)
@@ -63,7 +65,7 @@ def _get_signing_key(secret_key: str, date_str: str, region: str, service: str) 
 def _build_auth_header(
     method: str,
     bucket: str,
-    region: str,
+    account_id: str,
     key: str,
     payload: bytes,
     access_key: str,
@@ -78,7 +80,7 @@ def _build_auth_header(
     amz_date = now.strftime("%Y%m%dT%H%M%SZ")
     date_stamp = now.strftime("%Y%m%d")
 
-    host = f"{bucket}.s3.{region}.amazonaws.com"
+    host = f"{bucket}.{account_id}.r2.cloudflarestorage.com"
     payload_hash = _sha256_hex(payload)
 
     # Canonical headers (must be sorted)
@@ -107,7 +109,7 @@ def _build_auth_header(
         payload_hash,
     ])
 
-    credential_scope = f"{date_stamp}/{region}/s3/aws4_request"
+    credential_scope = f"{date_stamp}/{_R2_REGION}/s3/aws4_request"
     string_to_sign = "\n".join([
         "AWS4-HMAC-SHA256",
         amz_date,
@@ -115,7 +117,7 @@ def _build_auth_header(
         _sha256_hex(canonical_request.encode("utf-8")),
     ])
 
-    signing_key = _get_signing_key(secret_key, date_stamp, region, "s3")
+    signing_key = _get_signing_key(secret_key, date_stamp, _R2_REGION, "s3")
     signature = _hmac_sha256(signing_key, string_to_sign).hex()
 
     authorization = (
@@ -135,25 +137,25 @@ def _build_auth_header(
     return result_headers, amz_date
 
 
-# ── Public S3 operations ──────────────────────────────────────────────────────
+# ── Public R2 operations ──────────────────────────────────────────────────────
 
 
 async def s3_put(key: str, content: bytes, content_type: str) -> None:
-    """Upload bytes to S3 at the given key."""
+    """Upload bytes to R2 at the given key."""
     settings = get_settings()
-    bucket = settings.aws_s3_bucket_name
-    region = settings.aws_region
-    host = f"{bucket}.s3.{region}.amazonaws.com"
+    bucket = settings.r2_bucket_name
+    account_id = settings.r2_account_id
+    host = f"{bucket}.{account_id}.r2.cloudflarestorage.com"
     url = f"https://{host}/{quote(key, safe='/')}"
 
     headers, _ = _build_auth_header(
         method="PUT",
         bucket=bucket,
-        region=region,
+        account_id=account_id,
         key=key,
         payload=content,
-        access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key,
+        access_key=settings.r2_access_key_id,
+        secret_key=settings.r2_secret_access_key,
         extra_headers={"content-type": content_type},
     )
     headers["Content-Type"] = content_type
@@ -164,21 +166,21 @@ async def s3_put(key: str, content: bytes, content_type: str) -> None:
 
 
 async def s3_get(key: str) -> bytes:
-    """Download bytes from S3 at the given key."""
+    """Download bytes from R2 at the given key."""
     settings = get_settings()
-    bucket = settings.aws_s3_bucket_name
-    region = settings.aws_region
-    host = f"{bucket}.s3.{region}.amazonaws.com"
+    bucket = settings.r2_bucket_name
+    account_id = settings.r2_account_id
+    host = f"{bucket}.{account_id}.r2.cloudflarestorage.com"
     url = f"https://{host}/{quote(key, safe='/')}"
 
     headers, _ = _build_auth_header(
         method="GET",
         bucket=bucket,
-        region=region,
+        account_id=account_id,
         key=key,
         payload=b"",
-        access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key,
+        access_key=settings.r2_access_key_id,
+        secret_key=settings.r2_secret_access_key,
     )
 
     async with make_http_client() as client:
@@ -188,21 +190,21 @@ async def s3_get(key: str) -> bytes:
 
 
 async def s3_delete(key: str) -> None:
-    """Delete an object from S3 at the given key."""
+    """Delete an object from R2 at the given key."""
     settings = get_settings()
-    bucket = settings.aws_s3_bucket_name
-    region = settings.aws_region
-    host = f"{bucket}.s3.{region}.amazonaws.com"
+    bucket = settings.r2_bucket_name
+    account_id = settings.r2_account_id
+    host = f"{bucket}.{account_id}.r2.cloudflarestorage.com"
     url = f"https://{host}/{quote(key, safe='/')}"
 
     headers, _ = _build_auth_header(
         method="DELETE",
         bucket=bucket,
-        region=region,
+        account_id=account_id,
         key=key,
         payload=b"",
-        access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key,
+        access_key=settings.r2_access_key_id,
+        secret_key=settings.r2_secret_access_key,
     )
 
     async with make_http_client() as client:
@@ -211,21 +213,21 @@ async def s3_delete(key: str) -> None:
 
 
 async def s3_exists(key: str) -> bool:
-    """Return True if the S3 object exists (HEAD request)."""
+    """Return True if the R2 object exists (HEAD request)."""
     settings = get_settings()
-    bucket = settings.aws_s3_bucket_name
-    region = settings.aws_region
-    host = f"{bucket}.s3.{region}.amazonaws.com"
+    bucket = settings.r2_bucket_name
+    account_id = settings.r2_account_id
+    host = f"{bucket}.{account_id}.r2.cloudflarestorage.com"
     url = f"https://{host}/{quote(key, safe='/')}"
 
     headers, _ = _build_auth_header(
         method="HEAD",
         bucket=bucket,
-        region=region,
+        account_id=account_id,
         key=key,
         payload=b"",
-        access_key=settings.aws_access_key_id,
-        secret_key=settings.aws_secret_access_key,
+        access_key=settings.r2_access_key_id,
+        secret_key=settings.r2_secret_access_key,
     )
 
     async with make_http_client() as client:
