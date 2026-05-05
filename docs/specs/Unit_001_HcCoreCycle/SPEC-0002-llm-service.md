@@ -1,9 +1,9 @@
-# Spec-0004: LLM Service
+# SPEC-0002: LLM Service
 
 **Status**: Draft
 **Date**: 2026-05-02
 **Owner**: SoJo
-**Relates to**: ADR-0003 (primary), ADR-0001 §LLM model chain, ADR-0006 §5, `diagrams/0002-data-model.md`, `specs/0001-hc-core-cycle.md`
+**Relates to**: ADR-0003 (primary), ADR-0001 §LLM model chain, ADR-0006 §5, `diagrams/0002-data-model.md`, `specs/Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md`
 
 ---
 
