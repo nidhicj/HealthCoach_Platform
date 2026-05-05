@@ -28,7 +28,7 @@ python -m pytest tests/ -q
 # Expected: 165 passed
 ```
 
-- [ ] 165 tests pass (21 new from P5 Part A)
+- [X] 165 tests pass (21 new from P5 Part A)
 
 ### 2. New routes registered
 
@@ -37,14 +37,17 @@ cd backend
 source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
 python -c "
 from src.main import app
-p5 = [r.path for r in app.routes if 'ast' in r.path or ('session' in r.path and 'patch' in str(getattr(r, 'methods', '')))]
-for p in sorted(set(p5)): print(p)
+for r in app.routes:
+    methods = getattr(r, 'methods', set()) or set()
+    path = getattr(r, 'path', '')
+    if 'ast' in path or ('session' in path and 'PATCH' in methods):
+        print(methods, path)
 "
 ```
 
-Expected: includes `/api/clients/{client_id}/ast` and `PATCH /api/sessions/{session_id}`
+Expected: includes `{'GET'} /api/clients/{client_id}/ast` and `{'PATCH'} /api/sessions/{session_id}`
 
-- [ ] `/api/clients/{client_id}/ast` present
+- [X] `/api/clients/{client_id}/ast` present
 - [ ] `PATCH /api/sessions/{session_id}` present
 
 ### 3. Server startup
@@ -54,7 +57,7 @@ cd backend
 uvicorn src.main:app --reload --port 8000 --env-file ../.env
 ```
 
-- [ ] Server starts without import errors
+- [X] Server starts without import errors
 
 ### 4. Setup — HC user, client, sessions
 
@@ -87,7 +90,7 @@ export SESSION0_ID=<id>
 - [ ] M00N session created (201)
 - [ ] M000 session created (201, session_number=0)
 
-### 5. PATCH /sessions/{id} — session_notes saves and returns
+### 5. PATCH /sessions/ — session_notes saves and returns
 
 ```bash
 # PATCH session_notes
@@ -121,7 +124,7 @@ curl -s http://localhost:8000/api/sessions/$SESSION_ID -H "Authorization: Bearer
 - [ ] draft_mom returns 200 with llm_call_id
 - [ ] GET /sessions/{id} shows session_notes from draft request (persisted before LLM)
 
-### 7. GET /clients/{id}/ast — empty and populated
+### 7. GET /clients//ast — empty and populated
 
 ```bash
 # Empty AST (fresh client — no action items, no check-ins)
@@ -155,7 +158,7 @@ curl -s http://localhost:8000/api/clients/$CLIENT_ID/ast \
 - [ ] Open item appears in open_items
 - [ ] Missed item triggers "missed_action_item" in triage_flags
 
-### 8. GET /sessions/{id}/brief — M000 template path
+### 8. GET /sessions//brief — M000 template path
 
 ```bash
 # M000 brief — NO LLM call, static template
@@ -181,7 +184,7 @@ SELECT COUNT(*) FROM llm_calls WHERE session_id = '$SESSION0_ID';
 
 - [ ] Zero llm_calls rows for M000 session
 
-### 9. GET /sessions/{id}/brief — M00N path with AST in brief_text
+### 9. GET /sessions//brief — M00N path with AST in brief_text
 
 ```bash
 # First call — generates brief (requires OPENROUTER_API_KEY)
@@ -265,7 +268,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 | M000 brief: zero llm_calls rows                     | [ ]  |       |
 | M00N brief: AST + triage in brief_text              | [ ]  |       |
 | Brief prompt_version = "1.1.0"                      | [ ]  |       |
-| Cross-tenant → 404 on PATCH + AST                   | [ ]  |       |
+| Cross-tenant → 404 on PATCH + AST                  | [ ]  |       |
 
 ---
 
