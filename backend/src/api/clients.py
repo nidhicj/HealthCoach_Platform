@@ -44,6 +44,7 @@ class ClientOut(BaseModel):
     id: UUID
     hc_user_id: UUID
     full_name: str
+    code: str | None
     email: str | None
     phone: str | None
     timezone: str | None
