@@ -131,7 +131,32 @@ product/
 
 ---
 
-## 6. Skills available
+## 6. Working with product files
+
+### Spec and phase plan naming convention
+
+Specs live under `docs/specs/Unit_NNN_PascalCaseName/`. Each unit contains two types of files:
+
+- **`SPEC-NNNN-kebab-case-title.md`** — feature specs. Durable, product-scoped, may span multiple build phases. Describe what the product does for users. Written before implementation begins; owned by SoJo.
+- **`PHASE-NN-kebab-case-title.md`** — phase plans. Phase-scoped implementation records. Written before each build sprint begins; updated as the phase ships. Record what was built, what was decided, what bugs were fixed, and what lessons were learned.
+
+Naming rules (binding):
+- Unit: `Unit_NNN_PascalCaseName` — capital U, three-digit number, PascalCase name, underscore separators
+- SPEC: `SPEC-NNNN-kebab-case-title.md` — uppercase SPEC-, four-digit number, numbering resets per unit
+- PHASE: `PHASE-NN-kebab-case-title.md` — uppercase PHASE-, two-digit number, numbering resets per unit
+
+When referencing a spec in other documents, use the full path from repo root:
+
+> per `Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` §3, …
+
+Cross-cutting concerns (ADRs, diagrams, domain docs) stay flat in their existing folders. Do not create per-unit subfolders under `docs/decisions/`, `docs/diagrams/`, or `docs/domain/`.
+
+Templates: `docs/specs/template-phase-plan.md` and `docs/specs/0000-template_SPEC.md`.
+Skills: `.claude/skills/skill-write-spec.md` and `.claude/skills/skill-write-phase-plan.md`.
+
+---
+
+## 7. Skills available
 
 Skills are `.md` playbooks Claude consults before common tasks. Current list (to be expanded as stack solidifies):
 
@@ -145,7 +170,7 @@ Stack-specific skills (e.g., `add-api-endpoint.md`, `add-migration.md`) will be 
 
 ---
 
-## 7. MCP servers
+## 8. MCP servers
 
 **Status: TBD after stack decision.** Likely candidates:
 - Postgres MCP (read-only dev DB) — if Postgres is chosen
@@ -170,7 +195,7 @@ Git holds change history, not Claude. Use `git log docs/diagrams/<file>.md` to s
 
 ---
 
-## 8. Architectural principles (locked in before stack decision)
+## 9. Architectural principles (locked in before stack decision)
 
 These shape stack selection and every feature built:
 
@@ -187,7 +212,7 @@ These principles constrain stack selection. See ADR-0001.
 
 ---
 
-## 9. Compliance summary (India, current best understanding — verify with counsel before launch)
+## 10. Compliance summary (India, current best understanding — verify with counsel before launch)
 
 - **DPDP Act 2023** governs. Key obligations: lawful purpose, explicit consent, purpose limitation, retention limits, grievance officer for scaled operations, breach notification.
 - **Sensitive personal data** (health) is not a separate category under DPDP the way it is under GDPR, but **reasonable security practices** are expected and health data is high-risk in practice.
@@ -200,12 +225,12 @@ Claude does not give legal advice. For anything material, SoJo consults an India
 
 ---
 
-## 10. Commands (populated after stack decision)
+## 11. Commands (populated after stack decision)
 
 Will hold `dev`, `test`, `typecheck`, `lint`, `migrate`, `build`, `deploy` commands. Until then, Claude does not assume any command exists — it asks.
 
 ---
 
-## 11. When in doubt
+## 12. When in doubt
 
 Default behavior when Claude is uncertain: **stop, declare what's missing, ask**. Silence or plausible-sounding guesses are the two failure modes the anthem exists to prevent.
