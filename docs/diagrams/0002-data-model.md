@@ -442,7 +442,7 @@ Each migration as its own Alembic file, named `NNNN_description.py`.
 
 - `decisions/0003-llm-strategy.md` — `llm_calls` and `hc_style_snippets` rationale
 - `domain/glossary.md` — term definitions
-- `specs/0001-hc-core-cycle.md` — workflow this schema supports
+- `specs/Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` — workflow this schema supports
 - Miro ERD: https://miro.com/app/board/uXjVIM847Lg=/
 
 ---

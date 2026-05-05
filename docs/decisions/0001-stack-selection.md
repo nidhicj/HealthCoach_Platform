@@ -274,7 +274,7 @@ These external facts were verified during the decision-making process. Findings 
 
 - `CLAUDE.md` §8 — architectural principles (multi-actor, prompts versioned, LLM observable, etc.)
 - `docs/domain/compliance-india.md` — DPDP summary (pending update for 13 Nov 2025 rules)
-- `docs/specs/spec-0001-hc-core-cycle.md` — the actual product the stack must support
+- `docs/specs/Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` — the actual product the stack must support
 - `docs/diagrams/0001-system-architecture.md` — visual architecture (will be updated post-decision)
 - Cloudflare Python Workers redux (blog, Jan 2026): https://blog.cloudflare.com/python-workers-advancements/
 - Cloudflare `workers-py` issue tracker: https://github.com/cloudflare/workers-py/issues

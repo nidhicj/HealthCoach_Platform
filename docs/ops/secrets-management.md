@@ -19,7 +19,7 @@ Every secret the platform uses. If you add a new one, add it here in the same co
 | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | Backend (S3 reads/writes) | Cloudflare Secret | **DECIDE**: prefer IAM role over long-lived keys; if keys, rotate every 90 days | **DECIDE**: which IAM policy? Suggestion: scoped to single S3 bucket, no other AWS access |
 | `SENTRY_DSN` | Backend (observability) | Cloudflare Secret | Rotate on suspected leak only | Per-environment DSN (prototype vs scale) |
 | `EXTERNAL_SCHEDULER_TOKEN` | Backend (scheduler endpoints) | Cloudflare Secret AND scheduler (GitHub Actions or EasyCron) | **DECIDE**: rotation policy. Default: every 180 days | Shared secret in `X-Scheduler-Token` header |
-| `ZOOM_WEBHOOK_SECRET` (if/when Zoom integration ships) | Backend (webhook verification) | Cloudflare Secret | Rotate on suspected leak only | Out of MVP scope per `specs/0001-hc-core-cycle.md` |
+| `ZOOM_WEBHOOK_SECRET` (if/when Zoom integration ships) | Backend (webhook verification) | Cloudflare Secret | Rotate on suspected leak only | Out of MVP scope per `specs/Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` |
 
 ---
 

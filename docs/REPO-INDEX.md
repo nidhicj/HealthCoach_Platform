@@ -42,7 +42,8 @@ Specs describe *what to build*. They reference ADRs for *how* and domain docs fo
 | File | Owns | Status |
 |---|---|---|
 | `0000-template.md` | Spec template — copy this for new features | n/a |
-| `0001-hc-core-cycle.md` | The central product loop: M000, M00N, MOM, brief, AST, action items, triage flags, coach-reviewed gate | Accepted |
+| `Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` | The central product loop: M000, M00N, MOM, brief, AST, action items, triage flags, coach-reviewed gate | Accepted |
+| `Unit_001_HcCoreCycle/SPEC-0002-llm-service.md` | LLM service module: OpenRouter integration, prompt versioning, pgcrypto tracking, snippet library | Draft |
 
 ---
 

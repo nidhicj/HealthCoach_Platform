@@ -27,7 +27,7 @@
 - **Secondary**: n/a at MVP
 - **Hours**: **DECIDE**. Default at MVP: best-effort, no formal SLA. Pilot HC understands the platform is pre-launch.
 
-When a SEV-1 hits and SoJo is unreachable: pilot HC has a documented manual workaround for the day (running the cycle without the platform; per `specs/0001-hc-core-cycle.md` non-goals, sessions happen on Zoom — platform is HC-supporting, not HC-blocking).
+When a SEV-1 hits and SoJo is unreachable: pilot HC has a documented manual workaround for the day (running the cycle without the platform; per `specs/Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` non-goals, sessions happen on Zoom — platform is HC-supporting, not HC-blocking).
 
 ---
 

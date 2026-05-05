@@ -205,7 +205,7 @@ Foreign keys with `ON DELETE CASCADE` on every client-scoped table make this saf
 
 - `decisions/0001-stack-selection.md` §LLM model chain, §Snippet library
 - `diagrams/0002-data-model.md` — full schema
-- `specs/0001-hc-core-cycle.md` — the workflow the LLM serves
+- `specs/Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` — the workflow the LLM serves
 
 ---
 

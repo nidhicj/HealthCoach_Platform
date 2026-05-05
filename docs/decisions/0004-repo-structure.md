@@ -94,9 +94,11 @@ product/
 │   │   ├── 0002-runtime-topology.md
 │   │   ├── 0003-llm-strategy.md
 │   │   └── 0004-repo-structure.md
-│   ├── specs/                         # feature specs
-│   │   ├── 0000-template.md
-│   │   └── 0001-hc-core-cycle.md
+│   ├── specs/                         # feature specs (Unit_NNN_PascalCaseName/ structure)
+│   │   ├── 0000-template_SPEC.md
+│   │   └── Unit_001_HcCoreCycle/
+│   │       ├── SPEC-0001-hc-core-cycle.md
+│   │       └── SPEC-0002-llm-service.md
 │   ├── domain/
 │   │   ├── glossary.md
 │   │   ├── actors.md
