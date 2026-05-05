@@ -1,7 +1,7 @@
 """HC client management endpoints. All routes scoped to JWT hc_id (tenant)."""
 import hashlib
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
 
@@ -11,7 +11,7 @@ from sqlalchemy import and_, or_, select, text
 
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
 from src.config import get_settings
-from src.db.models import Client, ClientInviteToken
+from src.db.models import ActionItem, CheckIn, Client, ClientInviteToken
 
 router = APIRouter(prefix="/api/clients", tags=["clients"])
 
@@ -61,6 +61,24 @@ class ClientDetailOut(ClientOut):
     ast: None = None  # P3 stub — full AST computation in P5
     open_action_items_count: int = 0
     last_session_at: datetime | None = None
+
+
+class ActionItemOut(BaseModel):
+    id: UUID
+    description: str
+    due_date: date | None
+    status: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AstOut(BaseModel):
+    open_items: list[ActionItemOut]
+    missed_items: list[ActionItemOut]
+    status_summary: str
+    trend_tags: list[str]
+    triage_flags: list[str]
 
 
 class InviteOut(BaseModel):
@@ -191,6 +209,75 @@ async def get_client(
 ) -> ClientDetailOut:
     client = await _get_owned_client(db, client_id, hc_id)
     return ClientDetailOut.model_validate(client)
+
+
+@router.get("/{client_id}/ast")
+async def get_client_ast(
+    client_id: UUID,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> AstOut:
+    await _get_owned_client(db, client_id, hc_id)  # ownership check / 404
+
+    # Open action items
+    open_items = (await db.execute(
+        select(ActionItem)
+        .where(ActionItem.client_id == client_id, ActionItem.status == "open")
+        .order_by(ActionItem.created_at.desc())
+        .limit(10)
+    )).scalars().all()
+
+    # Missed action items
+    missed_items = (await db.execute(
+        select(ActionItem)
+        .where(ActionItem.client_id == client_id, ActionItem.status == "missed")
+        .order_by(ActionItem.created_at.desc())
+        .limit(10)
+    )).scalars().all()
+
+    # Recent check-ins (last 14 days) for status_summary
+    cutoff_14d = datetime.now(timezone.utc) - timedelta(days=14)
+    recent_checkins = (await db.execute(
+        select(CheckIn)
+        .where(CheckIn.client_id == client_id, CheckIn.created_at >= cutoff_14d)
+        .order_by(CheckIn.created_at.desc())
+    )).scalars().all()
+
+    if recent_checkins:
+        lines = [f"- {ci.payload.get('note', '(no note)')}" for ci in recent_checkins]
+        status_summary = "Recent check-ins:\n" + "\n".join(lines)
+    else:
+        status_summary = "No recent check-ins."
+
+    # Triage flags
+    triage_flags: list[str] = []
+    if missed_items:
+        triage_flags.append("missed_action_item")
+    if not recent_checkins:
+        triage_flags.append("no_recent_checkin")
+
+    # manual_sentiment_flag: any check_in with sentiment_flag set in last 30 days
+    cutoff_30d = datetime.now(timezone.utc) - timedelta(days=30)
+    sentiment_flagged = (await db.execute(
+        select(CheckIn)
+        .where(
+            CheckIn.client_id == client_id,
+            CheckIn.created_at >= cutoff_30d,
+            CheckIn.sentiment_flag.isnot(None),
+        )
+        .limit(1)
+    )).scalar_one_or_none()
+    if sentiment_flagged is not None:
+        triage_flags.append("manual_sentiment_flag")
+
+    return AstOut(
+        open_items=[ActionItemOut.model_validate(i) for i in open_items],
+        missed_items=[ActionItemOut.model_validate(i) for i in missed_items],
+        status_summary=status_summary,
+        trend_tags=[],
+        triage_flags=triage_flags,
+    )
 
 
 # ── shared helper ──────────────────────────────────────────────────────────────
