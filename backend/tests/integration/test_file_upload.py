@@ -165,3 +165,51 @@ async def test_delete_file_removes_row_and_is_idempotent(
             headers=hc_headers,
         )
     assert r4.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_s3_failure_still_removes_db_row(
+    http_client, hc_headers, session_id, db, client_rec
+):
+    """S3 delete failure does not block DB row removal (DB canonical, S3 best-effort)."""
+    client_rec.code = "CP0001"
+    await db.flush()
+
+    with patch("src.api.files.s3_put", new_callable=AsyncMock):
+        r = await http_client.post(
+            f"/api/sessions/{session_id}/files",
+            headers=hc_headers,
+            files=[("files", ("fail.txt", b"content", "text/plain"))],
+        )
+    assert r.status_code == 201
+    file_id = r.json()[0]["id"]
+
+    with patch("src.api.files.s3_delete", side_effect=RuntimeError("S3 unavailable")):
+        r2 = await http_client.delete(
+            f"/api/sessions/{session_id}/files/{file_id}",
+            headers=hc_headers,
+        )
+    assert r2.status_code == 204
+
+    # DB row is gone even though S3 failed
+    r3 = await http_client.get(f"/api/sessions/{session_id}/files", headers=hc_headers)
+    assert r3.json() == []
+
+
+@pytest.mark.asyncio
+async def test_upload_zoom_filename_autodetects_is_zoom_summary(
+    http_client, hc_headers, session_id, db, client_rec
+):
+    """Filename starting with zoom_ai_summary_ auto-sets is_zoom_summary=True."""
+    client_rec.code = "CP0001"
+    await db.flush()
+
+    with patch("src.api.files.s3_put", new_callable=AsyncMock):
+        r = await http_client.post(
+            f"/api/sessions/{session_id}/files",
+            headers=hc_headers,
+            files=[("files", ("zoom_ai_summary_meeting.txt", b"transcript", "text/plain"))],
+        )
+
+    assert r.status_code == 201, r.text
+    assert r.json()[0]["is_zoom_summary"] is True
