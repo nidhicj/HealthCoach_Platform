@@ -199,6 +199,7 @@ async def patch_session(
     hc_id: TenantDep,
     db: DbDep,
 ) -> SessionOut:
+    logger = get_logger(request_id=getattr(request.state, "request_id", ""), hc_id=hc_id)
     sess = await _get_owned_session(db, session_id, hc_id)
     if body.session_notes is not None:
         sess.session_notes = body.session_notes
@@ -206,7 +207,7 @@ async def patch_session(
     await db.commit()
 
     # Mirror session_notes to S3 after successful DB commit (S3 is read-only mirror; DB is canonical)
-    if body.session_notes is not None and sess.session_notes is not None:
+    if body.session_notes is not None:
         client = (await db.execute(
             select(Client).where(Client.id == sess.client_id)
         )).scalar_one_or_none()
@@ -222,7 +223,6 @@ async def patch_session(
             try:
                 await s3_put(key, sess.session_notes.encode("utf-8"), "text/plain")
             except Exception as exc:
-                logger = get_logger(request_id=getattr(request.state, "request_id", ""))
                 logger.warn("session_notes_s3_mirror_failed", session_id=str(session_id), error=str(exc))
 
     return SessionOut.model_validate(sess)
