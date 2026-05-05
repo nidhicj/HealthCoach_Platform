@@ -100,14 +100,15 @@ curl -s http://localhost:8000/api/clients/$CLIENT_ID \
 ### 5. POST /sessions//files — upload a file
 
 ```bash
-# Upload a plain text file
+# Create the file first
+echo "Client notes: hydration improving." > /tmp/test_note.txt
+
+# Upload
 curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/files \
   -H "Authorization: Bearer $HC_JWT" \
   -F "files=@/tmp/test_note.txt;type=text/plain" | python3 -m json.tool
 # Expected: 201, list with 1 item; is_zoom_summary=false
 
-# Create test_note.txt first if needed:
-echo "Client notes: hydration improving." > /tmp/test_note.txt
 export FILE_ID=<id from response>
 ```
 
