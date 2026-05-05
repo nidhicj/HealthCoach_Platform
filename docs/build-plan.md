@@ -164,7 +164,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 4 — LLM Service
-**Phase plan**: `Unit_001_HcCoreCycle/PHASE-04-llm-service.md` *(P4 complete and verified 2026-05-04; retroactive PHASE file not yet written — write as follow-up)*
+**Phase plan**: [`Unit_001_HcCoreCycle/PHASE-04-llm-service.md`](specs/Unit_001_HcCoreCycle/PHASE-04-llm-service.md)
 
 **Goal**: AI drafts work end-to-end via OpenRouter. Snippet library captures HC edits. Validation + retry + telemetry all wired.
 
@@ -430,12 +430,13 @@ Dotted lines (`testing-strategy → P0, P9`) mean it applies across all phases b
 
 Suggested loop per phase:
 
-1. **Open the relevant phase section above.** Read Goal + Source docs.
-2. **Open the source docs** in another tab. Skim them, especially the section the matrix marks as `●`.
-3. **Tell Claude Code**: "Implement Phase N per `docs/build-plan.md`. Source docs are X, Y, Z. When you're done, I'll verify against the acceptance criteria."
-4. **When Claude Code says it's done**: walk the acceptance criteria checkboxes one by one. Don't accept "all good" — actually run the queries / hit the endpoints / check the headers.
-5. **If any checkbox fails**: send Claude Code back. Don't move to Phase N+1 until Phase N is fully ticked.
-6. **When phase is fully ticked**: update `SESSION_LOG.md` with phase completion, move to next.
+1. **Write the PHASE file first.** Before any code: create `docs/specs/Unit_001_HcCoreCycle/PHASE-NN-kebab-title.md` using `docs/specs/template-phase-plan.md`. Fill in Scope and the Deliverables you intend to ship. Get SoJo's confirmation. Only then start implementation. (P0–P4 already have their PHASE files; P5 onward must follow this rule.)
+2. **Open the relevant phase section above.** Read Goal + Source docs.
+3. **Open the source docs** in another tab. Skim them, especially the section the matrix marks as `●`.
+4. **Tell Claude Code**: "Implement Phase N per `docs/build-plan.md`. Source docs are X, Y, Z. When you're done, I'll verify against the acceptance criteria."
+5. **When Claude Code says it's done**: walk the acceptance criteria checkboxes one by one. Don't accept "all good" — actually run the queries / hit the endpoints / check the headers.
+6. **If any checkbox fails**: send Claude Code back. Don't move to Phase N+1 until Phase N is fully ticked.
+7. **When phase is fully ticked**: complete the PHASE file (fill §6 Verification, §7 Lessons, §8 Carry-over), update `SESSION_LOG.md` with phase completion, move to next.
 
 If a phase reveals a gap in the source docs (e.g. ambiguity Claude Code surfaces), update the doc *first*, then continue. Don't let undocumented decisions accumulate.
 
@@ -457,3 +458,4 @@ If a phase reveals a gap in the source docs (e.g. ambiguity Claude Code surfaces
 | Date       | Change         | Reason                                                                      |
 | ---------- | -------------- | --------------------------------------------------------------------------- |
 | 2026-04-28 | Initial draft. | Build sequence and verification structure needed before Claude Code starts. |
+| 2026-05-04 | Added phase-plan links for P0–P4; added "write PHASE file first" as step 1 in the How-to-use loop; added step 7 (complete PHASE file after verification). | Naming cleanup session established the PHASE file convention; PHASE-04 written retroactively and linked. P5 onward must write PHASE file before build sprint. |

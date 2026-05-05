@@ -4,6 +4,27 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-05-04 — PHASE-04 retroactive write + convention lock-in
+
+**Done**:
+- Rewrote `docs/specs/Unit_001_HcCoreCycle/PHASE-04-llm-service.md` from its old SPEC-style content (Goal, Non-goals, Actors, Mermaid diagrams, etc.) to a proper 8-section PHASE document matching `docs/specs/template-phase-plan.md`
+- Content sourced strictly from SESSION_LOG 2026-05-04 (P4 entry) and VERIFICATION.md § P4 — no fabrication
+- Updated `docs/build-plan.md`: P4 phase plan note changed from "not yet written" to a proper link; "How to use this when working with Claude Code" loop now includes "write the PHASE file before implementation begins" as step 1
+
+**Decided**:
+- P4 was the last retroactive PHASE file. All future phases (P5 onward) must have their PHASE-NN file written **before** the build sprint begins, not after — per the SPEC-before-code rule in CLAUDE.md §6 and the build-plan loop
+- PHASE file convention is now locked: `Unit_001_HcCoreCycle/PHASE-NN-kebab-title.md`, 8 sections per `template-phase-plan.md`, linked from the corresponding build-plan.md phase section
+
+**Pending / next session**:
+- P5: HC Cycle Workflows
+- Before writing any P5 code: write `docs/specs/Unit_001_HcCoreCycle/PHASE-05-hc-cycle-workflows.md` using `template-phase-plan.md`
+
+**Context the next session needs**:
+- PHASE file must be written and confirmed by SoJo before P5 implementation starts — this is not optional
+- The PHASE file for P5 should reference SPEC-0001 §HC Cycle (the acceptance criteria it implements) and ADR-0003 §LLM strategy
+
+---
+
 ## 2026-05-04 — Naming cleanup: Unit-scoped specs + retroactive phase plans
 
 **Done**:
