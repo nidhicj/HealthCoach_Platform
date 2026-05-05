@@ -9,7 +9,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
-from src.db.models import Brief, Client, Mom, Session
+from src.db.models import Brief, Client, ClientFile, Mom, Session
 from src.lib.s3 import _get_session_date_ist, build_session_file_key, s3_put
 from src.telemetry.log import get_logger
 
@@ -377,15 +377,22 @@ async def patch_mom(
 
     if body.final_text is not None:
         # Snippet capture gate: only when MOM was AI-generated and text actually changed
+        # and the session had no Zoom summary file (Zoom output is not HC voice)
         if mom.llm_call_id is not None and body.final_text != mom.draft_text:
-            from src.llm_service.snippets import capture
-            await capture(
-                db,
-                original_text=mom.draft_text,
-                hc_modified_text=body.final_text,
-                hc_user_id=UUID(hc_id),
-                client_id=mom.client_id,
-            )
+            zoom_file_exists = (await db.execute(
+                select(ClientFile.id)
+                .where(ClientFile.session_id == session_id, ClientFile.is_zoom_summary == True)  # noqa: E712
+                .limit(1)
+            )).scalar_one_or_none()
+            if not zoom_file_exists:
+                from src.llm_service.snippets import capture
+                await capture(
+                    db,
+                    original_text=mom.draft_text,
+                    hc_modified_text=body.final_text,
+                    hc_user_id=UUID(hc_id),
+                    client_id=mom.client_id,
+                )
         mom.final_text = body.final_text
 
     if body.status is not None:

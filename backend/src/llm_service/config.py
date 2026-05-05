@@ -20,6 +20,8 @@ class LLMConfig:
     snippet_token_budget: int
     snippet_max_count: int
     validation_retry_count: int
+    file_content_max_tokens_per_file: int = 5000
+    file_content_max_total_tokens: int = 15000
 
 
 @lru_cache(maxsize=1)
@@ -37,4 +39,6 @@ def get_llm_config() -> LLMConfig:
         snippet_token_budget=data["snippet_token_budget"],
         snippet_max_count=data["snippet_max_count"],
         validation_retry_count=data["validation_retry_count"],
+        file_content_max_tokens_per_file=data.get("file_content_max_tokens_per_file", 5000),
+        file_content_max_total_tokens=data.get("file_content_max_total_tokens", 15000),
     )

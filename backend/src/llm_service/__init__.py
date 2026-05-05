@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models.clients import Client
 from src.db.models.coaching import ActionItem, CheckIn, Mom
+from src.db.models.files import ClientFile
 from src.db.models.sessions import Session
+from src.lib.file_extraction import extract_text
+from src.lib.s3 import s3_get
 from src.llm_service.chain import build_models_array, fallback_count_for
 from src.llm_service.client import call_openrouter
 from src.llm_service.config import get_llm_config
@@ -35,6 +38,52 @@ def _format_snippets(snippets: list) -> str:
         lines.append(f"\nOriginal: {s.original_text}")
         lines.append(f"Your edit: {s.hc_modified_text}")
     return "\n".join(lines)
+
+
+async def _assemble_file_content_section(
+    db: AsyncSession,
+    session_id: UUID,
+    config: object,
+) -> tuple[str, bool]:
+    """Returns (formatted_file_section, zoom_sources_present)."""
+    from sqlalchemy import select as sa_select
+    files = (await db.execute(
+        sa_select(ClientFile).where(ClientFile.session_id == session_id)
+    )).scalars().all()
+
+    if not files:
+        return "", False
+
+    zoom_present = any(f.is_zoom_summary for f in files)
+    total_tokens_used = 0
+    sections = []
+
+    for f in files:
+        try:
+            content = await s3_get(f.storage_path)
+        except Exception:
+            continue  # skip unreadable files silently
+        text = await extract_text(content, f.mime_type)
+
+        # Per-file token budget (4 chars ≈ 1 token estimate)
+        token_estimate = len(text) // 4
+        if token_estimate > config.file_content_max_tokens_per_file:  # type: ignore[attr-defined]
+            char_limit = config.file_content_max_tokens_per_file * 4  # type: ignore[attr-defined]
+            text = text[:char_limit] + "\n[... truncated, file too long ...]"
+
+        # Total budget
+        remaining_budget = (config.file_content_max_total_tokens - total_tokens_used) * 4  # type: ignore[attr-defined]
+        if len(text) > remaining_budget:
+            text = text[:remaining_budget] + "\n[... total file budget exceeded ...]"
+
+        total_tokens_used += len(text) // 4
+        sections.append(f"### {f.original_filename}\n{text}")
+
+    if not sections:
+        return "", zoom_present
+
+    file_section = "## Uploaded files:\n" + "\n\n".join(sections)
+    return file_section, zoom_present
 
 
 async def generate_mom_draft(
@@ -69,7 +118,9 @@ async def generate_mom_draft(
         .replace("{{CLIENT_CODE}}", client_code)
         .replace("{{SNIPPET_SECTION}}", snippet_section)
     )
-    user_message = f"Session notes:\n{session_notes}"
+    file_section, _zoom_present = await _assemble_file_content_section(db, session_id, cfg)
+    notes_section = f"## HC's typed notes:\n{session_notes or '(no notes entered)'}"
+    user_message = notes_section + ("\n\n" + file_section if file_section else "")
 
     try:
         result = await call_openrouter(
@@ -305,7 +356,8 @@ async def generate_brief(
         .replace("{{TRIAGE_SECTION}}", triage_section)
         .replace("{{SNIPPET_SECTION}}", snippet_section)
     )
-    user_message = "Generate the pre-session brief."
+    file_section, _zoom_present = await _assemble_file_content_section(db, session_id, cfg)
+    user_message = "Generate the pre-session brief." + ("\n\n" + file_section if file_section else "")
 
     try:
         result = await call_openrouter(

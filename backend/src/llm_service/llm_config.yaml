@@ -29,3 +29,7 @@ snippet_max_count: 10             # upper bound on snippet count regardless of b
 
 # Validation
 validation_retry_count: 1         # retries on Pydantic validation failure
+
+# File content injection budgets (per ADR-0003)
+file_content_max_tokens_per_file: 5000
+file_content_max_total_tokens: 15000
