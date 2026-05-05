@@ -46,9 +46,8 @@ async def _assemble_file_content_section(
     config: object,
 ) -> tuple[str, bool]:
     """Returns (formatted_file_section, zoom_sources_present)."""
-    from sqlalchemy import select as sa_select
     files = (await db.execute(
-        sa_select(ClientFile).where(ClientFile.session_id == session_id)
+        select(ClientFile).where(ClientFile.session_id == session_id)
     )).scalars().all()
 
     if not files:
@@ -61,9 +60,12 @@ async def _assemble_file_content_section(
     for f in files:
         try:
             content = await s3_get(f.storage_path)
+            text = await extract_text(content, f.mime_type)
         except Exception:
-            continue  # skip unreadable files silently
-        text = await extract_text(content, f.mime_type)
+            continue  # skip files that fail to fetch or extract
+
+        if not text.strip():
+            continue  # skip empty files — don't emit heading-only noise
 
         # Per-file token budget (4 chars ≈ 1 token estimate)
         token_estimate = len(text) // 4
@@ -71,8 +73,10 @@ async def _assemble_file_content_section(
             char_limit = config.file_content_max_tokens_per_file * 4  # type: ignore[attr-defined]
             text = text[:char_limit] + "\n[... truncated, file too long ...]"
 
-        # Total budget
-        remaining_budget = (config.file_content_max_total_tokens - total_tokens_used) * 4  # type: ignore[attr-defined]
+        # Total budget — guard against negative slice from accumulated overrun
+        remaining_budget = max(0, (config.file_content_max_total_tokens - total_tokens_used) * 4)  # type: ignore[attr-defined]
+        if remaining_budget == 0:
+            break
         if len(text) > remaining_budget:
             text = text[:remaining_budget] + "\n[... total file budget exceeded ...]"
 
