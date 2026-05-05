@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.lib.s3 import _sanitize, build_session_file_key, s3_put
+from src.lib.s3 import _sanitize, build_session_file_key, s3_delete, s3_put
 
 
 # ── Key builder tests ─────────────────────────────────────────────────────────
@@ -95,6 +95,37 @@ async def test_s3_put_sends_auth_header():
 
         with patch("src.lib.s3.make_http_client", return_value=mock_client):
             await s3_put("test/key.txt", b"hello world", "text/plain")
+
+    assert "Authorization" in captured_headers
+    assert captured_headers["Authorization"].startswith("AWS4-HMAC-SHA256 ")
+
+
+@pytest.mark.asyncio
+async def test_s3_delete_sends_auth_header():
+    """s3_delete builds a signed Authorization header (AWS4-HMAC-SHA256)."""
+    captured_headers: dict[str, str] = {}
+
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    async def fake_delete(url, *, headers, **kwargs):
+        captured_headers.update(headers)
+        return mock_resp
+
+    mock_client.delete = fake_delete
+
+    with patch("src.lib.s3.get_settings") as mock_settings:
+        mock_settings.return_value.aws_access_key_id = "AKIAIOSFODNN7EXAMPLE"
+        mock_settings.return_value.aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        mock_settings.return_value.aws_s3_bucket_name = "test-bucket"
+        mock_settings.return_value.aws_region = "ap-south-1"
+
+        with patch("src.lib.s3.make_http_client", return_value=mock_client):
+            await s3_delete("test/key.txt")
 
     assert "Authorization" in captured_headers
     assert captured_headers["Authorization"].startswith("AWS4-HMAC-SHA256 ")
