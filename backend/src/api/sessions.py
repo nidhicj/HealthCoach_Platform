@@ -35,9 +35,14 @@ class SessionOut(BaseModel):
     ended_at: datetime | None
     zoom_meeting_id: str | None
     notes_internal: str | None
+    session_notes: str | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class SessionPatch(BaseModel):
+    session_notes: str | None = None
 
 
 class MomCreate(BaseModel):
@@ -180,6 +185,22 @@ async def end_session(
         sess.ended_at = datetime.now(timezone.utc)
         await db.flush()
         await db.commit()
+    return SessionOut.model_validate(sess)
+
+
+@router.patch("/{session_id}")
+async def patch_session(
+    session_id: UUID,
+    body: SessionPatch,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> SessionOut:
+    sess = await _get_owned_session(db, session_id, hc_id)
+    if body.session_notes is not None:
+        sess.session_notes = body.session_notes
+    await db.flush()
+    await db.commit()
     return SessionOut.model_validate(sess)
 
 
