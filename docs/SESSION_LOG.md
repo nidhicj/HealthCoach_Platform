@@ -4,6 +4,41 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-05-05 — PHASE-05 Part A: HC Cycle Workflows
+
+**Done**:
+
+- Wrote `docs/specs/Unit_001_HcCoreCycle/PHASE-05-hc-cycle-workflows.md` — full 8-section PHASE plan for both Part A and Part B; SoJo confirmed plan before implementation began
+- **A1**: Alembic migration `bb542bec1c52_p5_add_session_notes.py` — adds `sessions.session_notes TEXT` nullable; migration chain: P4 (`95df31e31f5f`) → P5 A1 (`bb542bec1c52`)
+- **A2**: ORM: `session_notes: Mapped[str | None] = mapped_column(Text)` added to `backend/src/db/models/sessions.py`
+- **A3+A4**: `SessionPatch` schema + `PATCH /sessions/{session_id}` endpoint in `backend/src/api/sessions.py`; `SessionOut` extended with `session_notes: str | None`
+- **A5**: `draft_mom` now persists `body.session_notes` to `sessions.session_notes` + `await db.flush()` before LLM call (timeout protection)
+- **A6**: `GET /clients/{client_id}/ast` endpoint in `backend/src/api/clients.py` with `AstOut` + `ActionItemOut` schemas; computes at request time: open/missed items, status_summary (14-day check-ins), triage_flags (missed_action_item, no_recent_checkin, manual_sentiment_flag)
+- **A7**: `generate_brief()` in `backend/src/llm_service/__init__.py` extended with M000 path (session_number==0 → static template, no LLM, llm_call_id=None) and M00N path (full AST + triage computation, server-computed flags not from LLM); added `CHECKIN_TRIAGE_DAYS = 14` and `SENTIMENT_LOOKBACK_DAYS = 30` constants
+- **A8**: `backend/prompts/brief_assemble.md` bumped from v1.0.0 → v1.1.0; added `{{AST_SECTION}}` and `{{TRIAGE_SECTION}}` placeholders
+- **A9**: `docs/diagrams/0002-data-model.md` updated with P4 deltas (clients.code, llm_calls.prompt_text/completion_text) and P5 addition (sessions.session_notes); "MERGE-REQUIRED" banner removed
+- **A10**: 21 integration tests across 4 new files: `test_session_notes.py`, `test_ast_endpoint.py`, `test_brief_extended.py`, `test_mom_workflow.py`
+- **Bug fix**: `client.metadata` → `client.metadata_` (SQLAlchemy column alias) in M000 brief path
+- Total test count: 144 (P4 baseline) → 165 (P5 Part A)
+
+**Decided**:
+- M000 detection: `session.session_number == 0` (not a non-existent `is_first_session` column)
+- M000 brief: `briefs` row still created for idempotency, but `llm_call_id=None`; no `llm_calls` row written
+- Triage flags are server-computed (not from LLM parsed output) — more reliable
+- `Client.metadata_` is the ORM attribute name (maps to `metadata` column) — critical to note for future sessions
+
+**Pending**:
+- SoJo manual verification of Part A (see `docs/VERIFICATION.md` § P5 Part A)
+- Part B (Client File Library: S3, client_files table, file upload/list/delete endpoints, session_notes.txt mirroring, file content injection in LLM prompts, Zoom summary detection) — starts only after Part A is verified
+
+**Context the next session needs**:
+- Part A is NOT verified until SoJo confirms manual steps in VERIFICATION.md § P5 Part A
+- Part B deliverables B1-B12 are specified in `PHASE-05-hc-cycle-workflows.md` §2
+- Key Part B decisions: AWS Sig V4 via stdlib (no boto3, Pyodide incompatibility), synchronous S3 cascade delete at MVP, Zoom snippet exclusion at session level
+- `backend/src/config.py` needs 4 new AWS vars for Part B; `.env.example` also needs updating
+
+---
+
 ## 2026-05-04 — PHASE-04 retroactive write + convention lock-in
 
 **Done**:

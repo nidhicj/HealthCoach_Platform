@@ -4,6 +4,271 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 
 ---
 
+## P5 Part A — HC Cycle Workflows
+
+**Status**: awaiting SoJo manual verification
+
+### Prerequisites
+
+Same as P4. Server running with `.env` populated (no new vars needed for Part A). Run migration first:
+
+```bash
+cd backend
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+alembic upgrade head
+# Expected: applies bb542bec1c52 (p5_add_session_notes) after P4 head
+```
+
+### 1. Automated suite
+
+```bash
+cd backend
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+python -m pytest tests/ -q
+# Expected: 165 passed
+```
+
+- [ ] 165 tests pass (21 new from P5 Part A)
+
+### 2. New routes registered
+
+```bash
+cd backend
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+python -c "
+from src.main import app
+p5 = [r.path for r in app.routes if 'ast' in r.path or ('session' in r.path and 'patch' in str(getattr(r, 'methods', '')))]
+for p in sorted(set(p5)): print(p)
+"
+```
+
+Expected: includes `/api/clients/{client_id}/ast` and `PATCH /api/sessions/{session_id}`
+
+- [ ] `/api/clients/{client_id}/ast` present
+- [ ] `PATCH /api/sessions/{session_id}` present
+
+### 3. Server startup
+
+```bash
+cd backend
+uvicorn src.main:app --reload --port 8000 --env-file ../.env
+```
+
+- [ ] Server starts without import errors
+
+### 4. Setup — HC user, client, sessions
+
+Use the HC user from P4 (or recreate):
+
+```bash
+cd backend
+python scripts/create_hc_user.py
+# run: export HC_JWT=... and export HC_ID=...
+
+# Create client
+curl -s -X POST http://localhost:8000/api/clients \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"full_name": "Priya Sharma"}' | python3 -m json.tool
+export CLIENT_ID=<id>
+
+# Create M00N session (session_number=1)
+curl -s -X POST http://localhost:8000/api/sessions \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d "{\"client_id\":\"$CLIENT_ID\",\"session_number\":1,\"scheduled_at\":\"2026-06-01T10:00:00Z\"}" | python3 -m json.tool
+export SESSION_ID=<id>
+
+# Create M000 session (session_number=0)
+curl -s -X POST http://localhost:8000/api/sessions \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d "{\"client_id\":\"$CLIENT_ID\",\"session_number\":0,\"scheduled_at\":\"2026-05-01T10:00:00Z\"}" | python3 -m json.tool
+export SESSION0_ID=<id>
+```
+
+- [ ] M00N session created (201)
+- [ ] M000 session created (201, session_number=0)
+
+### 5. PATCH /sessions/{id} — session_notes saves and returns
+
+```bash
+# PATCH session_notes
+curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"session_notes": "Client discussed hydration goals. Sleep improved."}' | python3 -m json.tool
+# Expected: 200, session_notes = "Client discussed hydration goals. Sleep improved."
+
+# GET — confirms persistence
+curl -s http://localhost:8000/api/sessions/$SESSION_ID \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected: session_notes = "Client discussed hydration goals. Sleep improved."
+```
+
+- [ ] PATCH returns 200 with session_notes populated
+- [ ] GET returns the same session_notes value (persisted)
+
+### 6. POST /mom/draft — session_notes persisted before LLM call
+
+```bash
+curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/mom/draft \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"session_notes": "Client committed to 2.5L water daily. Meal prep discussed."}' | python3 -m json.tool
+# Expected: 200, draft_text populated, llm_call_id not null
+
+# Verify session_notes persisted
+curl -s http://localhost:8000/api/sessions/$SESSION_ID -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected: session_notes = "Client committed to 2.5L water daily. Meal prep discussed."
+```
+
+- [ ] draft_mom returns 200 with llm_call_id
+- [ ] GET /sessions/{id} shows session_notes from draft request (persisted before LLM)
+
+### 7. GET /clients/{id}/ast — empty and populated
+
+```bash
+# Empty AST (fresh client — no action items, no check-ins)
+curl -s http://localhost:8000/api/clients/$CLIENT_ID/ast \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected: open_items=[], missed_items=[], trend_tags=[], triage_flags includes "no_recent_checkin"
+
+# Create open action item
+curl -s -X POST http://localhost:8000/api/action-items \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d "{\"client_id\":\"$CLIENT_ID\",\"description\":\"Walk 30 min daily\",\"due_date\":\"2026-06-08\"}" | python3 -m json.tool
+export AI_ID=<id>
+
+# AST now shows the open item
+curl -s http://localhost:8000/api/clients/$CLIENT_ID/ast \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected: open_items has "Walk 30 min daily"; missed_items=[]
+
+# Mark item missed
+curl -s -X PATCH http://localhost:8000/api/action-items/$AI_ID \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"status":"missed"}' | python3 -m json.tool
+
+# AST: missed item triggers flag
+curl -s http://localhost:8000/api/clients/$CLIENT_ID/ast \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected: missed_items has 1 item, triage_flags includes "missed_action_item"
+```
+
+- [ ] Empty AST returns correct shape with "no_recent_checkin" flag
+- [ ] Open item appears in open_items
+- [ ] Missed item triggers "missed_action_item" in triage_flags
+
+### 8. GET /sessions/{id}/brief — M000 template path
+
+```bash
+# M000 brief — NO LLM call, static template
+curl -s http://localhost:8000/api/sessions/$SESSION0_ID/brief \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected:
+#   brief_text starts with "M000 PREPARATION BRIEF"
+#   llm_call_id = null
+#   triage_flags = []
+```
+
+- [ ] brief_text contains "M000 PREPARATION BRIEF"
+- [ ] llm_call_id is null (no LLM called)
+
+Verify no llm_calls row was written:
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT COUNT(*) FROM llm_calls WHERE session_id = '$SESSION0_ID';
+"
+# Expected: 0
+```
+
+- [ ] Zero llm_calls rows for M000 session
+
+### 9. GET /sessions/{id}/brief — M00N path with AST in brief_text
+
+```bash
+# First call — generates brief (requires OPENROUTER_API_KEY)
+curl -s http://localhost:8000/api/sessions/$SESSION_ID/brief \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected:
+#   brief_text contains "OPEN ACTION ITEMS" section
+#   triage_flags contains "missed_action_item" (from step 7)
+#   llm_call_id is not null
+#   prompt_version = "1.1.0"
+```
+
+Verify prompt_version:
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT prompt_version, use_case FROM llm_calls
+WHERE session_id = '$SESSION_ID' AND use_case = 'brief_generation';
+"
+# Expected: prompt_version = '1.1.0'
+```
+
+- [ ] brief_text contains open/missed action items
+- [ ] triage_flags contains "missed_action_item"
+- [ ] llm_call_id not null, prompt_version = "1.1.0"
+
+### 10. Migration column check
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = 'sessions' AND column_name = 'session_notes';
+"
+# Expected: session_notes | text | YES
+```
+
+- [ ] sessions.session_notes column exists as TEXT nullable
+
+### 11. Cross-tenant and role checks
+
+```bash
+# Generate second HC JWT
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+python -c "
+import uuid; from src.auth.jwt_utils import create_access_token; from src.config import get_settings
+hc2=str(uuid.uuid4())
+t=create_access_token(sub=hc2,role='hc',hc_id=hc2,private_key=get_settings().jwt_private_key)
+print('export HC2_JWT='+t)"
+# run the export
+
+# Cross-tenant PATCH → 404
+curl -s -o /dev/null -w "%{http_code}" \
+  -X PATCH http://localhost:8000/api/sessions/$SESSION_ID \
+  -H "Authorization: Bearer $HC2_JWT" -H "Content-Type: application/json" \
+  -d '{"session_notes": "steal"}'
+# Expected: 404
+
+# Cross-tenant AST → 404
+curl -s -o /dev/null -w "%{http_code}" \
+  http://localhost:8000/api/clients/$CLIENT_ID/ast \
+  -H "Authorization: Bearer $HC2_JWT"
+# Expected: 404
+```
+
+- [ ] Wrong HC → PATCH session returns 404
+- [ ] Wrong HC → AST returns 404
+
+### Summary table
+
+| Check                                               | Pass | Notes |
+| --------------------------------------------------- | ---- | ----- |
+| 165 automated tests pass                            | [ ]  |       |
+| New routes registered (PATCH session, AST)          | [ ]  |       |
+| Migration applied (sessions.session_notes column)   | [ ]  |       |
+| PATCH /sessions saves + GET returns session_notes   | [ ]  |       |
+| POST /mom/draft persists notes before LLM           | [ ]  |       |
+| AST empty structure correct, no_recent_checkin flag | [ ]  |       |
+| AST open + missed items + triage flag               | [ ]  |       |
+| M000 brief: template text, llm_call_id=null         | [ ]  |       |
+| M000 brief: zero llm_calls rows                     | [ ]  |       |
+| M00N brief: AST + triage in brief_text              | [ ]  |       |
+| Brief prompt_version = "1.1.0"                      | [ ]  |       |
+| Cross-tenant → 404 on PATCH + AST                   | [ ]  |       |
+
+---
+
 ## P4 — LLM Service
 
 **Status**: verified 2026-05-04
