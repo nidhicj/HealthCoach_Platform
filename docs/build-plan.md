@@ -44,6 +44,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 0 — Repo Scaffolding
+**Phase plan**: [`Unit_001_HcCoreCycle/PHASE-00-repo-scaffolding.md`](specs/Unit_001_HcCoreCycle/PHASE-00-repo-scaffolding.md)
 
 **Goal**: Empty but correct repo structure. Worker boots, frontend skeleton boots, local Postgres up. No domain code yet.
 
@@ -74,6 +75,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 1 — Data Layer
+**Phase plan**: [`Unit_001_HcCoreCycle/PHASE-01-data-layer.md`](specs/Unit_001_HcCoreCycle/PHASE-01-data-layer.md)
 
 **Goal**: Every table from the ERD exists in the database. Async session factory works. Migrations are reversible.
 
@@ -101,6 +103,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 2 — Auth Service
+**Phase plan**: [`Unit_001_HcCoreCycle/PHASE-02-auth-service.md`](specs/Unit_001_HcCoreCycle/PHASE-02-auth-service.md)
 
 **Goal**: HC and client can sign in via Google. JWT issued, refresh works, revoke works, protected endpoints enforced.
 
@@ -133,6 +136,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 3 — Domain CRUD
+**Phase plan**: [`Unit_001_HcCoreCycle/PHASE-03-domain-crud.md`](specs/Unit_001_HcCoreCycle/PHASE-03-domain-crud.md)
 
 **Goal**: HC can manage clients, sessions, MOMs (placeholder text), briefs (placeholder text), action items, check-ins. No AI yet — text fields filled manually.
 
@@ -160,6 +164,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 4 — LLM Service
+**Phase plan**: `Unit_001_HcCoreCycle/PHASE-04-llm-service.md` *(P4 complete and verified 2026-05-04; retroactive PHASE file not yet written — write as follow-up)*
 
 **Goal**: AI drafts work end-to-end via OpenRouter. Snippet library captures HC edits. Validation + retry + telemetry all wired.
 
@@ -194,6 +199,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 5 — HC Cycle Workflows
+**Phase plan**: `Unit_001_HcCoreCycle/PHASE-05-hc-cycle-workflows.md` *(write before P5 build sprint begins)*
 
 **Goal**: Pre-session brief generation, MOM workflow, action items lifecycle, triage flags. The actual product loop.
 
@@ -221,6 +227,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 6 — Frontend
+**Phase plan**: `Unit_001_HcCoreCycle/PHASE-06-frontend.md` *(write before P6 build sprint begins)*
 
 **Goal**: HC can do the entire core cycle through the browser.
 
@@ -251,6 +258,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 7 — External Scheduler
+**Phase plan**: `Unit_001_HcCoreCycle/PHASE-07-external-scheduler.md` *(write before P7 build sprint begins)*
 
 **Goal**: Periodic background tasks run via external scheduler hitting Worker endpoints. APScheduler is *not* used (per `ADR-0001` — incompatible with Workers no-threading).
 
@@ -275,6 +283,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 8 — Observability Live
+**Phase plan**: `Unit_001_HcCoreCycle/PHASE-08-observability-live.md` *(write before P8 build sprint begins)*
 
 **Goal**: Errors land in Sentry, structured logs appear in Cloudflare dashboard, `llm_calls` dashboards answer the trigger questions.
 
@@ -305,6 +314,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 9 — Pre-Pilot Smoke Gate
+**Phase plan**: `Unit_001_HcCoreCycle/PHASE-09-pilot-smoke-gate.md` *(write before P9 build sprint begins)*
 
 **Goal**: Production-config Worker proven against real RDS Mumbai + real OpenRouter + real S3 Mumbai. Cloudflare platform features enabled. Pilot HC seeded with snippet examples.
 

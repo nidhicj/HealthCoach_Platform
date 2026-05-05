@@ -102,7 +102,7 @@ Brief: [1 sentence on how this task tempts violation and how I'm guarding agains
 - Lay out the onboarding flow as a sequence of steps (not code)
 - Identify which steps involve personal data and trigger consent capture
 - Identify which steps depend on stack decisions (so we know what's blocked)
-- Propose a spec to write up in `/docs/specs/0001-onboarding.md`
+- Propose a spec to write up in `docs/specs/Unit_001_HcCoreCycle/SPEC-0003-onboarding.md` (or a new unit if onboarding is judged cross-cutting)
 
 **Definition of done for this response**:
 - SoJo has a 6–10 step onboarding sequence to react to
