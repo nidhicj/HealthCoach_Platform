@@ -4,9 +4,288 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 
 ---
 
+## P5 Part B — Client File Library
+
+**Status**: Pending manual verification
+
+### Prerequisites
+
+`.env` must have all four S3 vars set before any file-related step:
+
+```bash
+AWS_ACCESS_KEY_ID=<from IAM>
+AWS_SECRET_ACCESS_KEY=<from IAM>
+AWS_S3_BUCKET_NAME=<bucket in ap-south-1>
+AWS_REGION=ap-south-1
+```
+
+Also requires `OPENROUTER_API_KEY` for prompt-injection checks. Run migrations first:
+
+```bash
+cd backend
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+alembic upgrade head
+# Expected: applies df7c84b2de4f (p5b_add_client_files) after bb542bec1c52
+```
+
+### 1. Automated suite
+
+```bash
+cd backend
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+python -m pytest tests/ -q
+# Expected: 157 passed
+```
+
+- [ ] 157 tests pass (24 new from P5 Part B — no S3 or LLM calls in tests)
+
+### 2. Migration column check
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = 'client_files'
+ORDER BY ordinal_position;
+"
+# Expected: 10 rows — id, session_id, hc_user_id, client_id, original_filename,
+#   storage_path, mime_type, size_bytes, uploaded_at, is_zoom_summary
+```
+
+- [ ] `client_files` table has all 10 columns
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT indexname FROM pg_indexes WHERE tablename = 'client_files';
+"
+# Expected: idx_client_files_session, idx_client_files_hc, idx_client_files_client
+```
+
+- [ ] Three indexes present
+
+### 3. New routes registered
+
+```bash
+cd backend
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+python -c "
+from src.main import app
+for r in app.routes:
+    methods = getattr(r, 'methods', set()) or set()
+    path = getattr(r, 'path', '')
+    if 'files' in path:
+        print(methods, path)
+"
+# Expected:
+#   {'POST'} /api/sessions/{session_id}/files
+#   {'GET'}  /api/sessions/{session_id}/files
+#   {'DELETE'} /api/sessions/{session_id}/files/{file_id}
+```
+
+- [ ] All three file routes present
+
+### 4. Setup — assign client code (required for S3 key builder)
+
+Using the HC user, client, and M00N session from Part A verification (`$HC_JWT`, `$CLIENT_ID`, `$SESSION_ID`):
+
+```bash
+# Assign a client code (required before file upload)
+curl -s -X PATCH http://localhost:8000/api/clients/$CLIENT_ID \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"code": "CP0001"}' | python3 -m json.tool
+# Expected: 200, code = "CP0001"
+```
+
+- [ ] Client code assigned (CP0001)
+
+### 5. POST /sessions//files — upload a file
+
+```bash
+# Upload a plain text file
+curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/files \
+  -H "Authorization: Bearer $HC_JWT" \
+  -F "files=@/tmp/test_note.txt;type=text/plain" | python3 -m json.tool
+# Expected: 201, list with 1 item; is_zoom_summary=false
+
+# Create test_note.txt first if needed:
+echo "Client notes: hydration improving." > /tmp/test_note.txt
+export FILE_ID=<id from response>
+```
+
+- [ ] 201 returned, file row in response with correct mime_type and size_bytes
+- [ ] S3 object exists at `hc-{hc_user_id}/client_session_library/CP0001_Priya_Sharma/2026-06-01_session-01/test_note.txt`
+
+### 6. GET /sessions//files — list files
+
+```bash
+curl -s http://localhost:8000/api/sessions/$SESSION_ID/files \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected: list with 1 item (the uploaded file)
+```
+
+- [ ] Uploaded file appears in list
+
+### 7. PATCH /sessions// — session_notes.txt S3 mirror
+
+```bash
+curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"session_notes": "Session notes for S3 mirror test."}' | python3 -m json.tool
+# Expected: 200
+```
+
+Verify S3 object was created (check AWS console or aws-cli):
+
+```bash
+aws s3 ls s3://$AWS_S3_BUCKET_NAME/hc-$HC_ID/client_session_library/CP0001_Priya_Sharma/2026-06-01_session-01/session_notes.txt
+# Expected: file present with recent timestamp
+```
+
+- [ ] PATCH returns 200
+- [ ] `session_notes.txt` present in S3 at correct path
+- [ ] Content matches patched notes
+
+Second PATCH → S3 overwritten:
+
+```bash
+curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"session_notes": "Updated notes — overwrite test."}' | python3 -m json.tool
+```
+
+- [ ] `session_notes.txt` content updated in S3 (not a second object)
+
+### 8. POST /mom/draft — file content in LLM prompt
+
+```bash
+curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/mom/draft \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"session_notes": "Client file injection test."}' | python3 -m json.tool
+# Expected: 200, draft_text populated
+export MOM_ID=<id from response>
+export LLM_CALL_ID=<llm_call_id from response>
+```
+
+Verify prompt included file content (decrypt prompt_text from DB):
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT pgp_sym_decrypt(prompt_text, '$LLM_CALL_ENCRYPTION_KEY') FROM llm_calls WHERE id = '$LLM_CALL_ID';
+" 2>/dev/null | grep -c "HC's typed notes"
+# Expected: 1 (section present)
+
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT pgp_sym_decrypt(prompt_text, '$LLM_CALL_ENCRYPTION_KEY') FROM llm_calls WHERE id = '$LLM_CALL_ID';
+" 2>/dev/null | grep -c "Uploaded files"
+# Expected: 1 (file section present because test_note.txt was uploaded)
+```
+
+- [ ] draft_text populated
+- [ ] Decrypted prompt_text contains `## HC's typed notes:`
+- [ ] Decrypted prompt_text contains `## Uploaded files:`
+
+### 9. Zoom summary upload — is_zoom_summary auto-detected
+
+```bash
+echo "Zoom AI summary: discussed hydration and sleep." > /tmp/zoom_ai_summary_session01.txt
+
+curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/files \
+  -H "Authorization: Bearer $HC_JWT" \
+  -F "files=@/tmp/zoom_ai_summary_session01.txt;type=text/plain" | python3 -m json.tool
+# Expected: 201, is_zoom_summary=true (auto-detected from filename prefix)
+```
+
+- [ ] `is_zoom_summary=true` returned from upload (filename-based auto-detection)
+
+### 10. Zoom snippet exclusion — PATCH mom final_text with Zoom file present
+
+```bash
+# PATCH mom with a substantial edit (Zoom file present → no snippet)
+DRAFT=$(curl -s http://localhost:8000/api/sessions/$SESSION_ID/mom \
+  -H "Authorization: Bearer $HC_JWT" | python3 -c "import sys,json; print(json.load(sys.stdin)['draft_text'])")
+
+curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID/mom \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d "{\"final_text\": \"$DRAFT HC made excellent progress this session.\", \"status\": \"reviewed\"}" \
+  | python3 -m json.tool
+
+# Check: no snippet created
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT COUNT(*) FROM hc_style_snippets WHERE hc_user_id = '$HC_ID';
+"
+# Expected: 0 (Zoom file suppresses snippet capture)
+```
+
+- [ ] PATCH mom 200 returned
+- [ ] Zero rows in `hc_style_snippets` (Zoom file present → no snippet)
+
+### 11. DELETE /sessions//files/ — removes row and S3 object
+
+```bash
+curl -s -X DELETE http://localhost:8000/api/sessions/$SESSION_ID/files/$FILE_ID \
+  -H "Authorization: Bearer $HC_JWT" -w "\nHTTP %{http_code}"
+# Expected: 204
+
+# GET /files — file gone
+curl -s http://localhost:8000/api/sessions/$SESSION_ID/files \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Expected: list no longer contains $FILE_ID
+```
+
+Verify S3 object deleted:
+
+```bash
+aws s3 ls s3://$AWS_S3_BUCKET_NAME/hc-$HC_ID/client_session_library/CP0001_Priya_Sharma/2026-06-01_session-01/test_note.txt
+# Expected: no output (object gone)
+```
+
+- [ ] DELETE returns 204
+- [ ] File no longer appears in GET /files
+- [ ] S3 object deleted
+
+### 12. Invalid upload checks
+
+```bash
+# Wrong MIME type → 400
+curl -s -o /dev/null -w "%{http_code}" \
+  -X POST http://localhost:8000/api/sessions/$SESSION_ID/files \
+  -H "Authorization: Bearer $HC_JWT" \
+  -F "files=@/tmp/test_note.txt;type=image/png"
+# Expected: 400
+
+# Cross-tenant upload → 404
+curl -s -o /dev/null -w "%{http_code}" \
+  -X POST http://localhost:8000/api/sessions/$SESSION_ID/files \
+  -H "Authorization: Bearer $HC2_JWT" \
+  -F "files=@/tmp/test_note.txt;type=text/plain"
+# Expected: 404
+```
+
+- [ ] Invalid MIME → 400
+- [ ] Cross-tenant → 404
+
+### Summary table
+
+| Check | Pass | Notes |
+|---|---|---|
+| 157 automated tests pass | [ ] | |
+| client_files table — 10 columns + 3 indexes | [ ] | |
+| All 3 file routes registered | [ ] | |
+| Upload file → 201, row in DB, object in S3 | [ ] | |
+| GET /files → uploaded file appears | [ ] | |
+| PATCH session_notes → session_notes.txt in S3 | [ ] | |
+| Second PATCH → S3 overwritten | [ ] | |
+| MOM draft prompt contains HC's typed notes + Uploaded files sections | [ ] | |
+| Zoom filename auto-detect → is_zoom_summary=true | [ ] | |
+| Zoom file present → zero hc_style_snippets after PATCH mom | [ ] | |
+| DELETE → 204, row gone, S3 object gone | [ ] | |
+| Invalid MIME → 400; cross-tenant → 404 | [ ] | |
+
+---
+
 ## P5 Part A — HC Cycle Workflows
 
-**Status**: awaiting SoJo manual verification
+**Status**: Verified on 2026/05/05
 
 ### Prerequisites
 
@@ -48,7 +327,7 @@ for r in app.routes:
 Expected: includes `{'GET'} /api/clients/{client_id}/ast` and `{'PATCH'} /api/sessions/{session_id}`
 
 - [X] `/api/clients/{client_id}/ast` present
-- [ ] `PATCH /api/sessions/{session_id}` present
+- [X] `PATCH /api/sessions/{session_id}` present
 
 ### 3. Server startup
 
@@ -87,8 +366,8 @@ curl -s -X POST http://localhost:8000/api/sessions \
 export SESSION0_ID=<id>
 ```
 
-- [ ] M00N session created (201)
-- [ ] M000 session created (201, session_number=0)
+- [X] M00N session created (201)
+- [X] M000 session created (201, session_number=0)
 
 ### 5. PATCH /sessions/ — session_notes saves and returns
 
@@ -105,8 +384,8 @@ curl -s http://localhost:8000/api/sessions/$SESSION_ID \
 # Expected: session_notes = "Client discussed hydration goals. Sleep improved."
 ```
 
-- [ ] PATCH returns 200 with session_notes populated
-- [ ] GET returns the same session_notes value (persisted)
+- [X] PATCH returns 200 with session_notes populated
+- [X] GET returns the same session_notes value (persisted)
 
 ### 6. POST /mom/draft — session_notes persisted before LLM call
 
@@ -121,8 +400,8 @@ curl -s http://localhost:8000/api/sessions/$SESSION_ID -H "Authorization: Bearer
 # Expected: session_notes = "Client committed to 2.5L water daily. Meal prep discussed."
 ```
 
-- [ ] draft_mom returns 200 with llm_call_id
-- [ ] GET /sessions/{id} shows session_notes from draft request (persisted before LLM)
+- [X] draft_mom returns 200 with llm_call_id
+- [X] GET /sessions/{id} shows session_notes from draft request (persisted before LLM)
 
 ### 7. GET /clients//ast — empty and populated
 
@@ -154,9 +433,9 @@ curl -s http://localhost:8000/api/clients/$CLIENT_ID/ast \
 # Expected: missed_items has 1 item, triage_flags includes "missed_action_item"
 ```
 
-- [ ] Empty AST returns correct shape with "no_recent_checkin" flag
-- [ ] Open item appears in open_items
-- [ ] Missed item triggers "missed_action_item" in triage_flags
+- [X] Empty AST returns correct shape with "no_recent_checkin" flag
+- [X] Open item appears in open_items
+- [X] Missed item triggers "missed_action_item" in triage_flags
 
 ### 8. GET /sessions//brief — M000 template path
 
@@ -170,8 +449,8 @@ curl -s http://localhost:8000/api/sessions/$SESSION0_ID/brief \
 #   triage_flags = []
 ```
 
-- [ ] brief_text contains "M000 PREPARATION BRIEF"
-- [ ] llm_call_id is null (no LLM called)
+- [X] brief_text contains "M000 PREPARATION BRIEF"
+- [X] llm_call_id is null (no LLM called)
 
 Verify no llm_calls row was written:
 
@@ -182,7 +461,7 @@ SELECT COUNT(*) FROM llm_calls WHERE session_id = '$SESSION0_ID';
 # Expected: 0
 ```
 
-- [ ] Zero llm_calls rows for M000 session
+- [X] Zero llm_calls rows for M000 session
 
 ### 9. GET /sessions//brief — M00N path with AST in brief_text
 
@@ -207,9 +486,9 @@ WHERE session_id = '$SESSION_ID' AND use_case = 'brief_generation';
 # Expected: prompt_version = '1.1.0'
 ```
 
-- [ ] brief_text contains open/missed action items
-- [ ] triage_flags contains "missed_action_item"
-- [ ] llm_call_id not null, prompt_version = "1.1.0"
+- [X] brief_text contains open/missed action items
+- [X] triage_flags contains "missed_action_item"
+- [X] llm_call_id not null, prompt_version = "1.1.0"
 
 ### 10. Migration column check
 
@@ -222,7 +501,7 @@ WHERE table_name = 'sessions' AND column_name = 'session_notes';
 # Expected: session_notes | text | YES
 ```
 
-- [ ] sessions.session_notes column exists as TEXT nullable
+- [X] sessions.session_notes column exists as TEXT nullable
 
 ### 11. Cross-tenant and role checks
 
@@ -250,25 +529,25 @@ curl -s -o /dev/null -w "%{http_code}" \
 # Expected: 404
 ```
 
-- [ ] Wrong HC → PATCH session returns 404
-- [ ] Wrong HC → AST returns 404
+- [X] Wrong HC → PATCH session returns 404
+- [X] Wrong HC → AST returns 404
 
 ### Summary table
 
-| Check                                               | Pass | Notes |
-| --------------------------------------------------- | ---- | ----- |
-| 165 automated tests pass                            | [ ]  |       |
-| New routes registered (PATCH session, AST)          | [ ]  |       |
-| Migration applied (sessions.session_notes column)   | [ ]  |       |
-| PATCH /sessions saves + GET returns session_notes   | [ ]  |       |
-| POST /mom/draft persists notes before LLM           | [ ]  |       |
-| AST empty structure correct, no_recent_checkin flag | [ ]  |       |
-| AST open + missed items + triage flag               | [ ]  |       |
-| M000 brief: template text, llm_call_id=null         | [ ]  |       |
-| M000 brief: zero llm_calls rows                     | [ ]  |       |
-| M00N brief: AST + triage in brief_text              | [ ]  |       |
-| Brief prompt_version = "1.1.0"                      | [ ]  |       |
-| Cross-tenant → 404 on PATCH + AST                  | [ ]  |       |
+| Check                                               | Pass  | Notes |
+| --------------------------------------------------- | ----- | ----- |
+| 165 automated tests pass                            | [✅ ] |       |
+| New routes registered (PATCH session, AST)          | [ ✅] |       |
+| Migration applied (sessions.session_notes column)   | [ ✅] |       |
+| PATCH /sessions saves + GET returns session_notes   | [ ✅] |       |
+| POST /mom/draft persists notes before LLM           | [✅ ] |       |
+| AST empty structure correct, no_recent_checkin flag | [ ✅] |       |
+| AST open + missed items + triage flag               | [✅ ] |       |
+| M000 brief: template text, llm_call_id=null         | [ ✅] |       |
+| M000 brief: zero llm_calls rows                     | [ ✅] |       |
+| M00N brief: AST + triage in brief_text              | [ ✅] |       |
+| Brief prompt_version = "1.1.0"                      | [ ✅] |       |
+| Cross-tenant → 404 on PATCH + AST                  | [✅ ] |       |
 
 ---
 

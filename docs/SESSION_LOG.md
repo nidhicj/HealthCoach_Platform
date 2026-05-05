@@ -4,6 +4,54 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-05-05 — PHASE-05 Part B: Client File Library
+
+**Done**:
+
+- **B1**: Added 4 S3 env vars to `backend/src/config.py` (`aws_access_key_id`, `aws_secret_access_key`, `aws_s3_bucket_name`, `aws_region=ap-south-1`) and to `.env.example` with IAM/residency guidance comments
+- **B2**: `backend/src/lib/s3.py` — full AWS Sig V4 client using Python stdlib only (`hmac`, `hashlib`, `datetime`, `urllib.parse`); no boto3; functions: `s3_put`, `s3_get`, `s3_delete`, `s3_exists`, `build_session_file_key`, `_get_session_date_ist`, `_sanitize`; all HTTP via `make_http_client()`
+- **B3**: Alembic migration `df7c84b2de4f_p5b_add_client_files.py` — creates `client_files` table with 10 columns and 3 indexes; `down_revision = "bb542bec1c52"` (P5A head); separate from Part A migration per CLAUDE.md §9
+- **B4**: `backend/src/db/models/files.py` — `ClientFile(Base)` ORM with write-once contract documented in docstring; `storage_path` is bare S3 key; registered in `backend/src/db/models/__init__.py`
+- **B5**: `backend/src/api/files.py` — POST/GET/DELETE on `/api/sessions/{session_id}/files`; multipart upload with MIME allowlist (4 types) + 25 MB size limit; Zoom auto-detection via `zoom_ai_summary_` filename prefix; `client.code is None` → 422; S3 delete failure non-fatal (log + continue); registered in `backend/src/main.py`
+- **B6**: Extended `PATCH /sessions/{session_id}` in `sessions.py` to mirror `session_notes.txt` to S3 after DB commit; S3 failure logs warning and does NOT fail the request; DB is canonical
+- **B7**: `backend/src/lib/file_extraction.py` — `extract_text(content, mime_type)` handles text/plain, text/markdown, PDF (pypdf), DOCX (python-docx with Pyodide fallback); added `pypdf>=4.0` and `python-docx>=1.1` to `pyproject.toml`
+- **B8+B9**: `llm_config.yaml` + `LLMConfig` extended with `file_content_max_tokens_per_file=5000` and `file_content_max_total_tokens=15000`; `get_llm_config()` uses `.get(..., default)` for safe backward compat; `_assemble_file_content_section()` helper in `llm_service/__init__.py` — fetches files from S3, extracts text, applies per-file and aggregate token budgets, returns formatted section + `zoom_present` flag; `generate_mom_draft()` and `generate_brief()` updated to assemble `## HC's typed notes:` + `## Uploaded files:` user message
+- **Zoom snippet gate**: `patch_mom` in `sessions.py` now queries for `is_zoom_summary=True` files before calling `capture()`; if any Zoom file exists for the session, snippet capture is suppressed entirely
+- **B10**: `docs/domain/glossary.md` updated with session_notes, session_notes.txt (S3 mirror), client_files, is_zoom_summary entries in a new "Session data terms" section
+- **B12**: 24 integration tests across 5 files: `test_s3_client.py` (S3 Sig V4 signing for put + delete, key builder, sanitization), `test_file_upload.py` (single/multi upload, 25 MB limit, MIME validation, cross-tenant, DELETE idempotency, S3 delete failure resilience, Zoom filename auto-detect), `test_session_notes_mirror.py` (S3 put called with correct key/content, overwrite, S3 failure non-fatal), `test_file_prompt_injection.py` (notes+files in user_message, notes-only, per-file truncation, aggregate budget truncation, Zoom file in LLM), `test_zoom_snippet_exclusion.py` (Zoom suppresses snippet, non-Zoom allows snippet, no files allows snippet)
+- **Docs**: `docs/VERIFICATION.md` — added P5 Part B manual verification checklist (12 steps, summary table)
+- Total test count: 157 (133 pre-P5B baseline → 157)
+
+**Decided** (all recorded in PHASE-05 §3):
+- AWS Sig V4 via stdlib (no boto3 — Pyodide incompatible)
+- Single bucket, per-HC prefix isolation (`hc-{uuid}/client_session_library/...`)
+- File content fetched from S3 at prompt-assembly time (not stored in DB)
+- Zoom snippet exclusion at session level (any Zoom file = all snippet capture suppressed for that session)
+- S3 cascade delete is synchronous at MVP (async sweep deferred to P7)
+- python-docx Pyodide failure returns empty string + warning (acceptable at MVP)
+
+**Key implementation bugs caught and fixed during review**:
+- `_get_owned_session` in first draft of `files.py` was missing `deleted_at.is_(None)` filter (data integrity) — fixed by importing from `sessions.py`
+- `logger.warning()` → `logger.warn()` (BoundLogger has no `warning` method — would raise AttributeError)
+- Logger structured kwargs used `extra={...}` dict instead of flat `**kwargs` — fixed to flat style
+- `extract_text()` was outside the `try` block in `_assemble_file_content_section` — corrupt files would crash LLM call; fixed by moving into try
+- Negative `remaining_budget` (cumulative overrun) → `text[:-n]` silently admitted too much content; fixed with `max(0, ...)` + `break`
+
+**Pending**:
+- SoJo manual verification of Part B (see `docs/VERIFICATION.md` § P5 Part B)
+- P6: Frontend UI (coach-facing) — connects to all P5 endpoints
+
+**Context the next session needs**:
+- Part B is NOT verified until SoJo confirms manual steps in VERIFICATION.md § P5 Part B
+- S3 must be configured in `.env` for manual verification (4 vars: aws_access_key_id, aws_secret_access_key, aws_s3_bucket_name, aws_region)
+- `client.code` must be set on the client record before file upload (API returns 422 if None)
+- `build_session_file_key()` in `src/lib/s3.py` is the single source of truth for all S3 paths — never construct paths elsewhere
+- `session_notes.txt` is always a mirror (never read back by the system); DB column is canonical
+- The `_get_session_date_ist()` function in `s3.py` is technically private but is imported by `files.py` and `sessions.py` — rename to public in a follow-up
+- TODO (P7): async S3 orphan cleanup sweep; auto-flag missed action items on due_date; s3_presign_get() for frontend file display
+
+---
+
 ## 2026-05-05 — PHASE-05 Part A: HC Cycle Workflows
 
 **Done**:
