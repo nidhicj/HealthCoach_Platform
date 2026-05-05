@@ -10,6 +10,13 @@ from src.db.base import Base
 
 
 class ClientFile(Base):
+    """Per-session file uploaded by the HC to S3.
+
+    storage_path: bare S3 key (e.g. hc-{uuid}/client_session_library/CP0001_Name/2026-05-05_session-01/report.pdf).
+    Files are write-once after upload — no updated_at column is intentional.
+    is_zoom_summary: when True the file is a Zoom AI Companion summary and is excluded from HC style-snippet learning.
+    """
+
     __tablename__ = "client_files"
     __table_args__ = (
         Index("idx_client_files_session", "session_id"),
