@@ -3,13 +3,15 @@ from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, field_validator
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
 from src.db.models import Brief, Client, Mom, Session
+from src.lib.s3 import _get_session_date_ist, build_session_file_key, s3_put
+from src.telemetry.log import get_logger
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -192,6 +194,7 @@ async def end_session(
 async def patch_session(
     session_id: UUID,
     body: SessionPatch,
+    request: Request,
     claims: HcClaimsDep,
     hc_id: TenantDep,
     db: DbDep,
@@ -201,6 +204,27 @@ async def patch_session(
         sess.session_notes = body.session_notes
     await db.flush()
     await db.commit()
+
+    # Mirror session_notes to S3 after successful DB commit (S3 is read-only mirror; DB is canonical)
+    if body.session_notes is not None and sess.session_notes is not None:
+        client = (await db.execute(
+            select(Client).where(Client.id == sess.client_id)
+        )).scalar_one_or_none()
+        if client is not None and client.code is not None:
+            key = build_session_file_key(
+                hc_user_id=UUID(hc_id),
+                client_code=client.code,
+                client_full_name=client.full_name,
+                session_date=_get_session_date_ist(sess.scheduled_at),
+                session_number=sess.session_number,
+                filename="session_notes.txt",
+            )
+            try:
+                await s3_put(key, sess.session_notes.encode("utf-8"), "text/plain")
+            except Exception as exc:
+                logger = get_logger(request_id=getattr(request.state, "request_id", ""))
+                logger.warn("session_notes_s3_mirror_failed", session_id=str(session_id), error=str(exc))
+
     return SessionOut.model_validate(sess)
 
 
