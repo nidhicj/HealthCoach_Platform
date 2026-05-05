@@ -4,6 +4,375 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 
 ---
 
+## P4 — LLM Service
+
+**Status**: verified 2026-05-04
+
+### Prerequisites
+
+`.env` must have both keys set before any LLM-dependent step:
+
+```bash
+OPENROUTER_API_KEY=<your key from openrouter.ai>
+LLM_CALL_ENCRYPTION_KEY=<run: openssl rand -base64 32>
+```
+
+### 1. Automated suite
+
+```bash
+cd backend
+PYTHONPATH=. .venv/bin/pytest -v
+# Expected: 144 passed
+```
+
+- [X] 144 tests pass
+
+### 2. New routes registered
+
+```bash
+cd backend
+PYTHONPATH=. .venv/bin/python3 -c "
+from src.main import app
+p4 = [r.path for r in app.routes if 'draft' in r.path or 'brief' in r.path]
+for p in sorted(set(p4)): print(p)
+"
+```
+
+Expected output includes:
+`/api/sessions/{session_id}/brief`
+`/api/sessions/{session_id}/mom/draft`
+
+- [X] Both routes present
+
+### 3. Server startup
+
+```bash
+cd backend
+.venv/bin/uvicorn src.main:app --reload --port 8000 --env-file ../.env
+```
+
+- [X] Server starts without import errors
+
+### 4. Setup — HC user, client, session
+
+Run the printed export commands after each step.
+
+```bash
+# HC user (reuse from P3 if still in DB)
+PYTHONPATH=. .venv/bin/python3 scripts/create_hc_user.py
+# run: export HC_JWT=... and export HC_ID=...
+
+# Create client
+curl -s -X POST http://localhost:8000/api/clients \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"full_name": "Priya Sharma"}' | python3 -m json.tool
+export CLIENT_ID=<id>
+
+# Create session
+curl -s -X POST http://localhost:8000/api/sessions \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d "{\"client_id\":\"$CLIENT_ID\",\"session_number\":1,\"scheduled_at\":\"2026-06-01T10:00:00Z\"}" | python3 -m json.tool
+export SESSION_ID=<id>
+```
+
+- [X] Client created with `code` field set (e.g. `"CP0001"`)
+- [X] Session created (201)
+
+### 5. POST /mom/draft — AI draft generation
+
+```bash
+curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/mom/draft \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"session_notes": "Client discussed hydration goals. Committed to 2.5L daily. Sleep improved from 10pm to 9:30pm."}' \
+  | python3 -m json.tool
+```
+
+Expected:
+
+- `status = "draft"`
+- `draft_text` contains structured MOM text (SUMMARY, ACTION ITEMS, etc.) — not empty JSON
+- `llm_call_id` is a UUID (not null)
+
+```bash
+export MOM_LLM_CALL_ID=<llm_call_id from response>
+```
+
+- [X] `status = "draft"`
+- [X] `draft_text` is human-readable structured text
+- [X] `llm_call_id` is not null
+
+### 6. Verify `llm_calls` row
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT use_case, model_requested, model_served, fallback_count,
+       input_tokens, output_tokens, latency_ms, validation_failed,
+       prompt_version, snippet_count
+FROM llm_calls WHERE id = '$MOM_LLM_CALL_ID';
+"
+```
+
+Expected:
+
+- `use_case = 'mom_generation'`
+- `model_requested = 'meta-llama/llama-3.3-70b-instruct:free'`
+- `model_served` is a non-null slug
+- `validation_failed = false`
+- `input_tokens > 0`, `output_tokens > 0`, `latency_ms > 0`
+- `prompt_version = '1.0.0'`
+
+- [X] `use_case = 'mom_generation'`
+- [X] `model_served` non-null
+- [X] `validation_failed = false`
+- [X] Token counts and latency populated
+
+### 7. Verify `prompt_text` is encrypted (not plain text)
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT length(prompt_text), left(encode(prompt_text, 'hex'), 8) AS hex_prefix
+FROM llm_calls WHERE id = '$MOM_LLM_CALL_ID';
+"
+# hex_prefix should start with 'c30d04' (OpenPGP binary format magic bytes)
+# NOT '596f7520' ('You ' in hex — the plaintext start of the system prompt)
+```
+
+- [X] `prompt_text` is binary (PGP prefix `c30d04...`) — not plain text
+
+### 7a. Verify `prompt_text` and `completion_text` decrypt correctly
+
+```bash
+# Load the encryption key from .env (source it or substitute inline)
+source ../.env   # sets $LLM_CALL_ENCRYPTION_KEY in current shell
+
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT
+  pgp_sym_decrypt(prompt_text, '$LLM_CALL_ENCRYPTION_KEY') AS decrypted_prompt,
+  pgp_sym_decrypt(completion_text, '$LLM_CALL_ENCRYPTION_KEY') AS decrypted_completion
+FROM llm_calls WHERE id = '$MOM_LLM_CALL_ID';
+"
+```
+
+Expected:
+
+- `decrypted_prompt` is readable plain text starting with `"You are an expert health coach assistant..."`
+- `decrypted_completion` is the raw JSON string the LLM returned (should start with `{` and contain keys like `"summary"`, `"key_discussion_points"`, etc.)
+
+Then verify that error-path rows (where no LLM response arrived) store NULL — not encrypted empty string:
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT id, model_served,
+  (prompt_text IS NULL) AS prompt_null,
+  (completion_text IS NULL) AS completion_null
+FROM llm_calls WHERE model_served IS NULL LIMIT 3;
+"
+# Expected: prompt_null = t, completion_null = t for rows where the HTTP call failed
+# (success rows have model_served NOT NULL and both columns non-null)
+```
+
+- [X] `decrypted_prompt` starts with `"You are an expert health coach assistant"`
+- [X] `decrypted_completion` is valid JSON with MOM keys
+- [X] Error-path rows (model_served IS NULL) have NULL for both encrypted columns — skip if 0 rows (means all calls in dev DB succeeded; the 503 path was verified live during P4)
+
+### 8. Re-draft overwrites MOM (idempotent)
+
+```bash
+curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/mom/draft \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"session_notes": "Second take — client also mentioned meal prep challenges."}' \
+  | python3 -m json.tool
+```
+
+Expected: same session_id, new `llm_call_id`, `final_text = null`, `draft_text` reflects second call.
+
+- [X] Re-draft succeeds (200, not 409)
+- [X] `llm_call_id` changed to new value
+- [X] `final_text` is null
+
+### 9. PATCH /mom with AI draft → snippet captured
+
+```bash
+curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID/mom \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"final_text": "Priya CP0001 made excellent progress. She committed to drinking 2.5L of water daily using a tracking bottle. Sleep moved from 10pm to 9:30pm — encourage maintaining this schedule. Next session: review meal prep strategies."}' \
+  | python3 -m json.tool
+```
+
+Then verify snippet was captured:
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT snippet_type, left(hc_modified_text, 60) AS preview, client_id
+FROM hc_style_snippets WHERE hc_user_id = '$HC_ID'
+ORDER BY created_at DESC LIMIT 5;
+"
+```
+
+Expected: at least one row with `snippet_type = 'edit'`, `client_id` = `$CLIENT_ID`.
+
+- [X] `hc_style_snippets` row created with `snippet_type = 'edit'`
+- [X] `client_id` matches the session's client
+
+### 10. GET /brief — generates and caches
+
+```bash
+# First call — generates
+curl -s http://localhost:8000/api/sessions/$SESSION_ID/brief \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+# Second call — must return same brief_text (cached — no second LLM call)
+curl -s http://localhost:8000/api/sessions/$SESSION_ID/brief \
+  -H "Authorization: Bearer $HC_JWT" | python3 -m json.tool
+```
+
+Then check only one `llm_calls` row for brief:
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT COUNT(*) FROM llm_calls
+WHERE use_case = 'brief_generation' AND session_id = '$SESSION_ID';
+"
+# Expected: 1 (not 2)
+```
+
+- [X] Brief returned on first call (200)
+- [X] Second call returns identical `brief_text`
+- [X] Exactly 1 `llm_calls` row for `brief_generation`
+
+### 11. Snippet injection — second draft includes style examples
+
+Create a second session (so the snippet from step 9 is available) and request a draft. In the server logs, look for `DEBUG` lines mentioning snippets.
+
+```bash
+# Create second session
+curl -s -X POST http://localhost:8000/api/sessions \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d "{\"client_id\":\"$CLIENT_ID\",\"session_number\":2,\"scheduled_at\":\"2026-06-15T10:00:00Z\"}" | python3 -m json.tool
+export SESSION2_ID=<id>
+
+curl -s -X POST http://localhost:8000/api/sessions/$SESSION2_ID/mom/draft \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"session_notes": "Reviewed meal prep. Client has been consistent with water."}' \
+  | python3 -m json.tool
+```
+
+Then check `snippet_count > 0` in `llm_calls`:
+
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT snippet_count, snippet_tokens FROM llm_calls
+WHERE use_case = 'mom_generation'
+ORDER BY created_at DESC LIMIT 1;
+"
+# Expected: snippet_count >= 1, snippet_tokens > 0
+```
+
+- [X] `snippet_count > 0` in llm_calls row for second session draft
+
+### 12. Manual MOM — no snippet on PATCH
+
+```bash
+# New session, manual MOM (no AI draft)
+curl -s -X POST http://localhost:8000/api/sessions \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d "{\"client_id\":\"$CLIENT_ID\",\"session_number\":3,\"scheduled_at\":\"2026-07-01T10:00:00Z\"}" | python3 -m json.tool
+export SESSION3_ID=<id>
+
+curl -s -X POST http://localhost:8000/api/sessions/$SESSION3_ID/mom \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"draft_text": "I typed this myself."}' | python3 -m json.tool
+
+count_before=$(psql -t postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev \
+  -c "SELECT COUNT(*) FROM hc_style_snippets WHERE hc_user_id = '$HC_ID';")
+
+curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION3_ID/mom \
+  -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
+  -d '{"final_text": "I edited this significantly — many new words added here for the review."}' | python3 -m json.tool
+
+count_after=$(psql -t postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev \
+  -c "SELECT COUNT(*) FROM hc_style_snippets WHERE hc_user_id = '$HC_ID';")
+
+echo "Before: $count_before | After: $count_after  (should be equal)"
+```
+
+- [X] Snippet count unchanged after patching a manual MOM
+
+### 13. Wrong HC → 404
+
+```bash
+PYTHONPATH=. .venv/bin/python3 -c "
+import uuid; from src.auth.jwt_utils import create_access_token; from src.config import get_settings
+hc2=str(uuid.uuid4())
+t=create_access_token(sub=hc2,role='hc',hc_id=hc2,private_key=get_settings().jwt_private_key)
+print('export HC2_JWT='+t)"
+# run the export, then:
+curl -s -o /dev/null -w "%{http_code}" \
+  -X POST http://localhost:8000/api/sessions/$SESSION_ID/mom/draft \
+  -H "Authorization: Bearer $HC2_JWT" -H "Content-Type: application/json" \
+  -d '{"session_notes": "..."}'
+# Expected: 404
+```
+
+- [X] Wrong HC → 404
+
+### 14. Prompt version bump → reflected in `llm_calls` *(one-time structural check)*
+
+> **Why this exists**: verifies that `llm_calls.prompt_version` is config-driven (YAML frontmatter), not hardcoded. Run once when first verifying P4; re-run only if `src/llm_service/prompts.py` is modified. Skip on routine re-verification.
+
+```bash
+# Edit backend/prompts/mom_draft.md — change version: "1.0.0" to "1.0.1"
+# Restart uvicorn (Ctrl-C and rerun)
+# Make one more POST /mom/draft call
+# Then:
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+SELECT prompt_version FROM llm_calls WHERE use_case = 'mom_generation'
+ORDER BY created_at DESC LIMIT 1;
+"
+
+# Expected: 1.0.1
+# Revert: change version back to "1.0.0" and restart
+```
+
+- [X] Prompt version change visible in `llm_calls.prompt_version` without code change
+
+### 15. Grep hygiene
+
+```bash
+cd backend
+
+# No direct AsyncClient outside the factory
+grep -r "httpx.AsyncClient(" src/ | grep -v "lib/http.py"
+# Expected: no output
+
+# Model slugs only in YAML — not in Python source
+grep -rn "llama-3.3\|gemma-3\|nemotron\|gpt-oss" src/ --include="*.py"
+# Expected: no output
+```
+
+- [X] No raw httpx.AsyncClient usage outside lib/http.py
+- [X] Model slugs only in llm_config.yaml
+
+### Summary table
+
+| Check                                                     | Pass | Notes |
+| --------------------------------------------------------- | ---- | ----- |
+| 144 automated tests pass                                  | ✅   |       |
+| `/mom/draft` route registered                           | ✅   |       |
+| POST /mom/draft → AI draft_text + llm_call_id            | ✅   |       |
+| llm_calls row: all fields populated                       | ✅   |       |
+| prompt_text encrypted (PGP binary)                        | ✅   |       |
+| prompt/completion decryptable, error rows NULL            | ✅   |       |
+| Re-draft overwrites MOM, clears final_text                | ✅   |       |
+| PATCH with AI draft → snippet captured                   | ✅   |       |
+| GET /brief generates + caches (1 llm_calls row)           | ✅   |       |
+| Second session draft injects snippets (snippet_count > 0) | ✅   |       |
+| Manual MOM PATCH → no snippet                            | ✅   |       |
+| Wrong HC → 404                                           | ✅   |       |
+| Prompt version bump visible in llm_calls                  | ✅   |       |
+| Grep hygiene (httpx, model slugs)                         | ✅   |       |
+
+---
+
 ## P3 — Domain CRUD + Client OAuth ✅
 
 **Status**: verified 2026-05-02

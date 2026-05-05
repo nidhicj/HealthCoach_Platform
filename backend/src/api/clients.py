@@ -7,7 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, field_validator
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, text
 
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
 from src.config import get_settings
@@ -79,6 +79,18 @@ async def create_client(
     hc_id: TenantDep,
     db: DbDep,
 ) -> ClientOut:
+    # Compute next CP<NNNN> code for this HC. UNIQUE constraint on (hc_user_id, code)
+    # guards against concurrent races at the DB level.
+    result = await db.execute(
+        text(
+            "SELECT COALESCE(MAX(CAST(SUBSTRING(code FROM 3) AS INTEGER)), 0) + 1 "
+            "FROM clients WHERE hc_user_id = :hc_id AND code LIKE 'CP%'"
+        ),
+        {"hc_id": hc_id},
+    )
+    next_num: int = result.scalar() or 1
+    code = f"CP{next_num:04d}"
+
     client = Client(
         hc_user_id=UUID(hc_id),
         full_name=body.full_name,
@@ -89,6 +101,7 @@ async def create_client(
         course_start_date=body.course_start_date,
         course_end_date=body.course_end_date,
         course_goal=body.course_goal,
+        code=code,
     )
     db.add(client)
     await db.flush()

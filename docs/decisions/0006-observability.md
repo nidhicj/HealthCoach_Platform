@@ -132,7 +132,7 @@ Personal data that **must never** appear in Sentry or Cloudflare Logs:
 | Full name                                                   | Direct identifier                       | Same                                                                                                                                                                             |
 | `users.id` (UUID)                                         | Indirect — but only meaningful with DB | OK to log (it's an opaque UUID; resolving to a person requires DB access which is auth-gated)                                                                                    |
 | `hc_id` (UUID)                                            | Same                                    | OK to log                                                                                                                                                                        |
-| Session transcript content                                  | Health disclosures                      | **Never** logged. LLM input/output text fields in `llm_calls` are stored, but truncated to 200-char preview in any log line                                              |
+| Session transcript content                                  | Health disclosures                      | **Never** logged. Prompt and completion text are stored in `llm_calls.prompt_text` and `llm_calls.completion_text` per §5 below — pseudonymized at assembly (clients referenced by `clients.code`, e.g. `CP0001`, never by name/email/phone), encrypted at rest via `pgcrypto`, and never written to any log line in any form (not even truncated previews)  |
 | Snippet content (`hc_style_snippets.original_text`, etc.) | HC's voice, may contain client info     | Never logged. References by `id` only                                                                                                                                          |
 | MOM content                                                 | Health summary                          | Never logged. References by `id` only                                                                                                                                          |
 | JWT tokens (any)                                            | Credential                              | Never logged. Header values containing `Authorization` are stripped                                                                                                            |
@@ -145,7 +145,7 @@ Personal data that **must never** appear in Sentry or Cloudflare Logs:
 - Sentry's `before_send` and `before_breadcrumb`
 - A wrapper around the JSON logger that runs every log line through `scrub` before emission
 
-The function uses (a) a denylist of known-PII keys (`email`, `phone`, `name`, `password`, `token`, `secret`, `authorization`, `cookie`, `transcript`, `mom_content`, `snippet_content`, `original_text`, `hc_modified_text`), (b) a regex for email-like patterns, (c) a regex for things that look like JWTs (`eyJ...`), (d) IP truncation.
+The function uses (a) a denylist of known-PII keys (`email`, `phone`, `name`, `password`, `token`, `secret`, `authorization`, `cookie`, `transcript`, `mom_content`, `snippet_content`, `original_text`, `hc_modified_text`, `prompt_text`, `completion_text`), (b) a regex for email-like patterns, (c) a regex for things that look like JWTs (`eyJ...`), (d) IP truncation.
 
 **Verification (per build-plan P8 acceptance criteria)**:
 
@@ -180,7 +180,15 @@ Schema is in ADR-0003 §4 and `diagrams/0002-data-model.md`. This ADR specifies 
 7. On chain fallback: increments `fallback_count`, retries with next model
 8. Writes the row
 
-**Critical: never write the prompt or response text into `llm_calls`** — this is per ADR-0003 (the prompt is in source control by version; the response is in `moms.content` or wherever it lands). `llm_calls` is metadata only.
+**Prompt and completion text storage in `llm_calls`** — amended 2026-05-04 (see Changelog). The original rule ("never write the prompt or response text into `llm_calls`") is superseded. Prompt text and completion text **are** written to `llm_calls.prompt_text` and `llm_calls.completion_text` under three non-negotiable protections:
+
+1. **Pseudonymization at prompt assembly.** Every prompt template references clients by `clients.code` (the per-HC `CP<NNNN>` identifier), never by `clients.full_name`, email, or phone. The prompt-assembly module is the single chokepoint where this is enforced. Templates that interpolate identifying fields are a defect; a unit test asserts no client-name strings (regex: capitalized words matching live `clients.full_name` values) appear in any stored `prompt_text` row. The mapping `code → identity` lives only in the `clients` table, tenant-scoped per ADR-0005.
+2. **Column-level encryption at rest.** Both columns use PostgreSQL `pgcrypto` (`pgp_sym_encrypt` / `pgp_sym_decrypt`) with a single platform-wide key referenced by env var `LLM_CALL_ENCRYPTION_KEY`. Backups, replicas, and any disclosure short of the running app cannot read the content without the key. Key rotation is out of scope for P4 — defer.
+3. **Tenant scoping on all reads.** Same pattern as P3 domain reads: every query that decrypts `prompt_text` or `completion_text` filters by `hc_id` from the JWT. Cross-tenant decryption is impossible by construction. A failing integration test must demonstrate that HC2 cannot decrypt HC1's `llm_calls` rows.
+
+**Why amended**: the original rule assumed prompt/completion text was recoverable from prompt files (in git) and `moms.draft_text`. In practice, the deployed prompt is template + injected snippets + injected client context, where the injected pieces are not preserved anywhere; and `moms.draft_text` is overwritten by HC edits, destroying the original LLM output. Without storing both, "the AI is acting weird" complaints from HCs are not diagnosable. Product credibility with HCs requires this debuggability; the three protections above keep DPDP scope manageable while preserving it. See ADR-0006 Changelog 2026-05-04 for the full rationale.
+
+**Critical: never log the prompt or completion text** — neither truncated previews nor full text appear in Sentry events, breadcrumbs, or Cloudflare Workers Logs. The `scrub()` denylist (§3) explicitly includes `prompt_text` and `completion_text` keys. The storage protections above apply only to the `llm_calls` table; logs remain content-free.
 
 ### 6. Sampling
 
@@ -308,8 +316,9 @@ These are exercised at P8 (acceptance criterion: "Run all 5 dashboard SQL querie
 ### Required follow-on actions (after Acceptance)
 
 1. **Update `domain/compliance-india.md`** to reference this ADR's PII redaction approach as the technical implementation of DPDP "data minimization" in observability.
-2. **Add a unit test** for `scrub()` that asserts every PII field type (email, phone, JWT, transcript, snippet, IP) is correctly redacted on a fixture event.
-3. **No data model changes** — `llm_calls` and `audit_log` schemas are already in `diagrams/0002-data-model.md`.
+2. **Add a unit test** for `scrub()` that asserts every PII field type (email, phone, JWT, transcript, snippet, IP, `prompt_text`, `completion_text`) is correctly redacted on a fixture event.
+3. **Data model changes required (added 2026-05-04 amendment)** — `llm_calls` gains two encrypted columns (`prompt_text`, `completion_text`); `clients` gains a `code` column (per-HC `CP<NNNN>` sequence). Both land in P4 via Alembic migration. Schema delta and rationale are in ADR-0003 §4 (amended same date). Update `diagrams/0002-data-model.md` to reflect the new columns.
+4. **Cross-tenant decryption test** (added 2026-05-04 amendment) — an integration test must demonstrate that HC2's JWT cannot decrypt HC1's `llm_calls.prompt_text` / `completion_text`, even given direct API access to those rows. This is the single test that proves the third protection (tenant-scoped reads).
 
 ---
 
@@ -332,3 +341,4 @@ These are exercised at P8 (acceptance criterion: "Run all 5 dashboard SQL querie
 | Date       | Change         | Reason                                                     |
 | ---------- | -------------- | ---------------------------------------------------------- |
 | 2026-04-29 | Initial draft. | Required by build-plan P8; defines observability strategy. |
+| 2026-05-04 | Amendment: prompt and completion text **are** stored in `llm_calls.prompt_text` / `llm_calls.completion_text`, with three protections — pseudonymization at assembly (clients referenced by `clients.code`, never by name), column-level encryption via `pgcrypto`, tenant-scoped reads. Supersedes the §5 "never write the prompt or response text into `llm_calls`" rule and resolves the contradiction with §3 line 135. `scrub()` denylist extended with `prompt_text` and `completion_text` (these are stored, never logged). Required follow-on actions updated: data model changes are now required (see ADR-0003 §4 amendment, same date). | SoJo decision after weighing product-credibility-with-HCs against DPDP-scope. The original rule made "AI is acting weird" complaints undiagnosable because (a) deployed prompt = template + dynamic injections that aren't preserved elsewhere, (b) `moms.draft_text` is overwritten by HC edits, destroying the original LLM output. Pseudonymization + encryption + tenant scoping keep DPDP scope acceptable while restoring debuggability. |

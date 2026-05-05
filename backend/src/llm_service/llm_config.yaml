@@ -1,0 +1,31 @@
+# llm_config.yaml — LLM service configuration
+# Edit this file to change model chain, budgets, or thresholds.
+# Changes take effect after app restart.
+#
+# Model chain: primary model tried first. OpenRouter falls back through
+# the list automatically on upstream throttling or model errors.
+# All slugs must be valid OpenRouter model IDs (check openrouter.ai/models).
+
+# OpenRouter limits the models array to 3 items maximum.
+model_chain:
+  - meta-llama/llama-3.3-70b-instruct:free   # primary
+  - google/gemma-3-27b-it:free               # fallback 1
+  - nvidia/nemotron-3-super-120b-a12b:free   # fallback 2 (262K context)
+
+# Reasoning escape hatch — NOT in the automatic chain.
+# Called explicitly for tasks needing step-by-step reasoning.
+reasoning_model: deepseek/deepseek-r1
+
+# OpenRouter headers injected on every call (privacy per ADR-0001)
+no_training_header: true
+no_retention_header: true
+
+# Snippet selection settings (Decision A — Option C hybrid)
+snippet_pool_size: 25             # pool of N most-recent by created_at
+snippet_diff_threshold: 5         # min chars for an edit to become a snippet
+snippet_whitespace_filter: true   # ignore whitespace-only diffs
+snippet_token_budget: 2000        # max tokens of snippets injected per prompt
+snippet_max_count: 10             # upper bound on snippet count regardless of budget
+
+# Validation
+validation_retry_count: 1         # retries on Pydantic validation failure

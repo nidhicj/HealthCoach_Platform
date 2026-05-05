@@ -39,7 +39,7 @@ import src.db.models  # noqa: F401 — registers all models with Base.metadata
 from src.auth.jwt_utils import create_access_token
 from src.config import get_settings
 from src.db.base import Base
-from src.db.models import Client, User
+from src.db.models import Client, Session, User
 
 
 # ── engine (session-scoped: schema created once per pytest session) ────────────
@@ -184,3 +184,22 @@ async def client_rec(db: AsyncSession, hc_user: User, client_user: User) -> Clie
 def client_headers(hc_user: User, client_user: User) -> dict[str, str]:
     """JWT with role=client, sub=client_user.id, hc_id=hc_user.id."""
     return auth_headers(client_user.id, "client", hc_id=str(hc_user.id))
+
+
+# ── Session fixture ────────────────────────────────────────────────────────────
+
+
+@pytest_asyncio.fixture()
+async def session_id(db: AsyncSession, hc_user: User, client_rec: Client) -> UUID:
+    """A session belonging to hc_user / client_rec. Returns the session UUID."""
+    from datetime import datetime, timezone
+
+    sess = Session(
+        hc_user_id=hc_user.id,
+        client_id=client_rec.id,
+        session_number=1,
+        scheduled_at=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+    )
+    db.add(sess)
+    await db.flush()
+    return sess.id

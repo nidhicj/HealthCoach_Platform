@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     api_base_url: str = "http://localhost:8000"
     openrouter_api_key: str = ""
+    llm_call_encryption_key: str = ""
 
     sentry_dsn: str = ""
     app_env: str = "dev"

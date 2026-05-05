@@ -44,6 +44,10 @@ class MomCreate(BaseModel):
     draft_text: str
 
 
+class MomDraftRequest(BaseModel):
+    session_notes: str
+
+
 class MomPatch(BaseModel):
     draft_text: str | None = None
     final_text: str | None = None
@@ -64,6 +68,7 @@ class MomOut(BaseModel):
     draft_text: str
     final_text: str | None
     status: str
+    llm_call_id: UUID | None = None
     sent_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -77,6 +82,7 @@ class BriefOut(BaseModel):
     client_id: UUID
     brief_text: str
     triage_flags: list[str] | None
+    llm_call_id: UUID | None = None
     generated_at: datetime
 
     model_config = {"from_attributes": True}
@@ -184,16 +190,82 @@ async def get_brief(
     hc_id: TenantDep,
     db: DbDep,
 ) -> BriefOut:
-    await _get_owned_session(db, session_id, hc_id)  # ownership check
+    sess = await _get_owned_session(db, session_id, hc_id)
+
     brief = (await db.execute(
         select(Brief).where(Brief.session_id == session_id)
     )).scalar_one_or_none()
-    if brief is None:
-        raise HTTPException(status_code=404, detail="Brief not found (generation is P5)")
+
+    if brief is not None:
+        return BriefOut.model_validate(brief)
+
+    from src.llm_service import generate_brief
+    brief_text, triage_flags, llm_call_id = await generate_brief(
+        db,
+        session_id=session_id,
+        hc_user_id=UUID(hc_id),
+        client_id=sess.client_id,
+    )
+
+    brief = Brief(
+        session_id=session_id,
+        hc_user_id=UUID(hc_id),
+        client_id=sess.client_id,
+        brief_text=brief_text,
+        triage_flags=triage_flags or [],
+        llm_call_id=llm_call_id,
+    )
+    db.add(brief)
+    await db.flush()
+    await db.commit()
     return BriefOut.model_validate(brief)
 
 
 # ── MOM routes ─────────────────────────────────────────────────────────────────
+
+
+@router.post("/{session_id}/mom/draft")
+async def draft_mom(
+    session_id: UUID,
+    body: MomDraftRequest,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> MomOut:
+    sess = await _get_owned_session(db, session_id, hc_id)
+
+    from src.llm_service import generate_mom_draft
+    draft_text, llm_call_id = await generate_mom_draft(
+        db,
+        session_id=session_id,
+        hc_user_id=UUID(hc_id),
+        client_id=sess.client_id,
+        session_notes=body.session_notes,
+    )
+
+    existing = (await db.execute(
+        select(Mom).where(Mom.session_id == session_id)
+    )).scalar_one_or_none()
+
+    if existing is None:
+        mom = Mom(
+            session_id=session_id,
+            hc_user_id=UUID(hc_id),
+            client_id=sess.client_id,
+            draft_text=draft_text,
+            llm_call_id=llm_call_id,
+        )
+        db.add(mom)
+    else:
+        existing.draft_text = draft_text
+        existing.llm_call_id = llm_call_id
+        existing.final_text = None
+        existing.updated_at = datetime.now(timezone.utc)
+        mom = existing
+
+    await db.flush()
+    await db.commit()
+    return MomOut.model_validate(mom)
 
 
 @router.post("/{session_id}/mom", status_code=status.HTTP_201_CREATED)
@@ -253,8 +325,20 @@ async def patch_mom(
 
     if body.draft_text is not None:
         mom.draft_text = body.draft_text
+
     if body.final_text is not None:
+        # Snippet capture gate: only when MOM was AI-generated and text actually changed
+        if mom.llm_call_id is not None and body.final_text != mom.draft_text:
+            from src.llm_service.snippets import capture
+            await capture(
+                db,
+                original_text=mom.draft_text,
+                hc_modified_text=body.final_text,
+                hc_user_id=UUID(hc_id),
+                client_id=mom.client_id,
+            )
         mom.final_text = body.final_text
+
     if body.status is not None:
         mom.status = body.status
 

@@ -171,14 +171,8 @@ async def test_end_session_idempotent(http_client, hc_headers):
 
 
 # ── GET /api/sessions/{id}/brief ──────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_get_brief_returns_404_when_none(http_client, hc_headers):
-    client = await _create_client(http_client, hc_headers)
-    sess = await _create_session(http_client, hc_headers, client["id"])
-    r = await http_client.get(f"/api/sessions/{sess['id']}/brief", headers=hc_headers)
-    assert r.status_code == 404
+# Brief generation (P4) replaces the P3 stub. The full brief happy-path is
+# covered by test_mom_draft.py::test_get_brief_generates_and_caches.
 
 
 # ── POST /api/sessions/{id}/mom (create MOM) ──────────────────────────────────

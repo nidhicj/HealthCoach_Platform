@@ -97,7 +97,9 @@ CREATE TABLE llm_calls (
     snippet_tokens    INTEGER NOT NULL DEFAULT 0,        -- token count of injected snippets
     inr_cost_estimate NUMERIC(10, 4),                    -- nullable: ~0 for free models, real value for paid
     raw_request_id    TEXT,                              -- OpenRouter request ID for support tickets
-    error_message     TEXT                               -- nullable: populated on hard failure
+    error_message     TEXT,                              -- nullable: populated on hard failure
+    prompt_text       BYTEA,                             -- pgp_sym_encrypt(<assembled prompt>, key); pseudonymized — see ADR-0006 §5 amendment 2026-05-04
+    completion_text   BYTEA                              -- pgp_sym_encrypt(<raw LLM response>, key); written before HC edits
 );
 
 CREATE INDEX idx_llm_calls_created_at ON llm_calls (created_at DESC);
@@ -105,7 +107,11 @@ CREATE INDEX idx_llm_calls_hc_use_case ON llm_calls (hc_user_id, use_case);
 CREATE INDEX idx_llm_calls_validation_failed ON llm_calls (validation_failed) WHERE validation_failed = TRUE;
 ```
 
-**Retention**: indefinite during MVP (it's small data; no DPDP issue since no client PII is stored here, only IDs). Revisit at scale.
+**Encryption note** (added 2026-05-04 amendment): `prompt_text` and `completion_text` are stored as `BYTEA` containing the output of `pgp_sym_encrypt(plaintext, current_setting('app.llm_call_encryption_key'))`. Reads use `pgp_sym_decrypt` and are tenant-scoped per ADR-0006 §5. The encryption key is sourced from env var `LLM_CALL_ENCRYPTION_KEY` and injected into the session via `SET LOCAL` at the start of each query that needs to decrypt. Key rotation is out of scope for P4.
+
+**Pseudonymization note** (added 2026-05-04 amendment): `prompt_text` content references clients by `clients.code` (per-HC `CP<NNNN>`), never by name/email/phone. The `clients` table gains a `code` column for this purpose; values are stable once assigned. The prompt-assembly module is the single chokepoint enforcing this; a unit test asserts no client-name strings appear in stored `prompt_text`. See ADR-0006 §5 amendment for the full policy.
+
+**Retention**: 1 year per ADR-0006 §9 (overrides earlier "indefinite during MVP" framing — amended 2026-05-04). Encrypted prompt and completion content (`prompt_text`, `completion_text`) is in scope for retention; rows older than 1 year are purged by the scheduled job referenced in ADR-0006 §9. **DPDP note**: with the 2026-05-04 amendment, `llm_calls` now contains personal data (encrypted, pseudonymized — but still personal data under DPDP). It is in scope for consent-revocation deletion; see §7 below.
 
 ### 5. Snippet capture — MVP is HC edits only
 
@@ -160,6 +166,7 @@ Every snippet that references a specific client must have `client_id` populated.
 
 ```sql
 BEGIN;
+DELETE FROM llm_calls WHERE client_id = $revoked_client_id;       -- added 2026-05-04 amendment: encrypted prompt_text/completion_text rows
 DELETE FROM hc_style_snippets WHERE client_id = $revoked_client_id;
 DELETE FROM sessions WHERE client_id = $revoked_client_id;
 -- ... other client-scoped tables ...
@@ -167,7 +174,7 @@ DELETE FROM clients WHERE id = $revoked_client_id;
 COMMIT;
 ```
 
-Foreign keys with `ON DELETE CASCADE` on every client-scoped table make this safe even if some FKs are missed in app code. **Test coverage**: a deletion test suite that asserts no orphaned rows remain after a `DELETE FROM clients WHERE id = X`.
+Foreign keys with `ON DELETE CASCADE` on every client-scoped table make this safe even if some FKs are missed in app code. **Test coverage**: a deletion test suite that asserts no orphaned rows remain after a `DELETE FROM clients WHERE id = X`. The 2026-05-04 amendment requires this test suite to explicitly verify `llm_calls` rows are deleted (the encrypted columns make this less obviously a deletion target on quick inspection).
 
 ---
 
@@ -207,3 +214,4 @@ Foreign keys with `ON DELETE CASCADE` on every client-scoped table make this saf
 | Date       | Change                          | Reason                                                                                       |
 | ---------- | ------------------------------- | -------------------------------------------------------------------------------------------- |
 | 2026-04-28 | Initial draft, Proposed status. | Codifies operational details deferred from ADR-0001 §LLM model chain and §Snippet library. |
+| 2026-05-04 | Amendment: §4 schema gains encrypted `prompt_text` / `completion_text` columns; retention parenthetical rewritten (1 year per ADR-0006 §9; `llm_calls` is now in DPDP scope); §7 consent-revocation purge sequence prepended with `DELETE FROM llm_calls` so encrypted rows are cleared. References ADR-0006 §5 amendment (same date) for the pseudonymization + encryption + tenant-scoping policy that governs the new columns. | Paired with ADR-0006 §5 amendment. Originally ADR-0003 §4 said `llm_calls` had no PII and could be retained indefinitely; the amendment to ADR-0006 §5 invalidates that premise. ADR-0003 must reflect the new schema and the new DPDP scope, and the consent-revocation cascade must include the new columns to keep the cascade complete. |

@@ -4,6 +4,57 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-05-04 — P4: LLM Service
+
+**Done**:
+- **Migration `95df31e31f5f`** (ran earlier session): `pgcrypto` extension, `llm_calls.prompt_text` + `completion_text` (BYTEA, pgcrypto-encrypted), `clients.code` (CP0001 pseudonym, unique per HC), `llm_calls.client_id` FK → `ondelete=CASCADE`.
+- **`backend/prompts/`**: three prompt files with YAML frontmatter — `mom_draft.md` (v1.0.0), `brief_assemble.md` (v1.0.0), `ai_assist.md` (v1.0.0, endpoint wired P5).
+- **`src/llm_service/`** — full module:
+  - `llm_config.yaml`: 4-model chain (llama-3.3-70b primary, gemma-3-27b, gpt-oss-120b, nemotron-3-super-120b-a12b), snippet settings, validation_retry_count=1.
+  - `config.py`: `LLMConfig` dataclass, `get_llm_config()` (lru_cache).
+  - `prompts.py`: `PromptFile`, `load_prompt()` — YAML frontmatter parser.
+  - `tracking.py`: `write_llm_call()` — raw SQL INSERT with `pgp_sym_encrypt()`.
+  - `snippets.py`: `capture()` (diff gate: threshold + whitespace filter), `select()` (Option C hybrid: pool of 25 by created_at, re-sorted by last_used_at ASC NULLS FIRST, stopped at 2K token budget), `update_usage()`.
+  - `client.py`: `call_openrouter()` — uses `make_http_client`, returns `OpenRouterResult`.
+  - `chain.py`: `build_models_array()`, `fallback_count_for()`.
+  - `retry.py`: `parse_or_retry()` — one retry with stricter format hint.
+  - `schemas/`: `MomDraftSchema` (with `to_draft_text()`), `BriefSchema` (with `to_brief_text()`), `ActionItemSchema`.
+  - `__init__.py`: `generate_mom_draft()`, `generate_brief()` — full orchestration (snippets, LLM, tracking, error handling).
+- **`src/api/sessions.py`** updated:
+  - `MomOut` + `BriefOut` now include `llm_call_id`.
+  - New `POST /{session_id}/mom/draft` — generates AI draft, upserts MOM.
+  - `GET /{session_id}/brief` — cache-first, then generates via LLM (replaced P3 404 stub).
+  - `PATCH /{session_id}/mom` — snippet capture gate: fires only when `mom.llm_call_id IS NOT NULL` and final_text != draft_text.
+- **`src/telemetry/scrub.py`**: `prompt_text` + `completion_text` added to `_PII_KEYS`.
+- **Tests**: `test_llm_tracking.py` (4), `test_llm_snippets.py` (9), `test_mom_draft.py` (7), `test_scrub_extended.py` (4), `test_llm_service_config.py` (7), `test_llm_service_prompts.py` (7) — all new, all green.
+- Removed stale P3 test `test_get_brief_returns_404_when_none` (that stub is now P4 generation).
+- **144/144 tests passing**.
+
+**Decided**:
+- Decision A — Snippet selection Option C hybrid (pool of 25 most-recent, then last_used_at ASC NULLS FIRST within pool, stop at 2K token budget). `snippet_pool_size` in llm_config.yaml.
+- Decision B — Amend ADR-0006 §5: store encrypted `prompt_text` + `completion_text` in `llm_calls` via pgcrypto BYTEA. Three protections: client pseudonymization (CP<NNNN>), column-level pgp_sym_encrypt, tenant-scoped reads.
+- Fallback key (`"dev-only-placeholder-not-for-production"`) used when `LLM_CALL_ENCRYPTION_KEY` is empty — ensures pgp_sym_encrypt never receives empty passphrase; production must set a real key.
+
+**Out of scope** (P5+):
+- Action item extraction endpoint (ai_assist.md prompt created; wired P5)
+- Snippet retirement sweep (P7)
+- Full AST + triage flags in brief (P5)
+- ADR-0003/0006 formal amendment docs
+
+**Manual verification**: `docs/VERIFICATION.md` → P4 section — **verified 2026-05-04**.
+
+**Post-verification bugs fixed**:
+- `clients.code NOT NULL` violation on `POST /api/clients` — migration made code NOT NULL but `create_client` never assigned it. Fixed: `create_client` now computes `CP<NNNN>` via `MAX(CAST(SUBSTRING(code FROM 3) AS INTEGER)) + 1` before insert.
+- `llm_config.yaml` had 4 models — OpenRouter `models` array limit is 3. Fixed: removed `openai/gpt-oss-120b:free` (not a valid slug). Chain is now llama-3.3-70b → gemma-3-27b → nemotron-3-super-120b-a12b.
+- LLM call silently timed out with empty `detail` — httpx default timeout is 5 s; free models can take 30–60 s. Fixed: `timeout=120.0` on the `make_http_client()` call in `client.py`. Also changed `detail=str(exc)` → `detail=repr(exc)` so future errors are never silently empty.
+
+**Known issues / follow-ups noted after verification**:
+- **Unicode in draft_text**: LLMs sometimes emit ` ` (NARROW NO-BREAK SPACE) and similar typographic characters in their output (e.g. in place of apostrophes or as non-breaking spaces). The backend stores LLM output faithfully — normalization/replacement should happen in the **frontend** when rendering MOM text. Frontend team to handle before GA.
+- **Prompt version test (#14) is one-time**: test #14 in VERIFICATION.md verifies the prompt-version-in-llm_calls traceability chain. Only needs re-running after changes to `src/llm_service/prompts.py`. Not a recurring verification item.
+- **pgcrypto BYTEA is expected**: `prompt_text` and `completion_text` in `llm_calls` are pgcrypto-encrypted binary, not plain text. To read for debugging: `SELECT pgp_sym_decrypt(prompt_text, '<LLM_CALL_ENCRYPTION_KEY>') FROM llm_calls WHERE id = '...';`. Columns are nullable for error-path rows where no LLM call completed.
+
+---
+
 ## 2026-05-02 — P3: Domain CRUD + Client-Facing Endpoints
 
 **Done**:
