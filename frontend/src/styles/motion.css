@@ -1,0 +1,47 @@
+/* Motion keyframes — four primitives only.
+   Source: frontend/theme.yaml motion section.
+   Animate transform and opacity ONLY. Never width, height, top, left, etc. */
+
+@keyframes reveal-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+@keyframes reveal-out {
+  from { opacity: 1; transform: translateY(0)    scale(1);    }
+  to   { opacity: 0; transform: translateY(-4px) scale(0.98); }
+}
+
+@keyframes sheet-slide-in-right {
+  from { opacity: 0; transform: translateX(100%); }
+  to   { opacity: 1; transform: translateX(0);    }
+}
+
+@keyframes sheet-slide-out-right {
+  from { opacity: 1; transform: translateX(0);    }
+  to   { opacity: 0; transform: translateX(100%); }
+}
+
+@keyframes dialog-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+
+@keyframes dialog-out {
+  from { opacity: 1; transform: scale(1);    }
+  to   { opacity: 0; transform: scale(0.96); }
+}
+
+@keyframes page-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+/* Utility classes */
+.animate-reveal-in   { animation: reveal-in   var(--motion-reveal-duration) var(--motion-reveal-easing) both; }
+.animate-reveal-out  { animation: reveal-out  var(--motion-reveal-duration) var(--motion-reveal-easing) both; }
+.animate-sheet-in    { animation: sheet-slide-in-right  var(--motion-sheet-enter-duration) var(--motion-sheet-enter-easing) both; }
+.animate-sheet-out   { animation: sheet-slide-out-right var(--motion-sheet-exit-duration)  var(--motion-sheet-exit-easing)  both; }
+.animate-dialog-in   { animation: dialog-in  var(--motion-reveal-duration) var(--motion-reveal-easing) both; }
+.animate-dialog-out  { animation: dialog-out var(--motion-reveal-duration) var(--motion-reveal-easing) both; }
+.animate-page-in     { animation: page-fade-in var(--motion-page-transition-duration) var(--motion-page-transition-easing) both; }

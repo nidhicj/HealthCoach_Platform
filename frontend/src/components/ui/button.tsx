@@ -18,6 +18,8 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        // Marigold — use at most ONCE per screen for the keystone action
+        accent: "bg-accent text-accent-foreground hover:bg-accent/90 focus-visible:border-accent/40 focus-visible:ring-accent/20",
       },
       size: {
         default:

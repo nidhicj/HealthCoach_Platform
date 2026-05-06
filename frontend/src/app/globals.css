@@ -4,6 +4,7 @@
 @import "../styles/tokens.generated.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "../styles/motion.css";
 
 @custom-variant dark (&:is(.dark *));
 
