@@ -4,6 +4,45 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-05-06 — P5 Part B: Manual Verification + R2 Migration + Bugfixes
+
+**Done**:
+
+- **AWS S3 → Cloudflare R2**: Swapped object storage to R2 free tier (10 GB / 1 M writes / 10 M reads / zero egress). Changed `config.py` fields from `aws_*` to `r2_account_id / r2_access_key_id / r2_secret_access_key / r2_bucket_name`; updated `src/lib/s3.py` host to `{bucket}.{account_id}.r2.cloudflarestorage.com`, region hardcoded to `"auto"`. Sig V4 signing unchanged. Updated `.env.example`, `VERIFICATION.md`, ADR-0001 changelog. Decision recorded in ADR-0001 (changelog 2026-05-06). Known limitation: R2 free tier has no India-region pinning — accepted at MVP scale under DPDP negative-list regime.
+- **Duplicate `content-type` bug fixed in `s3_put`**: `_build_auth_header` adds `content-type` to result_headers via `extra_headers`; original code then also added `headers["Content-Type"] = content_type` explicitly. httpx merged both into `text/plain, text/plain`, causing `SignatureDoesNotMatch` 403 on every PUT. Fixed by removing the redundant post-signing assignment. Root cause found via full request trace script.
+- **`ClientOut` missing `code` field**: `GET /api/clients/{id}` was not returning the `code` (CP\<NNNN\>) field. DB always had it; response schema `ClientOut` was missing it. Added `code: str | None` to `ClientOut`. All 189 tests pass.
+- **`check_r2_creds.py` diagnostic script**: `backend/scripts/check_r2_creds.py` — runs PUT / GET / DELETE smoke test against real R2, prints full Authorization header and all headers httpx actually sends. Used to pinpoint the duplicate content-type and signature mismatch. Keep for future debugging.
+- **Verification checklist fixes** (`docs/VERIFICATION.md`):
+  - Step 4: removed incorrect PATCH client command (no such endpoint); replaced with GET to confirm auto-assigned code
+  - Step 5: moved `echo > /tmp/test_note.txt` before the upload curl command
+  - Step 7: updated S3 aws-cli verification commands to wrangler equivalents
+  - Step 8: corrected to note that `prompt_text` stores only system prompt — "HC's typed notes" and "Uploaded files" are in `user_message` which is not persisted; prompt injection verified by integration tests only
+  - All S3/AWS references updated to R2 throughout checklist and summary table
+- **P5 Part B verification**: all 12 steps confirmed passing. `VERIFICATION.md` status updated to Verified 2026-05-06.
+- **HANDOVER-P5.md**: written and committed — full context transfer document for P6.
+
+**Decided**:
+- R2 over S3: zero-cost MVP posture; S3-compatible Sig V4 means ~30 lines of code change
+- DB row deletion is canonical for files; R2 delete is best-effort (204 returned regardless)
+- `user_message` (HC notes + file content) is not persisted to DB — observability gap deferred to P8
+
+**Bugs found during manual verification** (all fixed this session):
+- Duplicate `content-type` header in `s3_put` → `SignatureDoesNotMatch` 403 on every file upload
+- `ClientOut` missing `code` field → step 4 verification command appeared to fail
+- Verification step 4 had wrong curl command (PATCH endpoint doesn't exist)
+- Verification step 5 had file creation after upload command (curl silently failed on missing file)
+- Verification step 8 checked `prompt_text` for user message content that's never stored there
+
+**Known issues / carry-overs into P6**:
+- `{{SESSION_NOTES}}` placeholder in `mom_draft.md` system prompt is never replaced — session notes travel via `user_message` instead. Dead template text; clean up in a future prompt pass.
+- `user_message` not stored in DB — full LLM conversation not reconstructable from DB alone. Decide in P8 whether to add `user_message_text BYTEA` column to `llm_calls`.
+- No `PATCH /api/clients/{id}` endpoint — client fields (name, email, journey_stage) cannot be updated post-creation. Needed before pilot gate.
+- R2 free tier: no India-region pinning — document for pilot legal review.
+
+**Test count**: 189 passing (was 157 after P5B code; +32 from fixes this session — test mocks updated for r2_* settings).
+
+---
+
 ## 2026-05-05 — PHASE-05 Part B: Client File Library
 
 **Done**:
