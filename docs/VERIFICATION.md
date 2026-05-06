@@ -164,26 +164,24 @@ curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/mom/draft \
   -d '{"session_notes": "Client file injection test."}' | python3 -m json.tool
 # Expected: 200, draft_text populated
 export MOM_ID=<id from response>
-export LLM_CALL_ID=<llm_call_id from response>
 ```
 
-Verify prompt included file content (decrypt prompt_text from DB):
+Note: `prompt_text` in `llm_calls` stores only the system prompt. The user message
+(which contains `## HC's typed notes:` and `## Uploaded files:`) is passed to the LLM
+but not persisted. Prompt injection is covered by the automated integration tests
+(`test_file_prompt_injection.py` — 5 tests, all passing). Manual check: confirm
+`draft_text` is non-empty and `llm_call_id` is present in the response.
+
+- [ ] draft_text populated (non-empty string in response)
+- [ ] llm_call_id present in response
+- [ ] LLM call row exists in DB:
 
 ```bash
 psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
-SELECT pgp_sym_decrypt(prompt_text, '$LLM_CALL_ENCRYPTION_KEY') FROM llm_calls WHERE id = '$LLM_CALL_ID';
-" 2>/dev/null | grep -c "HC's typed notes"
-# Expected: 1 (section present)
-
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
-SELECT pgp_sym_decrypt(prompt_text, '$LLM_CALL_ENCRYPTION_KEY') FROM llm_calls WHERE id = '$LLM_CALL_ID';
-" 2>/dev/null | grep -c "Uploaded files"
-# Expected: 1 (file section present because test_note.txt was uploaded)
+SELECT id, model, input_tokens, output_tokens FROM llm_calls WHERE id = '<llm_call_id from response>';
+"
+# Expected: 1 row with model, token counts populated
 ```
-
-- [ ] draft_text populated
-- [ ] Decrypted prompt_text contains `## HC's typed notes:`
-- [ ] Decrypted prompt_text contains `## Uploaded files:`
 
 ### 9. Zoom summary upload — is_zoom_summary auto-detected
 

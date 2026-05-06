@@ -158,7 +158,6 @@ async def s3_put(key: str, content: bytes, content_type: str) -> None:
         secret_key=settings.r2_secret_access_key,
         extra_headers={"content-type": content_type},
     )
-    headers["Content-Type"] = content_type
 
     async with make_http_client() as client:
         r = await client.put(url, content=content, headers=headers)
