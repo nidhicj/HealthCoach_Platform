@@ -1,0 +1,41 @@
+/* AUTO-GENERATED — do not edit. Source: frontend/theme.yaml */
+/* Run: node scripts/build-theme.mjs */
+
+@theme {
+  /* Brand palette */
+  --color-parchment:   #F7F4EE;
+  --color-moss-shadow: #5C6652;
+  --color-dark-ink:    #2C2C1E;
+  --color-marigold:    #E8C547;
+
+  /* Functional colours — never decorative */
+  --color-success: #3F7D4B;
+  --color-warning: #B8722C;
+  --color-error:   #A23E2E;
+
+  /* Spacing scale (4pt) */
+  --spacing-tight:   4px;
+  --spacing-loose:   8px;
+  --spacing-regular: 16px;
+  --spacing-section: 32px;
+  --spacing-page:    64px;
+
+  /* Border radii */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+/* Motion durations as plain CSS custom properties (used by motion.ts and motion.css) */
+:root {
+  --motion-state-change-duration:    150ms;
+  --motion-state-change-easing:      ease-out;
+  --motion-reveal-duration:          200ms;
+  --motion-reveal-easing:            ease-out;
+  --motion-sheet-enter-duration:     250ms;
+  --motion-sheet-enter-easing:       ease-out;
+  --motion-sheet-exit-duration:      200ms;
+  --motion-sheet-exit-easing:        ease-in;
+  --motion-page-transition-duration: 300ms;
+  --motion-page-transition-easing:   ease-in-out;
+}

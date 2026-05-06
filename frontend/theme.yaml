@@ -1,0 +1,38 @@
+palette:
+  parchment:   "#F7F4EE"   # base — never swap for white
+  moss_shadow: "#5C6652"   # voice — bounded blocks only
+  dark_ink:    "#2C2C1E"   # body text + one architectural element per screen
+  marigold:    "#E8C547"   # 0 or 1 element per screen, primary CTA only
+  functional:
+    success: "#3F7D4B"     # success states only
+    warning: "#B8722C"     # warnings only
+    error:   "#A23E2E"     # errors only
+
+fonts:
+  headline:
+    family: "Fraunces"
+    weights: [700, 900]
+    italic: true
+  body:
+    family: "Manrope"
+    weights: [400, 700, 800]
+    italic: false
+
+motion:
+  state_change:    { duration_ms: 150, easing: "ease-out" }
+  reveal:          { duration_ms: 200, easing: "ease-out" }
+  sheet_enter:     { duration_ms: 250, easing: "ease-out" }
+  sheet_exit:      { duration_ms: 200, easing: "ease-in" }
+  page_transition: { duration_ms: 300, easing: "ease-in-out" }
+
+spacing:
+  tight:   4
+  loose:   8
+  regular: 16
+  section: 32
+  page:    64
+
+radii:
+  sm: 4
+  md: 8
+  lg: 12

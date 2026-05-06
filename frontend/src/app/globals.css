@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/* Brand tokens — generated from theme.yaml. Do not edit. */
+@import "../styles/tokens.generated.css";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Map brand tokens → shadcn semantic tokens.
+   @theme inline creates CSS vars; :root below provides the actual values. */
+@theme inline {
+  --color-background:          var(--background);
+  --color-foreground:          var(--foreground);
+  --color-card:                var(--card);
+  --color-card-foreground:     var(--card-foreground);
+  --color-popover:             var(--popover);
+  --color-popover-foreground:  var(--popover-foreground);
+  --color-primary:             var(--primary);
+  --color-primary-foreground:  var(--primary-foreground);
+  --color-secondary:           var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted:               var(--muted);
+  --color-muted-foreground:    var(--muted-foreground);
+  --color-accent:              var(--accent);
+  --color-accent-foreground:   var(--accent-foreground);
+  --color-destructive:         var(--destructive);
+  --color-border:              var(--border);
+  --color-input:               var(--input);
+  --color-ring:                var(--ring);
+
+  /* Fonts — injected by next/font in layout.tsx */
+  --font-sans:    var(--font-manrope), Arial, sans-serif;
+  --font-heading: var(--font-fraunces), Georgia, serif;
+  --font-mono:    ui-monospace, "Courier New", monospace;
+}
+
+/* Brand semantic token values — these are what the browser actually reads.
+   Placed after @theme inline so they take precedence over shadcn's defaults. */
+:root {
+  /* Core palette */
+  --background:          #F7F4EE;
+  --foreground:          #2C2C1E;
+
+  --card:                #F7F4EE;
+  --card-foreground:     #2C2C1E;
+  --popover:             #F7F4EE;
+  --popover-foreground:  #2C2C1E;
+
+  --primary:             #5C6652;
+  --primary-foreground:  #F7F4EE;
+
+  /* Secondary = Moss Shadow at 10% on Parchment */
+  --secondary:           color-mix(in srgb, #5C6652 10%, #F7F4EE);
+  --secondary-foreground: #2C2C1E;
+
+  --muted:               color-mix(in srgb, #5C6652 8%, #F7F4EE);
+  --muted-foreground:    color-mix(in srgb, #2C2C1E 60%, transparent);
+
+  /* Marigold: used on at most ONE element per screen */
+  --accent:              #E8C547;
+  --accent-foreground:   #2C2C1E;
+
+  --destructive:         #A23E2E;
+  --border:              color-mix(in srgb, #5C6652 20%, transparent);
+  --input:               color-mix(in srgb, #5C6652 20%, transparent);
+  --ring:                #5C6652;
+
+  /* Radius — 8px base, matching brand radii */
+  --radius: 0.5rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    font-weight: 900;
+    line-height: 1.15;
+  }
+}
