@@ -166,9 +166,24 @@ print_brief() {
   local session_label="$1"; local brief_json="$2"
   echo ""
   echo "  ┌─ BRIEF: $session_label ─────────────────────────────────"
+  if [[ -z "$brief_json" ]]; then
+    echo "  │  ⚠ brief variable was empty (slow LLM response / connection drop)"
+    echo "  │    Brief was likely stored in DB. Fetch it with:"
+    echo "  │    curl -s \$API/api/sessions/<id>/brief -H 'Authorization: Bearer \$HC_JWT'"
+    echo "  └────────────────────────────────────────────────────────"
+    echo ""
+    return 0
+  fi
   echo "$brief_json" | python3 -c "
 import sys, json
-b = json.load(sys.stdin)
+raw = sys.stdin.read()
+try:
+    b = json.loads(raw)
+except Exception as e:
+    print(f'  │  ⚠ JSON parse failed: {e}')
+    print(f'  │  Raw (first 200 chars): {raw[:200]!r}')
+    print('  └────────────────────────────────────────────────────────')
+    sys.exit(0)
 text = b.get('brief_text', 'ERROR: no brief_text in response')
 flags = b.get('triage_flags', [])
 for line in text.splitlines():
@@ -185,9 +200,22 @@ print_mom_draft() {
   local session_label="$1"; local mom_json="$2"
   echo ""
   echo "  ┌─ MOM DRAFT: $session_label ──────────────────────────────"
+  if [[ -z "$mom_json" ]]; then
+    echo "  │  ⚠ MOM draft variable was empty (slow LLM response / connection drop)"
+    echo "  └────────────────────────────────────────────────────────"
+    echo ""
+    return 0
+  fi
   echo "$mom_json" | python3 -c "
 import sys, json
-m = json.load(sys.stdin)
+raw = sys.stdin.read()
+try:
+    m = json.loads(raw)
+except Exception as e:
+    print(f'  │  ⚠ JSON parse failed: {e}')
+    print(f'  │  Raw (first 200 chars): {raw[:200]!r}')
+    print('  └────────────────────────────────────────────────────────')
+    sys.exit(0)
 text = m.get('draft_text', 'ERROR: no draft_text in response')
 for line in text.splitlines():
     print('  │  ' + line)
