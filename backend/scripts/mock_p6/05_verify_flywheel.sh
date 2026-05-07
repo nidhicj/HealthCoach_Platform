@@ -115,7 +115,7 @@ for label, cid in [("Maya", c1), ("Ravi", c2), ("Sunita", c3)]:
     cur.execute("""
         SELECT s.session_number, lc.input_tokens
         FROM llm_calls lc
-        JOIN session_briefs b ON b.llm_call_id = lc.id
+        JOIN briefs b ON b.llm_call_id = lc.id
         JOIN sessions s ON s.id = b.session_id
         WHERE s.client_id = %s AND lc.use_case = 'brief_generation'
         ORDER BY s.session_number
