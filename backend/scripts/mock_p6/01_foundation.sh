@@ -22,17 +22,24 @@ echo ""
 source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
 cd "$BACKEND_DIR"
 
+# ── HC email — must match the Google account you will log in with ─────────────
+# Change this if you want to use a different Gmail account.
+HC_EMAIL="joshichi.nidhi@gmail.com"
+
 # ── Create HC user ─────────────────────────────────────────────────────────────
-echo "Creating HC user..."
-eval "$(python scripts/create_hc_user.py)"
+echo "Creating HC user ($HC_EMAIL)..."
+eval "$(python scripts/create_hc_user.py --email "$HC_EMAIL")"
 echo "  HC_ID  = $HC_ID"
+echo "  Email  = $HC_EMAIL"
 echo ""
 
 source "$BACKEND_DIR/scripts/mock_p6/lib.sh"
 verify_hint "HC user created" \
-  "DB:       psql \$DB -c \"SELECT id, email, full_name FROM users WHERE id = '$HC_ID';\"" \
+  "DB:       psql \$DB -c \"SELECT id, email, google_sub FROM users WHERE id = '$HC_ID';\"" \
   "API:      curl -s http://localhost:8000/api/users/me -H 'Authorization: Bearer \$HC_JWT' | python3 -m json.tool" \
-  "Design:   One row in users table. This HC's id is the FK anchor for everything that follows."
+  "Design:   google_sub will be 'pending-oauth-...' until you log in via Google OAuth in the frontend." \
+  "Design:   On first Google login, the auth router finds this row by email and updates google_sub in place." \
+  "Design:   After that login, the frontend will show all mock data under your real Google account."
 
 # ── Helper: create client ──────────────────────────────────────────────────────
 create_client() {
@@ -96,3 +103,4 @@ echo "======================================================="
 echo "  Stage 1 complete."
 echo "  Next: bash scripts/mock_p6/02_maya.sh"
 echo "======================================================="
+

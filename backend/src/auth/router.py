@@ -88,6 +88,13 @@ async def google_callback(
 
     result = await db.execute(select(User).where(User.google_sub == user_info.sub))
     user = result.scalar_one_or_none()
+
+    if user is None:
+        # Email fallback: a dev-seeded user (create_hc_user.py --email) has a placeholder
+        # google_sub. On first real OAuth login, claim the row and write the real sub.
+        email_result = await db.execute(select(User).where(User.email == user_info.email))
+        user = email_result.scalar_one_or_none()
+
     if user is None:
         user = User(
             email=user_info.email,
@@ -97,6 +104,11 @@ async def google_callback(
         )
         db.add(user)
         await db.flush()
+    else:
+        # Update identity fields to match current Google profile
+        user.google_sub = user_info.sub
+        user.display_name = user_info.name
+        user.photo_url = user_info.picture
 
     raw_refresh = await issue_refresh_token(
         db, user.id,
