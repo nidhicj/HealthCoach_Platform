@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
 
     api_base_url: str = "http://localhost:8000"
+    frontend_url: str = "http://localhost:3000"
     openrouter_api_key: str = ""
     llm_call_encryption_key: str = ""
 

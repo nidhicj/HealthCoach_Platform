@@ -13,6 +13,10 @@
 
 ---
 
+## 0. Per-requisites
+
+Anthem rules from CLAUDE.md apply. Preflight every substantive response per PREFLIGHT.md. Context Missing for anything product-specific I haven't provided. Ready?
+
 ## 1. Scope
 
 What this phase accomplishes, in 2–4 sentences. Drawn from `docs/build-plan.md` and the corresponding SESSION_LOG entry. State what is NOT in scope (in one sentence if obvious, or link to SPEC non-goals section).

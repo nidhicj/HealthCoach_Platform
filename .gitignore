@@ -34,6 +34,15 @@ Thumbs.db
 
 # Claude
 .claude/settings.local.json
+frontend/playwright-report/*
+frontend/test-results/
 
 # Archive
 archive/*
+*.tar.gz
+*.zip
+
+# Scratch / temp
+downloaded.txt
+myfile.txt
+

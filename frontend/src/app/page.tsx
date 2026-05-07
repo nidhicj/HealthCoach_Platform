@@ -1,8 +1,18 @@
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
 export default function Home() {
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace("/dashboard");
+  }, [router]);
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-      <h1 className="text-3xl font-semibold text-zinc-900 dark:text-zinc-50">Parivarthan</h1>
-      <p className="mt-2 text-zinc-500">Health coach platform — coming soon.</p>
+    <main className="flex min-h-screen flex-col items-center justify-center">
+      <p className="font-sans text-sm text-muted-foreground">Loading…</p>
     </main>
   );
 }

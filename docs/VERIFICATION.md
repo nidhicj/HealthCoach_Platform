@@ -4,9 +4,454 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 
 ---
 
+## P6 — Frontend HC Console
+
+**Status**: awaiting verification
+
+### Prerequisites
+
+```bash
+cd frontend
+node --version   # Expected: v22.x.x
+npm install      # first run only — skip if already done
+```
+
+Steps 1–3 work without the backend. Steps 4–13 require the backend running at `http://localhost:8000` (from P5).
+
+---
+
+### 1. Automated suite
+
+```bash
+cd frontend
+
+# Unit tests (Vitest)
+npm test
+# Expected: 3 test files, 32 tests passed
+
+# E2E tests (Playwright — starts a production build with mocked API, no backend needed)
+npm run build
+npm run test:e2e
+# Expected: 40 passed (7 auth, 11 brand-rules, 11 core-cycle, 11 mobile-375)
+```
+
+- [ ] 32 unit tests pass
+- [ ] 40 e2e tests pass
+
+---
+
+### 2. TypeScript build clean
+
+```bash
+cd frontend
+npm run build
+# Expected: ✓ Compiled successfully — zero type errors
+```
+
+- [ ] Build completes without errors
+
+---
+
+### 3. Visual inspection — Playwright UI (no backend needed)
+
+This lets you watch the app render with mocked data without a live backend.
+
+```bash
+cd frontend
+npm run test:e2e:ui
+# Opens Playwright UI in browser at http://localhost:0 (auto port)
+```
+
+In the Playwright UI, open and step through `core-cycle.spec.ts`. Pause on any step to inspect the rendered app. Verify visually:
+
+- [ ] Dashboard: "Today", "Recent clients", "Pending action items" sections all visible
+- [ ] Clients page: "Ananya Krishnan" row visible, "Active" badge present
+- [ ] Clicking client navigates to client detail (heading + AST card + "New session" link)
+- [ ] Session view: three tabs — "Pre-session brief", "In-session notes", "MOM editor"
+- [ ] Brief tab: brief text paragraph visible
+- [ ] Notes tab: textarea with placeholder "Paste transcript…"
+- [ ] MOM editor tab: "Generate draft" button → after click, draft pane + editable textarea appear + "Send to client" button (Marigold)
+- [ ] After send: "MOM sent to client." text appears, "Send to client" button gone
+- [ ] "End session" button on session header → after click, "Ended" badge appears
+
+Step through `mobile-375.spec.ts` — watch for any horizontal scrollbar at 375px.
+
+- [ ] No horizontal scroll on any route at 375px
+- [ ] Session tabs scroll within the tab strip, not the page
+
+---
+
+### 4. Start dev server against real backend
+
+Terminal 1 — backend:
+```bash
+cd backend
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+uvicorn src.main:app --reload --port 8000 --env-file ../.env
+# Expected: "Application startup complete."
+```
+
+Terminal 2 — frontend:
+```bash
+cd frontend
+npm run dev
+# Expected: "▲ Next.js ... ready on http://localhost:3000"
+```
+
+- [ ] Backend starts without import errors
+- [ ] Frontend dev server starts on port 3000
+- [ ] Browser opens `http://localhost:3000` — redirects to `/sign-in` (not a blank page)
+
+---
+
+### 5. Sign-in screen
+
+Navigate to `http://localhost:3000/sign-in`
+
+- [ ] "Parivarthan" heading present — Fraunces font, bold, large
+- [ ] Tagline or subtitle text visible below heading
+- [ ] "Continue with Google" button — Marigold (#E8C547) background, not white
+- [ ] Page background is Parchment (off-white), not pure white
+- [ ] No console errors in browser DevTools (F12 → Console)
+
+---
+
+### 6. Unauthenticated redirect
+
+Navigate to `http://localhost:3000/dashboard` without signing in (clear cookies first if already signed in: DevTools → Application → Cookies → Clear site data).
+
+- [ ] Redirects to `/sign-in` automatically
+- [ ] No flash of protected dashboard content before redirect
+- [ ] No 500 error
+
+---
+
+### 7. Sign in with Google
+
+Click "Continue with Google" → complete Google OAuth → lands on `/dashboard`.
+
+- [ ] Dashboard heading "Dashboard" visible (Fraunces, large)
+- [ ] "Today" section visible
+- [ ] "Recent clients" section visible
+- [ ] "Pending action items" section visible
+- [ ] Nav bar: Dashboard · Clients · Action Items · Settings — all four links
+- [ ] "Dashboard" nav link is highlighted (primary colour)
+
+---
+
+### 8. Client list
+
+Navigate to `/clients`:
+
+- [ ] Page loads — client list or empty state visible (no error)
+- [ ] "New client" button/link visible
+
+Create a new client:
+
+- [ ] Click "New client" → form appears
+- [ ] Fill in name (e.g. "Test Client"), submit
+- [ ] Navigates to client detail page for the new client
+- [ ] Client detail heading shows "Test Client"
+- [ ] "Client status" section visible (AST card)
+- [ ] "Sessions" section visible (empty or with sessions)
+- [ ] "New session" link visible
+
+---
+
+### 9. Session flow — full happy path
+
+From client detail, click "New session":
+
+- [ ] New session form loads
+- [ ] Session number field present (type: number)
+- [ ] Date/time field present (defaults to now)
+- [ ] Fill session number = 1
+- [ ] Click "Start session" — Marigold button
+- [ ] Navigates to `/clients/:id/sessions/:id`
+
+Session view:
+
+- [ ] Breadcrumb "← Test Client" visible at top
+- [ ] "Session 1" h1 heading present
+- [ ] Scheduled date shown below heading
+- [ ] "Scheduled" or "In progress" badge visible
+- [ ] "End session" button visible (top right area)
+- [ ] Three tabs visible: "Pre-session brief" · "In-session notes" · "MOM editor"
+
+Pre-session brief tab (default):
+
+- [ ] Brief text visible, or "Generate brief" button if not yet generated
+- [ ] If "Generate brief" button: click it — brief text appears within a few seconds
+
+In-session notes tab:
+
+- [ ] Click "In-session notes" tab
+- [ ] Textarea visible with placeholder "Paste transcript, write observations, add context…"
+- [ ] Type something in the textarea
+- [ ] After ~1 second: "Saving…" flickers then disappears (autosave)
+- [ ] No error message appears
+
+MOM editor tab:
+
+- [ ] Click "MOM editor" tab
+- [ ] "Generate draft" button visible (Moss Shadow / default colour — NOT Marigold)
+- [ ] Click "Generate draft" → draft text appears in left pane within a few seconds
+- [ ] Editable textarea appears in right pane with same content
+- [ ] "Send to client" button visible — Marigold background
+- [ ] Only ONE Marigold element on screen at this point
+- [ ] Click "Send to client"
+- [ ] "MOM sent to client." text appears
+- [ ] "Send to client" button is gone
+
+End session:
+
+- [ ] Click "End session" button
+- [ ] "Ended" badge replaces the status badge
+- [ ] "End session" button disappears (session already ended)
+
+---
+
+### 10. Action items page
+
+Navigate to `/action-items`:
+
+- [ ] Page loads without error
+- [ ] "Action Items" heading visible
+- [ ] Open / In progress / Missed sections present (empty state is fine)
+- [ ] "Action Items" nav link highlighted in nav bar
+
+---
+
+### 11. Settings / sign-out
+
+Navigate to `/settings/sessions`:
+
+- [ ] Page loads
+- [ ] "Sign out everywhere" button visible
+- [ ] Click "Sign out everywhere" → redirected to `/sign-in`
+- [ ] Visiting `/dashboard` afterwards → redirects to `/sign-in` (session cleared)
+
+---
+
+### 12. Navigation active state
+
+Sign back in. Visit each nav route and verify the correct link is highlighted:
+
+- [ ] `/dashboard` → "Dashboard" link active
+- [ ] `/clients` → "Clients" link active
+- [ ] `/action-items` → "Action Items" link active
+- [ ] `/settings/sessions` → "Settings" link active
+
+---
+
+### 13. Mobile layout — browser DevTools
+
+In DevTools (F12), open device emulation (Cmd+Shift+M on Mac, Ctrl+Shift+M on Linux). Set viewport to **375 × 812** (iPhone SE).
+
+Visit each route:
+
+- [ ] `/sign-in` — no horizontal scroll, all content fits
+- [ ] `/dashboard` — no horizontal scroll
+- [ ] `/clients` — no horizontal scroll
+- [ ] `/clients/:id/sessions/:id` — no horizontal scroll
+  - Tab bar: "Pre-session brief / In-session notes / MOM editor" — all three tabs visible (may need to scroll within tab bar, but no page-level horizontal scroll)
+  - MOM editor two-pane stacks vertically (not side-by-side)
+- [ ] Nav bar: all four links visible, no overflow (nav scrolls internally if needed, page does not)
+
+---
+
+### 14. Brand / visual spot-check
+
+On the dashboard, open DevTools → Elements. Inspect computed styles:
+
+- [ ] `<h1>` computed font-family includes "Fraunces"
+- [ ] `<body>` computed font-family includes "Manrope"
+- [ ] Count of Marigold (`rgb(232, 197, 71)`) background-color elements ≤ 1 on any screen
+- [ ] No `rgb(255, 255, 255)` (pure white) background-color on any container
+
+---
+
+### Summary table
+
+| Check | Pass | Notes |
+| --- | --- | --- |
+| 32 unit tests pass | [ ] | |
+| 40 e2e tests pass | [ ] | |
+| TypeScript build clean | [ ] | |
+| Sign-in screen — Fraunces, Marigold button, Parchment bg | [ ] | |
+| Unauthenticated redirect to /sign-in | [ ] | |
+| Google OAuth → dashboard | [ ] | |
+| Dashboard — 3 sections visible | [ ] | |
+| Client list + create new client | [ ] | |
+| Client detail — AST card + sessions | [ ] | |
+| New session form → navigates to session view | [ ] | |
+| Session tabs — all 3 tab-switch correctly | [ ] | |
+| Brief tab — brief text or generate button | [ ] | |
+| Notes tab — autosave (no error after typing) | [ ] | |
+| MOM editor — generate draft + send → confirmation | [ ] | |
+| End session → "Ended" badge | [ ] | |
+| Action items page — 3 sections, no error | [ ] | |
+| Settings — sign out everywhere clears session | [ ] | |
+| Nav active state per route | [ ] | |
+| Mobile 375px — no page-level horizontal scroll | [ ] | |
+| Brand — Fraunces h1, Manrope body | [ ] | |
+| Brand — single Marigold, no pure white bg | [ ] | |
+
+---
+
+## P6 Appendix — AI Context Tracking Mock Test
+
+**Status**: awaiting verification
+
+### What this tests
+
+Each session is built one at a time in the correct real-life order. The brief for session N is generated **after** sessions 1..N-1 are complete (with their action items in the DB) and **before** session N's notes are added. This is the only way to verify that context actually accumulates — bulk-seeding and then testing the brief would not catch whether the system builds context correctly over time.
+
+Each brief is printed as it is generated. The progression from session 1 (sparse) to the final session (rich) is the evidence.
+
+| Client | Journey | Sessions | LLM calls | What it tests |
+|---|---|---|---|---|
+| Maya Patel | Onboarding | M000 + M001 | 2 | Brief is honest about zero history |
+| Ravi Kumar | Weight loss | 5 sessions | 10 | Brief grows richer each session; S5 names all open items and missed strength |
+| Sunita Rao | PCOD management | 8 sessions | 16 | S8 brief surfaces insulin resistance, 7-session cycle trend, recurring screen miss |
+
+**Total LLM calls: 28** (briefs + MOMs for every session in order)
+
+### Prerequisites
+
+Backend running at `http://localhost:8000`. Venv active.
+
+```bash
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+cd backend
+```
+
+---
+
+### Stage 1 — Foundation (no LLM calls)
+
+```bash
+bash scripts/mock_p6/01_foundation.sh
+```
+
+Creates HC user + 3 clients. Writes all IDs to `/tmp/mock_p6_ids.env`.
+
+- [ ] 3 clients created without errors
+- [ ] `/tmp/mock_p6_ids.env` written
+
+---
+
+### Stage 2 — Maya Patel (2 LLM calls)
+
+```bash
+bash scripts/mock_p6/02_maya.sh
+```
+
+Runs M000 (onboarding, no LLM) then M001 (first real session). Brief is generated for M001 before any notes are added.
+
+**Evaluate M001 brief:**
+- [ ] Sparse — acknowledges no prior action items or session history
+- [ ] Does NOT invent context
+- [ ] Reads like an orientation for a first session
+
+---
+
+### Stage 3 — Ravi Kumar (10 LLM calls)
+
+```bash
+bash scripts/mock_p6/03_ravi.sh
+```
+
+Runs all 5 sessions in order. Before each session's brief is generated, the script prints the current AST state. After each session, action items are created and any prior items are marked completed/missed. The brief for the next session then reflects the updated state.
+
+**Watch the progression as each brief prints:**
+
+Session 1 brief — should be sparse (no items yet):
+- [ ] Acknowledges new client, no history
+
+Session 3 brief — context building:
+- [ ] Mentions protein target and walk from S1/S2
+- [ ] Notes sleep warning from S3 discussion
+
+Session 5 brief — **the real test** (4 sessions of context):
+- [ ] Names the open items: protein still not at 80g, weekend meal plan, strength sessions
+- [ ] Flags the missed strength session from S3
+- [ ] Does NOT confuse items across sessions
+- [ ] Brief input token count visibly larger than S1 (shown in Stage 5 flywheel check)
+
+---
+
+### Stage 4 — Sunita Rao (16 LLM calls)
+
+```bash
+bash scripts/mock_p6/04_sunita.sh
+```
+
+Runs all 8 sessions in order. Same session-by-session flow as Ravi. The PCOD narrative is more complex — blood test findings appear in S7 and should surface in S8.
+
+**Watch the progression:**
+
+Session 1 brief — sparse (new client):
+- [ ] Acknowledges zero history
+
+Session 4 brief — early context:
+- [ ] Mentions screen cutoff as a missed item (already failed in S3)
+- [ ] References cortisol / stress context
+
+Session 8 brief — **the richest output in the entire test**:
+- [ ] References insulin resistance confirmed in S7 blood tests
+- [ ] Flags screen cutoff as a **recurring** miss (failed S3, S4, S7 — not just once)
+- [ ] Mentions low-GI diet as the primary current protocol
+- [ ] References the cycle improvement trend (50d → 38 → 33 → 30)
+- [ ] Tea reduction noted as a long-running open item
+- [ ] Reads like a genuine coaching prep note, not a checklist
+
+---
+
+### Stage 5 — Style flywheel verification (no LLM calls)
+
+```bash
+bash scripts/mock_p6/05_verify_flywheel.sh
+```
+
+Inspects the DB for style snippets and snippet injection in MOM drafts. Also prints the brief token progression for Ravi and Sunita — growing token counts confirm the context farm is real.
+
+Expected:
+```
+Total snippets captured: ≥5
+✓  snippet_count ≥ 1 for Ravi latest MOM draft
+✓  snippet_count ≥ 1 for Sunita latest MOM draft
+
+Brief token progression:
+Ravi    S1:NNN  →  S2:NNN  →  S3:NNN  →  S4:NNN  →  S5:NNN  (growing)
+Sunita  S1:NNN  →  ...  →  S8:NNN  (growing)
+```
+
+- [ ] ≥ 5 style snippets in `hc_style_snippets` table
+- [ ] `snippet_count ≥ 1` in latest Ravi MOM draft
+- [ ] `snippet_count ≥ 1` in latest Sunita MOM draft
+- [ ] Brief input tokens for Ravi and Sunita grow across sessions
+
+### Final verdict
+
+| Question | Pass |
+|---|---|
+| S1 briefs for all clients are sparse and honest | [ ] |
+| Ravi S5 brief names real open items from previous sessions | [ ] |
+| Sunita S8 brief surfaces multi-session PCOD context coherently | [ ] |
+| Brief token count grows across sessions (context farm confirmed) | [ ] |
+| MOM drafts are structured and reference session-specific content | [ ] |
+| Style snippets captured from HC edits | [ ] |
+| Snippet injection confirmed (snippet_count > 0) | [ ] |
+| No hallucinated facts in any AI output | [ ] |
+
+If all pass → the context farm is working and the core hypothesis holds.
+
+---
+
 ## P5 Part B — Client File Library
 
-**Status**: Pending manual verification
+**Status**: Verified on 2024/05/06
 
 ### Prerequisites
 
@@ -37,7 +482,7 @@ python -m pytest tests/ -q
 # Expected: 157 passed
 ```
 
-- [ ] 157 tests pass (24 new from P5 Part B — no S3 or LLM calls in tests)
+- [X] 189 tests pass (24 new from P5 Part B — no S3 or LLM calls in tests)
 
 ### 2. Migration column check
 
@@ -52,7 +497,7 @@ ORDER BY ordinal_position;
 #   storage_path, mime_type, size_bytes, uploaded_at, is_zoom_summary
 ```
 
-- [ ] `client_files` table has all 10 columns
+- [X] `client_files` table has all 10 columns
 
 ```bash
 psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
@@ -61,7 +506,7 @@ SELECT indexname FROM pg_indexes WHERE tablename = 'client_files';
 # Expected: idx_client_files_session, idx_client_files_hc, idx_client_files_client
 ```
 
-- [ ] Three indexes present
+- [X] Three indexes present
 
 ### 3. New routes registered
 
@@ -82,7 +527,7 @@ for r in app.routes:
 #   {'DELETE'} /api/sessions/{session_id}/files/{file_id}
 ```
 
-- [ ] All three file routes present
+- [X] All three file routes present
 
 ### 4. Setup — confirm client code (required for R2 key builder)
 
@@ -95,7 +540,7 @@ curl -s http://localhost:8000/api/clients/$CLIENT_ID \
 # Expected: "code": "CP0001" (first client for this HC)
 ```
 
-- [ ] Client has code CP0001 in response
+- [X] Client has code CP0001 in response
 
 ### 5. POST /sessions//files — upload a file
 
@@ -112,8 +557,8 @@ curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/files \
 export FILE_ID=<id from response>
 ```
 
-- [ ] 201 returned, file row in response with correct mime_type and size_bytes
-- [ ] R2 object exists at `hc-{hc_user_id}/client_session_library/CP0001_Priya_Sharma/2026-06-01_session-01/test_note.txt`
+- [X] 201 returned, file row in response with correct mime_type and size_bytes
+- [X] R2 object exists at `hc-{hc_user_id}/client_session_library/CP0001_Priya_Sharma/2026-06-01_session-01/test_note.txt`
 
 ### 6. GET /sessions//files — list files
 
@@ -123,7 +568,7 @@ curl -s http://localhost:8000/api/sessions/$SESSION_ID/files \
 # Expected: list with 1 item (the uploaded file)
 ```
 
-- [ ] Uploaded file appears in list
+- [X] Uploaded file appears in list
 
 ### 7. PATCH /sessions// — session_notes.txt R2 mirror
 
@@ -142,9 +587,9 @@ Verify R2 object was created (check R2 dashboard → bucket → Objects, or use 
 #   --file /tmp/verify_notes.txt && cat /tmp/verify_notes.txt
 ```
 
-- [ ] PATCH returns 200
-- [ ] `session_notes.txt` present in R2 at correct path
-- [ ] Content matches patched notes
+- [X] PATCH returns 200
+- [X] `session_notes.txt` present in R2 at correct path
+- [X] Content matches patched notes
 
 Second PATCH → R2 overwritten:
 
@@ -154,7 +599,7 @@ curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID \
   -d '{"session_notes": "Updated notes — overwrite test."}' | python3 -m json.tool
 ```
 
-- [ ] `session_notes.txt` content updated in R2 (not a second object)
+- [X] `session_notes.txt` content updated in R2 (not a second object)
 
 ### 8. POST /mom/draft — file content in LLM prompt
 
@@ -172,9 +617,9 @@ but not persisted. Prompt injection is covered by the automated integration test
 (`test_file_prompt_injection.py` — 5 tests, all passing). Manual check: confirm
 `draft_text` is non-empty and `llm_call_id` is present in the response.
 
-- [ ] draft_text populated (non-empty string in response)
-- [ ] llm_call_id present in response
-- [ ] LLM call row exists in DB:
+- [X] draft_text populated (non-empty string in response)
+- [X] llm_call_id present in response
+- [X] LLM call row exists in DB:
 
 ```bash
 psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
@@ -194,7 +639,7 @@ curl -s -X POST http://localhost:8000/api/sessions/$SESSION_ID/files \
 # Expected: 201, is_zoom_summary=true (auto-detected from filename prefix)
 ```
 
-- [ ] `is_zoom_summary=true` returned from upload (filename-based auto-detection)
+- [X] `is_zoom_summary=true` returned from upload (filename-based auto-detection)
 
 ### 10. Zoom snippet exclusion — PATCH mom final_text with Zoom file present
 
@@ -215,8 +660,8 @@ SELECT COUNT(*) FROM hc_style_snippets WHERE hc_user_id = '$HC_ID';
 # Expected: 0 (Zoom file suppresses snippet capture)
 ```
 
-- [ ] PATCH mom 200 returned
-- [ ] Zero rows in `hc_style_snippets` (Zoom file present → no snippet)
+- [X] PATCH mom 200 returned
+- [X] Zero rows in `hc_style_snippets` (Zoom file present → no snippet)
 
 ### 11. DELETE /sessions//files/ — removes row and R2 object
 
@@ -240,9 +685,9 @@ Verify R2 object deleted (check R2 dashboard or wrangler CLI):
 # Expected: "not found" error (object gone)
 ```
 
-- [ ] DELETE returns 204
-- [ ] File no longer appears in GET /files
-- [ ] R2 object deleted
+- [X] DELETE returns 204
+- [X] File no longer appears in GET /files
+- [X] R2 object deleted
 
 ### 12. Invalid upload checks
 
@@ -262,25 +707,25 @@ curl -s -o /dev/null -w "%{http_code}" \
 # Expected: 404
 ```
 
-- [ ] Invalid MIME → 400
-- [ ] Cross-tenant → 404
+- [X] Invalid MIME → 400
+- [X] Cross-tenant → 404
 
 ### Summary table
 
-| Check                                                                | Pass | Notes |
-| -------------------------------------------------------------------- | ---- | ----- |
-| 157 automated tests pass                                             | [ ]  |       |
-| client_files table — 10 columns + 3 indexes                         | [ ]  |       |
-| All 3 file routes registered                                         | [ ]  |       |
-| Upload file → 201, row in DB, object in S3                          | [ ]  |       |
-| GET /files → uploaded file appears                                  | [ ]  |       |
-| PATCH session_notes → session_notes.txt in S3                       | [ ]  |       |
-| Second PATCH → S3 overwritten                                       | [ ]  |       |
-| MOM draft prompt contains HC's typed notes + Uploaded files sections | [ ]  |       |
-| Zoom filename auto-detect → is_zoom_summary=true                    | [ ]  |       |
-| Zoom file present → zero hc_style_snippets after PATCH mom          | [ ]  |       |
-| DELETE → 204, row gone, S3 object gone                              | [ ]  |       |
-| Invalid MIME → 400; cross-tenant → 404                             | [ ]  |       |
+| Check                                                                | Pass  | Notes |
+| -------------------------------------------------------------------- | ----- | ----- |
+| 157 automated tests pass                                             | [✅]  |       |
+| client_files table — 10 columns + 3 indexes                         | [✅ ] |       |
+| All 3 file routes registered                                         | [✅ ] |       |
+| Upload file → 201, row in DB, object in S3                          | [✅ ] |       |
+| GET /files → uploaded file appears                                  | [ ✅] |       |
+| PATCH session_notes → session_notes.txt in S3                       | [✅ ] |       |
+| Second PATCH → S3 overwritten                                       | [ ✅] |       |
+| MOM draft prompt contains HC's typed notes + Uploaded files sections | [✅ ] |       |
+| Zoom filename auto-detect → is_zoom_summary=true                    | [✅ ] |       |
+| Zoom file present → zero hc_style_snippets after PATCH mom          | [ ✅] |       |
+| DELETE → 204, row gone, S3 object gone                              | [✅ ] |       |
+| Invalid MIME → 400; cross-tenant → 404                             | [✅ ] |       |
 
 ---
 
@@ -1348,12 +1793,12 @@ Expected: **no output** (all httpx usage goes through `make_http_client()`)
 
 **Status**: partially verified (test suite green; wrangler/frontend manual steps pending)
 
-| Check                                                             | Result  |
-| ----------------------------------------------------------------- | ------- |
-| `uv run pytest tests/unit/` passes                              | ✅      |
-| `uv run pytest tests/integration/test_health.py` passes         | ✅      |
-| `GET /healthz` returns `{"status":"ok","version":"0.1.0"}`    | pending |
-| `X-Request-ID` echoed in response headers                       | pending |
-| Frontend `npm run dev` starts without errors (requires Node 22) | pending |
-| `.env` not committed (in `.gitignore`)                        | ✅      |
-| `docker-compose up` brings up postgres healthy                  | ✅      |
+| Check                                                             | Result |
+| ----------------------------------------------------------------- | ------ |
+| `uv run pytest tests/unit/` passes                              | ✅     |
+| `uv run pytest tests/integration/test_health.py` passes         | ✅     |
+| `GET /healthz` returns `{"status":"ok","version":"0.1.0"}`    | ✅     |
+| `X-Request-ID` echoed in response headers                       | ✅     |
+| Frontend `npm run dev` starts without errors (requires Node 22) | ✅     |
+| `.env` not committed (in `.gitignore`)                        | ✅     |
+| `docker-compose up` brings up postgres healthy                  | ✅     |

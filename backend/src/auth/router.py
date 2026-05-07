@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,10 +67,9 @@ async def google_start() -> dict:
 async def google_callback(
     code: str,
     state: str,
-    response: Response,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> TokenResponse:
+) -> Response:
     settings = get_settings()
     stored = _state_store.pop(state, None)
     if stored is None:
@@ -98,10 +98,6 @@ async def google_callback(
         db.add(user)
         await db.flush()
 
-    access_token = create_access_token(
-        sub=str(user.id), role="hc", hc_id=str(user.id),
-        private_key=settings.jwt_private_key,
-    )
     raw_refresh = await issue_refresh_token(
         db, user.id,
         user_agent=request.headers.get("user-agent"),
@@ -109,8 +105,9 @@ async def google_callback(
     )
     await db.commit()
 
-    _set_refresh_cookie(response, raw_refresh)
-    return TokenResponse(access_token=access_token)
+    redirect = RedirectResponse(url=f"{settings.frontend_url}/auth/callback", status_code=302)
+    _set_refresh_cookie(redirect, raw_refresh)
+    return redirect
 
 
 @router.get("/client/start")
@@ -142,10 +139,9 @@ async def client_start(
 async def client_callback(
     code: str,
     state: str,
-    response: Response,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> TokenResponse:
+) -> Response:
     """Exchange Google code, link client record, and issue a client-role JWT."""
     settings = get_settings()
     stored = _state_store.pop(state, None)
@@ -188,12 +184,6 @@ async def client_callback(
     invite.used_at = datetime.now(timezone.utc)
     await db.flush()
 
-    access_token = create_access_token(
-        sub=str(user.id),
-        role="client",
-        hc_id=str(client.hc_user_id),
-        private_key=settings.jwt_private_key,
-    )
     raw_refresh = await issue_refresh_token(
         db, user.id,
         user_agent=request.headers.get("user-agent"),
@@ -201,8 +191,9 @@ async def client_callback(
     )
     await db.commit()
 
-    _set_refresh_cookie(response, raw_refresh)
-    return TokenResponse(access_token=access_token)
+    redirect = RedirectResponse(url=f"{settings.frontend_url}/auth/callback", status_code=302)
+    _set_refresh_cookie(redirect, raw_refresh)
+    return redirect
 
 
 @router.post("/refresh")

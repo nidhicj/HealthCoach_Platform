@@ -105,10 +105,16 @@ async def test_client_callback_issues_client_jwt(http_client, hc_headers, hc_use
         r = await http_client.get(
             "/api/auth/client/callback",
             params={"code": "fake-google-code", "state": state},
+            follow_redirects=False,
         )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 302, r.text
+    assert "/auth/callback" in r.headers.get("location", "")
 
-    claims = decode_access_token(r.json()["access_token"], public_key=get_settings().jwt_public_key)
+    # Refresh cookie was set on the redirect; exchange it for an access token
+    refresh_r = await http_client.post("/api/auth/refresh")
+    assert refresh_r.status_code == 200, refresh_r.text
+
+    claims = decode_access_token(refresh_r.json()["access_token"], public_key=get_settings().jwt_public_key)
     assert claims.role == "client"
     assert claims.hc_id == str(hc_user.id)
 
@@ -122,8 +128,9 @@ async def test_client_callback_links_client_record(http_client, hc_headers, db: 
         r = await http_client.get(
             "/api/auth/client/callback",
             params={"code": "fake-google-code", "state": state},
+            follow_redirects=False,
         )
-    assert r.status_code == 200, r.text
+    assert r.status_code == 302, r.text
 
     client = (await db.execute(select(Client).where(Client.id == uuid.UUID(client_body["id"])))).scalar_one()
     assert client.user_id is not None
@@ -157,8 +164,9 @@ async def test_client_callback_second_use_returns_400(http_client, hc_headers):
         r1 = await http_client.get(
             "/api/auth/client/callback",
             params={"code": "fake-code-1", "state": state1},
+            follow_redirects=False,
         )
-    assert r1.status_code == 200
+    assert r1.status_code == 302
 
     # Attacker tries to start a second flow with the same (now used) invite
     r2 = await http_client.get("/api/auth/client/start", params={"invite": invite_token})
@@ -186,8 +194,9 @@ async def test_refresh_preserves_client_role(http_client, hc_headers, hc_user):
         login_r = await http_client.get(
             "/api/auth/client/callback",
             params={"code": "fake-google-code", "state": state},
+            follow_redirects=False,
         )
-    assert login_r.status_code == 200
+    assert login_r.status_code == 302
 
     refresh_r = await http_client.post("/api/auth/refresh")
     assert refresh_r.status_code == 200
