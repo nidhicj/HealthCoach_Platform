@@ -186,6 +186,35 @@ for i in missed: print(f'    missed ✗ {i[\"description\"][:70]}')
 "
 }
 
+# ── Verification hint printer ─────────────────────────────────────────────────
+#
+# Usage:
+#   verify_hint "Label" \
+#     "DB:       <psql query>" \
+#     "API:      <curl command>" \
+#     "Frontend: <URL or description>" \
+#     "Design:   <why this matters>"
+#
+# Print as many or as few lines as are relevant.
+
+verify_hint() {
+  local header="$1"; shift
+  echo ""
+  echo "  ┌─ VERIFY ── $header"
+  for line in "$@"; do
+    echo "  │  $line"
+  done
+  echo "  └─────────────────────────────────────────────────────────────"
+  echo ""
+}
+
+# Shorthand for a DB-only psql one-liner hint
+db_hint() {
+  local label="$1"; local sql="$2"
+  verify_hint "$label" \
+    "DB: psql \$DB -c \"$sql\""
+}
+
 # ── Guard ──────────────────────────────────────────────────────────────────────
 
 require_ids() {

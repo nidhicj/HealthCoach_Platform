@@ -17,6 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 require_ids
+DB="postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev"
 
 echo "======================================================="
 echo "  Sunita Rao — 8-Session PCOD Management Journey"
@@ -37,6 +38,11 @@ print_ast_summary "Sunita before S1" "$CLIENT3_ID"
 echo "  Generating brief for S1 (LLM — zero history)..."
 B1=$(generate_brief "$S1")
 print_brief "Sunita — Session 1 (zero history)" "$B1"
+
+verify_hint "S1 brief — Sunita baseline (save input_tokens)" \
+  "DB:       psql \$DB -c \"SELECT lc.input_tokens FROM llm_calls lc JOIN briefs b ON b.llm_call_id = lc.id WHERE b.session_id = '$S1';\"" \
+  "Design:   This is the zero-history baseline for Sunita. By S8 this number should be 3–5x larger." \
+  "Design:   Brief must not mention PCOD specifics beyond what's in the onboarding goal — no invented facts."
 
 NOTES_S1="Sunita is 28, marketing manager. PCOD diagnosed 2 years ago. Symptoms: irregular cycles (35–50 days), weight gain from 64 to 68kg since diagnosis, fatigue, brain fog. Stressful job — 10-hour days common. Diet: heavy refined carbs, 5 cups sugary tea/day, no vegetables, no exercise. Motivated — wedding in extended family in 6 months is an external trigger but she wants long-term change."
 
@@ -148,6 +154,11 @@ AI_S6=$(create_item "$CLIENT3_ID" "$S3" "No screens after 10pm — blue light di
 end_session "$S3"
 echo "  ✓ Session 3 done. Cortisol tools introduced."
 
+verify_hint "S3 done — cortisol tools now in action items (screen cutoff will be tested)" \
+  "DB:       psql \$DB -c \"SELECT description, status FROM action_items WHERE client_id = '$CLIENT3_ID' AND status = 'open' ORDER BY created_at;\"" \
+  "Design:   Screen cutoff (AI_S6) is now open. It will be marked missed in S4, and missed AGAIN in S7." \
+  "Design:   By S7, the brief should flag this as a RECURRING pattern, not just a one-off miss."
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SESSION 4  (11 weeks ago)
 # Context: tea (open), breathing (open), screens (open — and will be MISSED)
@@ -158,6 +169,12 @@ echo "══ SESSION 4 ═══════════════════
 # Breathing: done only 4/14 days — still open (not completed, not missed yet — give it another chance)
 # Screens after 10pm: campaign work — genuinely missed
 mark_item "$AI_S6" "missed"
+
+verify_hint "Screen cutoff marked MISSED for first time" \
+  "DB:       psql \$DB -c \"SELECT description, status FROM action_items WHERE id = '$AI_S6';\"" \
+  "API:      curl -s http://localhost:8000/api/clients/$CLIENT3_ID/ast -H 'Authorization: Bearer \$HC_JWT' | python3 -m json.tool" \
+  "Design:   This miss should appear in S4 brief's triage_flags. First occurrence — not yet 'recurring'." \
+  "Frontend: http://localhost:3000/clients/$CLIENT3_ID  →  missed items show as flagged in the client view"
 
 S4=$(create_session "$CLIENT3_ID" 4 "$(weeks_ago 11)")
 echo "  Session ID: $S4"
@@ -272,6 +289,11 @@ AI_S11=$(create_item "$CLIENT3_ID" "$S6" "Continue Sunday meal prep — now a pe
 end_session "$S6"
 echo "  ✓ Session 6 done. Blood test ordered. Cycle 30 days."
 
+verify_hint "S6 blood test ordered as an action item" \
+  "DB:       psql \$DB -c \"SELECT description, due_date, status FROM action_items WHERE client_id = '$CLIENT3_ID' AND description ILIKE '%blood%';\"" \
+  "Design:   This action item will be marked completed in S7. The S7 brief should then include the blood test" \
+  "Design:   results (from S7 notes) as a key context item — testing that the system reads note history."
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SESSION 7  (3 weeks ago)
 # Context: tea, breathing, screen (missed x2 now), iron, blood test, meal prep (2nd item)
@@ -320,6 +342,13 @@ mark_item "$AI_S6" "missed"  # already missed, but make it visible in history
 end_session "$S7"
 echo "  ✓ Session 7 done. Insulin resistance confirmed, low-GI protocol started."
 
+verify_hint "S7 — insulin resistance now in session notes (critical for S8 brief)" \
+  "DB:       psql \$DB -c \"SELECT left(session_notes, 200) FROM sessions WHERE id = '$S7';\"" \
+  "DB:       psql \$DB -c \"SELECT description, status FROM action_items WHERE client_id = '$CLIENT3_ID' AND status = 'missed' ORDER BY created_at;\"" \
+  "Design:   session_notes for S7 contains 'insulin resistance confirmed'. S8 brief should reference this." \
+  "Design:   Screen cutoff now has 2 missed entries across sessions. S8 brief must call it a 'recurring' issue." \
+  "Design:   If S8 brief doesn't mention insulin resistance, the context building from notes is broken."
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SESSION 8  (today — upcoming)
 # THIS IS THE REAL TEST.
@@ -339,6 +368,14 @@ print_ast_summary "Sunita before S8" "$CLIENT3_ID"
 echo "  Generating brief for S8 (LLM)..."
 B8=$(generate_brief "$S8")
 print_brief "Sunita — Session 8 (7 sessions of real context)" "$B8"
+
+verify_hint "S8 brief — THE FULL CONTEXT FARM VERIFICATION" \
+  "DB:       psql \$DB -c \"SELECT s.session_number, lc.input_tokens FROM llm_calls lc JOIN briefs b ON b.llm_call_id = lc.id JOIN sessions s ON s.id = b.session_id WHERE s.client_id = '$CLIENT3_ID' ORDER BY s.session_number;\"" \
+  "Design:   MUST see growing input_tokens S1→S8. Flat = context not accumulating." \
+  "DB:       psql \$DB -c \"SELECT COUNT(*) AS total_snippets FROM hc_style_snippets WHERE hc_user_id = '$HC_ID';\"" \
+  "Design:   By S8, total snippets should be ≥ 5 (Maya 1 + Ravi 4 + Sunita up to this session)." \
+  "Frontend: http://localhost:3000/clients/$CLIENT3_ID/sessions/$S8  →  open the session page, check brief tab" \
+  "Design:   S8 brief should read like a genuine clinical prep note — specific, contextual, not generic."
 
 echo "  ─── EVALUATE SESSION 8 BRIEF ──────────────────────"
 echo "  □  References insulin resistance / blood test findings from S7?"
@@ -381,6 +418,12 @@ AI_S16=$(create_item "$CLIENT3_ID" "$S8" "Move screen cutoff from 10:30pm to 10p
 
 end_session "$S8"
 echo "  ✓ Session 8 done."
+
+verify_hint "S8 MOM — final snippet count and style injection check" \
+  "DB:       psql \$DB -c \"SELECT lc.snippet_count, lc.snippet_tokens, lc.input_tokens FROM llm_calls lc JOIN moms m ON m.llm_call_id = lc.id JOIN sessions s ON s.id = m.session_id WHERE s.id = '$S8' AND lc.use_case = 'mom_generation';\"" \
+  "Design:   snippet_count ≥ 1 means the style flywheel is injecting learned HC voice into MOM drafts." \
+  "Design:   If snippet_count = 0, the snippet retrieval logic is broken — check hc_style_snippets and the prompt builder." \
+  "Frontend: http://localhost:3000/clients/$CLIENT3_ID/sessions/$S8  →  MOM tab, compare draft vs sent version"
 
 cat >> "$IDS_FILE" <<EOF
 S_SUNITA_1=$S1

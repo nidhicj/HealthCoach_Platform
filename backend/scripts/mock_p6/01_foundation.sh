@@ -28,6 +28,12 @@ eval "$(python scripts/create_hc_user.py)"
 echo "  HC_ID  = $HC_ID"
 echo ""
 
+source "$BACKEND_DIR/scripts/mock_p6/lib.sh"
+verify_hint "HC user created" \
+  "DB:       psql \$DB -c \"SELECT id, email, full_name FROM users WHERE id = '$HC_ID';\"" \
+  "API:      curl -s http://localhost:8000/api/users/me -H 'Authorization: Bearer \$HC_JWT' | python3 -m json.tool" \
+  "Design:   One row in users table. This HC's id is the FK anchor for everything that follows."
+
 # ── Helper: create client ──────────────────────────────────────────────────────
 create_client() {
   local payload="$1"
@@ -68,6 +74,12 @@ CLIENT3_ID=$(create_client '{
 }')
 echo "  ✓ Client 3 — Sunita Rao  (8 sessions) : $CLIENT3_ID"
 
+verify_hint "3 clients created" \
+  "DB:       psql \$DB -c \"SELECT full_name, journey_stage, code FROM clients WHERE hc_user_id = '$HC_ID' ORDER BY created_at;\"" \
+  "API:      curl -s http://localhost:8000/api/clients -H 'Authorization: Bearer \$HC_JWT' | python3 -m json.tool" \
+  "Frontend: http://localhost:3000/clients  →  Maya, Ravi, Sunita should appear as 3 cards" \
+  "Design:   journey_stage = onboarding for Maya, active for Ravi + Sunita. code (CP-XXXX) auto-assigned."
+
 # ── Write env file ─────────────────────────────────────────────────────────────
 cat > "$IDS_FILE" <<EOF
 HC_JWT=$HC_JWT
@@ -82,5 +94,5 @@ echo "  IDs written to $IDS_FILE"
 echo ""
 echo "======================================================="
 echo "  Stage 1 complete."
-echo "  Next: bash scripts/mock_p6/02_seed_history.sh"
+echo "  Next: bash scripts/mock_p6/02_maya.sh"
 echo "======================================================="

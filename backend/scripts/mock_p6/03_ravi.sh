@@ -24,6 +24,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 require_ids
+DB="postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev"
 
 echo "======================================================="
 echo "  Ravi Kumar — 5-Session Weight Loss Journey"
@@ -44,6 +45,11 @@ print_ast_summary "Ravi before S1" "$CLIENT2_ID"
 echo "  Generating brief for S1 (LLM)..."
 B1=$(generate_brief "$S1")
 print_brief "Ravi — Session 1 (zero history)" "$B1"
+
+verify_hint "S1 brief — zero-history baseline (save the input_tokens number)" \
+  "DB:       psql \$DB -c \"SELECT lc.input_tokens, lc.output_tokens FROM llm_calls lc JOIN briefs b ON b.llm_call_id = lc.id WHERE b.session_id = '$S1';\"" \
+  "Design:   Note this input_tokens value. Each subsequent session should be LARGER." \
+  "Design:   The AST above showed 0 open, 0 missed. Brief must not invent any history."
 
 NOTES_S1="First session. Ravi is 34, IT lead, fully sedentary. Weight: 88kg, target 80kg in 16 weeks. Eating out 5 days/week — canteen meals averaging 950 kcal each. No exercise at all. Sleep is good at 7.5 hours — an asset. Motivation high: daughter born 6 months ago, wants energy to keep up with her. Discussed starting small — a daily walk and calorie awareness."
 
@@ -67,6 +73,10 @@ AI_R2=$(create_item "$CLIENT2_ID" "$S1" "Log all meals in MyFitnessPal for 2 wee
 end_session "$S1"
 echo "  ✓ Session 1 done. 2 items created."
 
+verify_hint "S1 action items created — context seeded for S2 brief" \
+  "DB:       psql \$DB -c \"SELECT description, status FROM action_items WHERE session_id = '$S1';\"" \
+  "Design:   2 open items now in DB. S2 brief will see both via AST. S1 brief saw neither (generated before these)."
+
 # ─────────────────────────────────────────────────────────────────────────────
 # SESSION 2  (7 weeks ago)
 # Context: 2 open items from S1 (walk + logging)
@@ -78,6 +88,10 @@ echo "══ SESSION 2 ═══════════════════
 mark_item "$AI_R1" "completed"
 mark_item "$AI_R2" "completed"
 
+verify_hint "S1 items marked completed — AST now shows zero open" \
+  "DB:       psql \$DB -c \"SELECT description, status FROM action_items WHERE client_id = '$CLIENT2_ID' ORDER BY created_at;\"" \
+  "Design:   Both items now 'completed'. AST will show 0 open, 0 missed — brief will acknowledge wins, not flag risks."
+
 S2=$(create_session "$CLIENT2_ID" 2 "$(weeks_ago 7)")
 echo "  Session ID: $S2"
 print_ast_summary "Ravi before S2" "$CLIENT2_ID"
@@ -85,6 +99,11 @@ print_ast_summary "Ravi before S2" "$CLIENT2_ID"
 echo "  Generating brief for S2 (LLM)..."
 B2=$(generate_brief "$S2")
 print_brief "Ravi — Session 2 (S1 items both completed)" "$B2"
+
+verify_hint "S2 brief — input_tokens should be LARGER than S1" \
+  "DB:       psql \$DB -c \"SELECT b.session_id, lc.input_tokens FROM llm_calls lc JOIN briefs b ON b.llm_call_id = lc.id WHERE b.session_id IN ('$S1','$S2') ORDER BY lc.created_at;\"" \
+  "Design:   S2 input_tokens > S1 input_tokens confirms the context farm is injecting prior session data." \
+  "Design:   S2 brief should mention that S1 items were both completed — not just repeat the goal."
 
 NOTES_S2="Walk habit solid: 14/14 days. Calorie logging revealed average 2100 kcal/day — canteen lunch is 950 kcal alone. Weight 87.2kg (-0.8kg). Protein severely low at 45g/day — the main nutritional gap. Discussed protein sources: eggs, dahi, dal. Client open to it. Walk extended to 30 min naturally — client is enjoying it."
 
@@ -103,6 +122,12 @@ Priority hierarchy for M003: protein first, everything else second."
 
 patch_mom_final "$S2" "$FINAL2"
 send_mom "$S2"
+
+verify_hint "S2 MOM — style snippet #2 should appear" \
+  "DB:       psql \$DB -c \"SELECT COUNT(*) AS snippet_count FROM hc_style_snippets WHERE hc_user_id = '$HC_ID';\"" \
+  "DB:       psql \$DB -c \"SELECT snippet_type, left(hc_modified_text,80) FROM hc_style_snippets WHERE hc_user_id = '$HC_ID' ORDER BY created_at;\"" \
+  "Design:   After Maya M001 (1 snippet) + Ravi S2 (1 snippet) = 2 total. Each HC edit adds one." \
+  "Design:   If count is still 1, check that moms.llm_call_id is set and final_text differs from draft_text."
 
 AI_R3=$(create_item "$CLIENT2_ID" "$S2" "Increase daily protein to 80g: eggs at breakfast, dahi at lunch, dal at dinner" "$(date_weeks_ago 5)")
 AI_R4=$(create_item "$CLIENT2_ID" "$S2" "Extend morning walk to 30 min (already happening naturally — formalise it)" "$(date_weeks_ago 5)")
@@ -164,6 +189,13 @@ echo "══ SESSION 4 ═══════════════════
 mark_item "$AI_R5" "completed"
 mark_item "$AI_R6" "missed"
 
+verify_hint "S3 strength item marked MISSED — AST should flag it" \
+  "DB:       psql \$DB -c \"SELECT description, status FROM action_items WHERE client_id = '$CLIENT2_ID' AND status = 'missed';\"" \
+  "API:      curl -s http://localhost:8000/api/clients/$CLIENT2_ID/ast -H 'Authorization: Bearer \$HC_JWT' | python3 -m json.tool" \
+  "Frontend: http://localhost:3000/clients/$CLIENT2_ID  →  missed items appear with a warning indicator" \
+  "Design:   The AST should now show this in missed_items. The S4 brief will receive it as a triage flag." \
+  "Design:   This is testing whether missed items surface as risks in the next session prep."
+
 S4=$(create_session "$CLIENT2_ID" 4 "$(weeks_ago 3)")
 echo "  Session ID: $S4"
 print_ast_summary "Ravi before S4" "$CLIENT2_ID"
@@ -171,6 +203,11 @@ print_ast_summary "Ravi before S4" "$CLIENT2_ID"
 echo "  Generating brief for S4 (LLM)..."
 B4=$(generate_brief "$S4")
 print_brief "Ravi — Session 4 (strength missed, protein still open)" "$B4"
+
+verify_hint "S4 brief — first time a missed item should appear" \
+  "DB:       psql \$DB -c \"SELECT lc.input_tokens FROM llm_calls lc JOIN briefs b ON b.llm_call_id = lc.id WHERE b.session_id = '$S4';\"" \
+  "Design:   input_tokens should be noticeably larger than S1/S2. The missed item adds context tokens." \
+  "Design:   Brief should explicitly name the missed strength session from S3 as a risk/carry-over."
 
 NOTES_S4="Weight 85.8kg (-0.7kg, -2.2kg total). Sleep back to 7 hours. Strength sessions missed — fatigue after deadline, felt unable to start. Protein now at 72g/day — closer. Weekend cravings spiked hard on Saturday: social dinner, Sunday brunch. Client estimates extra 1000 kcal across the weekend. Identified weekends as the main vulnerability. Wife and family social eating is the trigger. Client wants a weekend strategy."
 
@@ -214,6 +251,13 @@ print_ast_summary "Ravi before S5" "$CLIENT2_ID"
 echo "  Generating brief for S5 (LLM)..."
 B5=$(generate_brief "$S5")
 print_brief "Ravi — Session 5 (4 sessions of real context)" "$B5"
+
+verify_hint "S5 brief — THE KEY TOKEN PROGRESSION CHECK" \
+  "DB:       psql \$DB -c \"SELECT s.session_number, lc.input_tokens FROM llm_calls lc JOIN briefs b ON b.llm_call_id = lc.id JOIN sessions s ON s.id = b.session_id WHERE s.client_id = '$CLIENT2_ID' ORDER BY s.session_number;\"" \
+  "Design:   input_tokens MUST grow from S1 → S5. A flat or shrinking curve means context is not accumulating." \
+  "Design:   S5 should also have snippet_count > 0 in llm_calls — style context injected from prior MOM edits." \
+  "DB:       psql \$DB -c \"SELECT lc.snippet_count, lc.snippet_tokens FROM llm_calls lc JOIN moms m ON m.llm_call_id = lc.id JOIN sessions s ON s.id = m.session_id WHERE s.id = '$S5' AND lc.use_case = 'mom_generation';\"" \
+  "Frontend: http://localhost:3000/clients/$CLIENT2_ID  →  5 sessions listed, latest is today's"
 
 echo "  ─── EVALUATE SESSION 5 BRIEF ──────────────────────"
 echo "  □  Mentions protein target still open (ongoing from S2)?"
