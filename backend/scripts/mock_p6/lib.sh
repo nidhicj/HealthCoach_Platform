@@ -8,26 +8,44 @@ DB="postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev"
 IDS_FILE="/tmp/mock_p6_ids.env"
 
 # ── HTTP helpers ───────────────────────────────────────────────────────────────
+# All helpers write the HTTP status code to stderr on non-2xx so failures are
+# visible without needing to parse a cryptic JSON error downstream.
+
+_http_check() {
+  # Usage: response=$(_http_check <method> <path> [data])
+  # Exits non-zero and prints a clear message if HTTP status >= 400 or body empty.
+  local method="$1"; local path="$2"; local data="${3:-}"
+  local tmpfile; tmpfile=$(mktemp)
+  local args=(-s -o "$tmpfile" -w "%{http_code}" -X "$method" "$API$path"
+               -H "Authorization: Bearer $HC_JWT")
+  [[ -n "$data" ]] && args+=(-H "Content-Type: application/json" -d "$data")
+  local status; status=$(curl "${args[@]}")
+  local body; body=$(cat "$tmpfile"); rm -f "$tmpfile"
+  if [[ "$status" -ge 400 ]] || [[ -z "$body" && "$method" != "POST" ]]; then
+    echo ""
+    echo "  ✗ HTTP $status from $method $path" >&2
+    echo "    Response body: ${body:-(empty)}" >&2
+    if [[ "$status" == "401" ]]; then
+      echo "    → JWT may have expired. Re-run 01_foundation.sh to get a fresh token." >&2
+    fi
+    exit 1
+  fi
+  echo "$body"
+}
 
 _post() {
   local path="$1"; local data="$2"
-  curl -s -X POST "$API$path" \
-    -H "Authorization: Bearer $HC_JWT" \
-    -H "Content-Type: application/json" \
-    -d "$data"
+  _http_check POST "$path" "$data"
 }
 
 _patch() {
   local path="$1"; local data="$2"
-  curl -s -X PATCH "$API$path" \
-    -H "Authorization: Bearer $HC_JWT" \
-    -H "Content-Type: application/json" \
-    -d "$data"
+  _http_check PATCH "$path" "$data"
 }
 
 _get() {
   local path="$1"
-  curl -s "$API$path" -H "Authorization: Bearer $HC_JWT"
+  _http_check GET "$path"
 }
 
 # ── JSON helpers ───────────────────────────────────────────────────────────────
@@ -87,7 +105,9 @@ create_session() {
 
 add_notes() {
   local session_id="$1"; local notes="$2"
-  _patch "/api/sessions/$session_id" "{\"session_notes\": $(json_str "$notes")}" > /dev/null
+  _patch "/api/sessions/$session_id" "{\"session_notes\": $(json_str "$notes")}" > /dev/null 2>&1 || {
+    echo "  ✗ add_notes failed for session $session_id" >&2; exit 1
+  }
 }
 
 # Calls the LLM and returns the full brief JSON
@@ -104,17 +124,23 @@ generate_mom_draft() {
 
 patch_mom_final() {
   local session_id="$1"; local final_text="$2"
-  _patch "/api/sessions/$session_id/mom" "{\"final_text\": $(json_str "$final_text")}" > /dev/null
+  _patch "/api/sessions/$session_id/mom" "{\"final_text\": $(json_str "$final_text")}" > /dev/null 2>&1 || {
+    echo "  ✗ patch_mom_final failed for session $session_id" >&2; exit 1
+  }
 }
 
 send_mom() {
   local session_id="$1"
-  _post "/api/sessions/$session_id/mom/send" '{}' > /dev/null
+  _post "/api/sessions/$session_id/mom/send" '{}' > /dev/null 2>&1 || {
+    echo "  ✗ send_mom failed for session $session_id" >&2; exit 1
+  }
 }
 
 end_session() {
   local session_id="$1"
-  _post "/api/sessions/$session_id/end" '{}' > /dev/null
+  _post "/api/sessions/$session_id/end" '{}' > /dev/null 2>&1 || {
+    echo "  ✗ end_session failed for session $session_id" >&2; exit 1
+  }
 }
 
 # ── Action item helpers ────────────────────────────────────────────────────────
