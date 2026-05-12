@@ -6,11 +6,12 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models.clients import Client
 from src.db.models.coaching import ActionItem, CheckIn, Mom
+from src.db.models.content import ContentAssignment, DietChart
 from src.db.models.files import ClientFile
 from src.db.models.sessions import Session
 from src.lib.file_extraction import extract_text
@@ -125,6 +126,22 @@ async def generate_mom_draft(
     file_section, _zoom_present = await _assemble_file_content_section(db, session_id, cfg)
     notes_section = f"## HC's typed notes:\n{session_notes or '(no notes entered)'}"
     user_message = notes_section + ("\n\n" + file_section if file_section else "")
+
+    _active_chart = (await db.execute(
+        select(DietChart)
+        .join(ContentAssignment, and_(
+            ContentAssignment.content_type == "diet_chart",
+            ContentAssignment.content_id == DietChart.id,
+        ))
+        .where(
+            ContentAssignment.client_id == client_id,
+            ContentAssignment.hc_user_id == hc_user_id,
+            DietChart.archived_at.is_(None),
+        )
+        .limit(1)
+    )).scalar_one_or_none()
+    if _active_chart is not None:
+        user_message += "\n\nNote: A diet chart has been prepared for this client."
 
     try:
         result = await call_openrouter(
