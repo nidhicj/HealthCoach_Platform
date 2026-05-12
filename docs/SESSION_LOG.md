@@ -22,6 +22,9 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 - Missed items stay in Open column (red card) — not a separate 4th column
 - P6B marked Complete. P6C (diet chart) deferred to a future brainstorm session.
 
+**Side quest — observability gap identified**:
+ADR-0006 covers unhandled exceptions (Sentry), LLM validation failures (`llm_calls` + Sentry alert), and request errors (structured logs) well. Gap: no explicit convention for **application-level graceful degradations** — cases where the API returns 200 but a feature silently fell back to lesser behaviour (e.g. diet chart LLM returns malformed JSON → template returned unchanged). These pass through Sentry and logs invisibly under current rules. The diet chart fallback pattern (`warn` log with namespaced event, `sentry_sdk.capture_message()` with tag, response-level `generation_status` flag) is the right model and should be formalised as a platform-wide convention. **Action needed**: add a "graceful degradation" paragraph to ADR-0006 or a `docs/standards/graceful-degradation.md` — deferred, not blocking P6C.
+
 ---
 
 ## 2026-05-07 — Repo sync sweep + HANDOVER-P6 update + P6 UI review fixes

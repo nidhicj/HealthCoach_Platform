@@ -2,11 +2,11 @@
 
 **Unit**: Unit_001_HcCoreCycle
 
-| Part | Label | Scope | Status |
-|------|-------|-------|--------|
-| A | HC Console + Brand Identity | All screens P6 built: dashboard, clients, sessions, action items, settings. Brand tokens, motion system, Playwright tests. | Complete |
-| B | Dashboard Restructure + Action Items Kanban | Remove "Recent Clients", restructure pending items rows, replace action items page with client×status kanban table. Frontend-only, no backend changes. | Complete |
-| C | Diet Chart Feature | AI-suggested diet chart per client: backend CRUD endpoints, LLM generation, frontend preview + editable 7-day table. DB tables already exist from P1. | To be designed — brainstorm session pending |
+| Part | Label                                       | Scope                                                                                                                                                   | Status                                       |
+| ---- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| A    | HC Console + Brand Identity                 | All screens P6 built: dashboard, clients, sessions, action items, settings. Brand tokens, motion system, Playwright tests.                              | Complete                                     |
+| B    | Dashboard Restructure + Action Items Kanban | Remove "Recent Clients", restructure pending items rows, replace action items page with client×status kanban table. Frontend-only, no backend changes. | Complete                                     |
+| C    | Diet Chart Feature                          | AI-suggested diet chart per client: backend CRUD endpoints, LLM generation, frontend preview + editable 7-day table. DB tables already exist from P1.   | Spec complete — implementation pending      |
 
 ---
 
@@ -274,6 +274,7 @@ Once SoJo has walked the §6 verification checklist and signed off, Claude Code 
 **3.2 `theme.yaml` as token source of truth** — single editable YAML drives the design tokens, compiled to Tailwind theme + CSS variables via a build script. Justification: matches the repo's existing `llm_config.yaml` precedent for tweakable runtime config; runtime files stay standard Tailwind/CSS; one source of truth.
 
 **3.3 Brand rule translations to UI patterns** — three brand-guide rules written for slides/posters/social translate to UI as:
+
 - "Marigold appears exactly once per design" → at most one Marigold element per *screen*, reserved for the single keystone action of the user's current state (Send MOM, primary empty-state CTA, sign-in wordmark accent). The overall app has many CTAs; only one per screen at a time may be Marigold.
 - "Dark Ink is used once per slide" → Dark Ink remains the body-text colour everywhere (the brand-guide-allowed "maximum contrast" use case); but at most one *architectural fill* per screen uses Dark Ink as a background or block.
 - "Moss Shadow is a voice, not a wallpaper" → Moss Shadow lives in bounded blocks (cards, header bars, sidebars, accent lines). No full-bleed Moss Shadow surfaces.
@@ -381,10 +382,10 @@ Known carry-overs that downstream phases inherit:
 
 # Part B — Dashboard Restructure + Action Items Kanban
 
-**Status**: Spec complete — implementation pending  
-**Session**: Brainstormed and designed 2026-05-12  
-**Implements**: `frontend_feedback.md` Items 2 and 6  
-**Backend changes**: None — all existing APIs  
+**Status**: Spec complete — implementation pending
+**Session**: Brainstormed and designed 2026-05-12
+**Implements**: `frontend_feedback.md` Items 2 and 6
+**Backend changes**: None — all existing APIs
 **New dependencies**: None
 
 ---
@@ -402,6 +403,7 @@ Two frontend-only changes to `dashboard/page.tsx` and `action-items/page.tsx`. N
 ### What changes
 
 Remove the "Recent Clients" section entirely. Dashboard retains two sections only:
+
 1. **Today** — unchanged
 2. **Pending Action Items** — rows restructured
 
@@ -440,10 +442,10 @@ Replace the three-section vertical list (Open / In Progress / Missed) with a sin
 
 ### Table structure
 
-| Client | Open | In Progress | Done |
-|--------|------|-------------|------|
+| Client     | Open         | In Progress  | Done         |
+| ---------- | ------------ | ------------ | ------------ |
 | Ravi Kumar | item cards… | item cards… | item cards… |
-| Sunita Rao | item cards… | item cards… | — |
+| Sunita Rao | item cards… | item cards… | —           |
 
 - **Rows**: one per client (grouped by `client_id`); clients with zero items across all columns are hidden
 - **Columns**: Open · In Progress · Done — 3 fixed columns
@@ -464,11 +466,11 @@ Replace the three-section vertical list (Open / In Progress / Missed) with a sin
 
 ### Click-to-move actions by column
 
-| Column | Forward | Backward |
-|--------|---------|----------|
-| Open | "Move to In Progress →" | — |
-| In Progress | "Mark Done →" | "← Back to Open" |
-| Done | — | "← Reopen" |
+| Column      | Forward                  | Backward          |
+| ----------- | ------------------------ | ----------------- |
+| Open        | "Move to In Progress →" | —                |
+| In Progress | "Mark Done →"           | "← Back to Open" |
+| Done        | —                       | "← Reopen"       |
 
 Each button calls `patchActionItem(item.id, { status: targetStatus })` with optimistic local state update; reverts on error.
 
@@ -540,6 +542,7 @@ clientRows = clients
 ### Task 1: Dashboard restructure
 
 **Files:**
+
 - Modify: `frontend/src/app/(app)/dashboard/page.tsx`
 
 No new unit tests — this is a template-only change. Existing Playwright `core-cycle.spec.ts` covers the dashboard render path.
@@ -727,6 +730,7 @@ export default function DashboardPage() {
 ```bash
 cd frontend && npx vitest run
 ```
+
 Expected: all existing tests pass (count unchanged — no new tests for this task).
 
 - [ ] **Step 3: Commit**
@@ -741,6 +745,7 @@ git commit -m "feat(frontend): restructure dashboard — remove Recent Clients, 
 ### Task 2: Extract and test kanban grouping logic
 
 **Files:**
+
 - Create: `frontend/src/lib/actionItemsKanban.ts`
 - Create: `frontend/tests/unit/actionItemsKanban.test.ts`
 
@@ -853,6 +858,7 @@ describe("MOVE_BACK", () => {
 ```bash
 cd frontend && npx vitest run tests/unit/actionItemsKanban.test.ts
 ```
+
 Expected: FAIL — `Cannot find module '@/lib/actionItemsKanban'`
 
 - [ ] **Step 3: Create the utility file**
@@ -907,6 +913,7 @@ export function groupByClient(
 ```bash
 cd frontend && npx vitest run tests/unit/actionItemsKanban.test.ts
 ```
+
 Expected: 11 tests pass.
 
 - [ ] **Step 5: Commit**
@@ -921,6 +928,7 @@ git commit -m "feat(frontend): add groupByClient + kanban transition maps with u
 ### Task 3: Implement the action items kanban page
 
 **Files:**
+
 - Modify: `frontend/src/app/(app)/action-items/page.tsx`
 
 - [ ] **Step 1: Replace `action-items/page.tsx` with the following**
@@ -1170,6 +1178,7 @@ export default function ActionItemsPage() {
 ```bash
 cd frontend && npx vitest run
 ```
+
 Expected: all tests pass (11 from Task 2 + all pre-existing tests).
 
 - [ ] **Step 3: Commit**
@@ -1198,48 +1207,280 @@ git commit -m "feat(frontend): replace action items list with client×status kan
 
 # Part C — Diet Chart Feature
 
-**Status**: To be designed — brainstorm session pending  
-**Phase label**: P6C  
+**Status**: Spec complete — implementation pending
+**Phase label**: P6C
 **Implements**: `frontend_feedback.md` Item 5
+**Brainstorm date**: 2026-05-12
 
 ---
 
 ## C.1 Scope
 
-A diet chart feature for the HC, per client. Stays in Unit 001 (HC-facing). Requires a full 3-layer build: backend CRUD endpoints, LLM generation, and frontend.
+A diet chart feature for the HC, per client. Stays in Unit 001 (HC-facing only). Full 3-layer build: backend CRUD + LLM generation + frontend. **Zero new migrations** — all four tables (`diet_charts`, `diet_chart_recipes`, `prep_recipes`, `content_assignments`) were created in P1.
 
-**DB tables already exist from P1** (zero migration work needed):
-- `diet_charts` — one chart per client (or per session — TBD in brainstorm)
-- `diet_chart_recipes` — individual meal entries in the chart
-- `prep_recipes` — recipe/prep details
-- `content_assignments` — linking content to clients
+`diet_chart_recipes` and `prep_recipes` are not used in P6C. They exist for a future recipe-library concept; P6C stores the entire chart grid in the `parameters` JSONB field on `diet_charts`. YAGNI.
 
 ---
 
-## C.2 Known requirements (from feedback)
+## C.2 Design decisions
 
-- 7-day × meals table; timings in cells; columns are meal slots (editable: add/remove e.g. snack)
-- AI suggests a chart after the first session; HC reviews and approves before it's saved
-- Small preview on the client detail page; expands to full chart view
-- Editable: HC can modify cells after AI suggestion
-
----
-
-## C.3 Open questions (to resolve in brainstorm before any code)
-
-1. Is the diet chart per-client (one chart, updated over time) or per-session (a new version per session)?
-2. What data does the AI draw from — first session notes only, or also M000 onboarding notes?
-3. What does "HC approves" look like — a confirm button, or edit-first-then-approve?
-4. How does the editable table work — inline cell editing, or a dedicated edit mode?
-5. Is the chart eventually sent to the client, or is it internal HC tooling for now?
-6. Does a session MOM reference the diet chart?
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Per-client or per-session? | **Per-client, one active chart updated in place.** The day × meal-slot skeleton stays; only cell content changes over time. Provision for adding/removing meal slot columns. |
+| 2 | What does AI draw from? | **Selected HC template + client session notes.** HC maintains a template library (uploaded as CSV). When generating for a client, HC picks the best-fit template; AI personalises it using the client's M000 intake notes and session 1 summary. Basic library lookup now; RAG-over-charts is a future enhancement. |
+| 3 | HC approval flow? | **Edit-first, then save.** AI generates the chart directly into an inline-editable table. HC edits cells freely, then clicks "Save chart." No separate confirm step. |
+| 4 | Editable table mechanics? | **Inline cell editing.** Each cell is editable in place — no edit-mode toggle needed. |
+| 5 | Client-facing? | **Internal HC tooling in P6C.** Client-visible chart is Unit_002 scope. |
+| 6 | MOM reference? | **One appended line.** If the client has an active diet chart, the MOM generation prompt appends: `"Note: A diet chart has been prepared for this client."` |
 
 ---
 
-## C.4 What to build (high-level, to be detailed after brainstorm)
+## C.3 Data model
 
-1. **Backend**: `GET/POST/PATCH /api/clients/{id}/diet-chart` endpoints + LLM prompt for chart generation
-2. **Frontend**: Preview card on client detail page + full-screen chart editor
-3. **No new migrations** — tables already exist
+### Templates and client charts — same table, distinguished by flag
 
-*Detailed spec to be written after the P6C brainstorm session.*
+Both live in `diet_charts`. The `parameters` JSONB field carries the full structure:
+
+**Template record** (`parameters.is_template: true`):
+```json
+{
+  "is_template": true,
+  "template_key": "high-protein-low-carb",
+  "meal_slots": ["Breakfast", "Morning Snack", "Lunch", "Evening Snack", "Dinner"],
+  "grid": {
+    "Monday":    { "Breakfast": { "food": "3-egg omelette", "timing": "7:30 AM" }, "Lunch": { "food": "Grilled chicken + salad", "timing": "1:00 PM" } },
+    "Tuesday":   { ... },
+    "Wednesday": { ... },
+    "Thursday":  { ... },
+    "Friday":    { ... },
+    "Saturday":  { ... },
+    "Sunday":    { ... }
+  }
+}
+```
+
+**Client chart record** (`parameters.is_template: false`):
+```json
+{
+  "is_template": false,
+  "template_ref": "<template diet_chart.id used for generation>",
+  "generation_status": "ok | fallback",
+  "meal_slots": ["Breakfast", "Morning Snack", "Lunch", "Dinner"],
+  "grid": { ... }
+}
+```
+
+### Linking chart to client
+
+`content_assignments` row created when a chart is saved for a client:
+
+```
+content_type = 'diet_chart'
+content_id   = <diet_chart.id>
+client_id    = <client.id>
+hc_user_id   = <hc.id>
+session_id   = <session.id if triggered from a session, else null>
+```
+
+**One active chart per client** — enforced in application code: when a new chart is generated, the previous `diet_chart` record for that client (found via `content_assignments`) has its `archived_at` set before the new one is inserted. No DB constraint needed.
+
+### CSV upload format
+
+Row 1 = header: `Day, <MealSlot1>, <MealSlot2>, ...`
+Rows 2–8 = days: `Monday` through `Sunday`
+Cells = `"food · timing"` (space-middot-space separator; if only food, timing is empty string)
+Meal slot names are taken directly from the header row — HC controls them. Parser treats whatever headers are present as the `meal_slots` array.
+
+---
+
+## C.4 Backend
+
+**New file**: `backend/src/api/diet_charts.py`
+**Register in**: `backend/src/main.py`
+
+### Endpoints
+
+| Method | Path | Body / Params | Returns |
+|--------|------|---------------|---------|
+| `GET` | `/api/diet-chart-templates` | — | `PaginatedList[DietChartTemplateOut]` |
+| `POST` | `/api/diet-chart-templates` | multipart: `file` (CSV) | `DietChartTemplateOut` |
+| `DELETE` | `/api/diet-chart-templates/{id}` | — | 204 |
+| `POST` | `/api/clients/{client_id}/diet-chart/generate` | `{"template_id": "<uuid>"}` | `DietChartOut` |
+| `GET` | `/api/clients/{client_id}/diet-chart` | — | `DietChartOut` \| 404 |
+| `PATCH` | `/api/clients/{client_id}/diet-chart` | `{"parameters": {...}}` | `DietChartOut` |
+
+All endpoints scoped to `hc_user_id` from JWT (`TenantDep`). Ownership verified before any read/write.
+
+### Schema classes
+
+```python
+class DietChartTemplateOut(BaseModel):
+    id: UUID
+    name: str
+    template_key: str
+    meal_slots: list[str]
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+class DietChartOut(BaseModel):
+    id: UUID
+    name: str
+    parameters: dict          # full grid + meal_slots + is_template + generation_status
+    created_at: datetime
+    updated_at: datetime
+    model_config = {"from_attributes": True}
+
+class GenerateRequest(BaseModel):
+    template_id: UUID
+
+class PatchRequest(BaseModel):
+    parameters: dict
+```
+
+### CSV parser
+
+`backend/src/api/diet_charts.py` — `_parse_csv(file_bytes) -> dict`:
+- Reads header row → `meal_slots`
+- Reads rows 2–8 → `grid[day][slot] = {"food": ..., "timing": ...}` (split on ` · `)
+- Raises `400` with clear message if header missing, fewer than 7 day rows, or unparseable cell
+
+---
+
+## C.5 LLM generation
+
+**Prompt file**: `backend/prompts/diet_chart_generate_v1.md`
+(YAML frontmatter: `version: 1`, `created: 2026-05-12`, `task: diet_chart_generate`)
+
+**Inputs assembled at call time**:
+1. Selected template's `parameters.grid` as JSON
+2. Client's M000 session notes (`sessions.session_notes` where `session_number = 0`)
+3. Session 1 summary / MOM draft text (if exists)
+
+**Instruction** (prompt body):
+> You are a health coach diet planning assistant. The HC has selected the template below as a starting point. Personalise it for this specific client based on their intake notes and first session summary. Adjust meal timings to fit the client's schedule, flag any foods that conflict with stated health conditions or preferences, and keep the exact same meal slot structure as the template. Return only valid JSON matching the template grid structure exactly — no explanation, no markdown fences.
+
+**Output validation**: Pydantic model asserting all 7 days present, all meal slots present, each cell has `food` (string) and `timing` (string). One retry with stricter format hint if validation fails. Writes one `llm_calls` row on every attempt (success or failure) per ADR-0006.
+
+**Fallback behaviour** (if LLM returns malformed JSON after retry):
+- Return template grid unchanged
+- Set `parameters.generation_status = "fallback"`
+- Emit `warn`-level structured log: `event = "diet_chart.generate.fallback"`, include `client_id`, `template_id`, `prompt_version`, truncated raw response (≤ 500 chars)
+- Call `sentry_sdk.capture_message("diet_chart.generate.fallback", level="warning", extras={...})`
+- API response includes `generation_status: "fallback"` so frontend can show the amber banner
+
+This pattern — warn log + Sentry capture_message + response flag — is the **platform standard for application-level graceful degradations**. See SESSION_LOG 2026-05-12 observability gap note; ADR-0006 amendment pending.
+
+---
+
+## C.6 Frontend
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/lib/api/dietCharts.ts` | API client: `listTemplates`, `uploadTemplate`, `deleteTemplate`, `generateChart`, `getChart`, `patchChart` |
+| `frontend/src/app/(app)/settings/diet-chart-templates/page.tsx` | Template library management page |
+| `frontend/src/app/(app)/clients/[clientId]/diet-chart/page.tsx` | Full chart editor page |
+
+### Modified files
+
+| File | Change |
+|------|--------|
+| `frontend/src/app/(app)/clients/[clientId]/page.tsx` | Add "Diet Chart" section at bottom |
+
+---
+
+### Surface 1 — `/settings/diet-chart-templates`
+
+Added under Settings nav. Shows:
+
+- Table: template name, `template_key`, meal slot count, uploaded date, Delete button (archive, not hard delete)
+- "Upload template" button → native file picker (CSV only) → parsed preview (mini read-only grid, first 2 days) → "Confirm upload" → POST → row added to table
+- Empty state: "No templates yet. Upload your first diet chart template to get started."
+
+---
+
+### Surface 2 — Client detail page diet chart section
+
+Appended below existing sections on `clients/[clientId]/page.tsx`.
+
+**No chart exists:**
+```
+Diet Chart
+──────────
+[Template: dropdown ▾]   [Generate]
+```
+Template dropdown lists HC's templates by name. "Generate" → calls `/generate` → loading skeleton → inline editable table appears below → "Save chart" button.
+
+**Chart exists:**
+```
+Diet Chart                              [Edit chart →]
+──────────
+Mon  Breakfast: 3-egg omelette · 7:30 AM
+     Lunch: Grilled chicken · 1:00 PM
+Tue  Breakfast: Poha · 8:00 AM
+     ...  (2-day preview, read-only)
+```
+"Edit chart →" links to `/clients/{id}/diet-chart`.
+
+**Fallback amber banner** (when `generation_status === "fallback"`):
+> AI generation had an issue — template loaded as starting point. The team has been notified. Edit the chart before saving.
+
+---
+
+### Surface 3 — `/clients/{clientId}/diet-chart`
+
+Full-screen editor. Fetches the active chart on mount.
+
+**Table layout**: rows = days (Mon–Sun), columns = meal slots. Each cell has two lines: food (editable `input`) and timing (editable `input`, smaller text). Tab/Enter navigates between cells.
+
+**Column controls**: "＋ Add meal slot" appends a new column (HC names it). "×" on any column header removes it (with confirmation if cells are non-empty).
+
+**Actions**:
+- "Save chart" — PATCH `/api/clients/{id}/diet-chart` with updated `parameters`. Success toast: "Chart saved."
+- "Regenerate with different template" — opens template picker inline; on confirm, calls `/generate` again (previous chart archived, new one loaded).
+
+**Optimistic save**: table stays editable during the PATCH; "Saving…" text on button; revert + error toast if PATCH fails.
+
+---
+
+## C.7 MOM integration
+
+In `backend/prompts/mom_v*.md` system section, add:
+
+```
+{%- if client_has_diet_chart %}
+Note: A diet chart has been prepared for this client.
+{%- endif %}
+```
+
+The MOM draft endpoint checks `GET /clients/{id}/diet-chart` (reuses the DB query, no extra HTTP call) and passes `client_has_diet_chart: bool` to the prompt assembly.
+
+---
+
+## C.8 Out of scope in P6C
+
+- Sending chart to client (Unit_002)
+- `prep_recipes` / `diet_chart_recipes` recipe library (future)
+- Per-cell nutritional metadata (future)
+- RAG-over-past-charts (future — library lookup is template-only in P6C)
+- Chart versioning / history (future)
+- Template sharing across HCs (future)
+
+---
+
+## C.9 Acceptance criteria
+
+- [ ] HC uploads a CSV template → template appears in `/settings/diet-chart-templates` list
+- [ ] HC selects template, clicks Generate on client detail page → editable chart appears within 10s
+- [ ] `llm_calls` row written with `prompt_version = "diet_chart_generate_v1"`, all required fields populated
+- [ ] HC edits cells inline → "Save chart" → PATCH succeeds → reloading the page shows the edited values
+- [ ] HC adds a meal slot column → column persists after save
+- [ ] Fallback path: mock LLM returning malformed JSON → template grid returned unchanged, `generation_status = "fallback"`, amber banner shown, `warn` log emitted, Sentry message captured
+- [ ] Client detail page shows 2-day preview when chart exists
+- [ ] "Edit chart →" navigates to full editor
+- [ ] Generating a second chart for same client archives the first (`archived_at` set on old `diet_chart` record)
+- [ ] HC2 cannot read HC1's templates or client charts (tenant isolation)
+- [ ] MOM draft for a client with an active chart contains the "diet chart has been prepared" line
+- [ ] MOM draft for a client with no chart does NOT contain that line
+- [ ] Deleting a template in the library does not affect client charts that were generated from it (`template_ref` is just an ID — it's a historical reference, not a live foreign key constraint)
