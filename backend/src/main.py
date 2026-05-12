@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.action_items import router as action_items_router
+from src.api.diet_charts import router as diet_charts_router
 from src.api.check_ins import router as check_ins_router
 from src.api.clients import router as clients_router
 from src.api.files import router as files_router
@@ -55,6 +56,7 @@ app.include_router(files_router)
 app.include_router(action_items_router)
 app.include_router(check_ins_router)
 app.include_router(me_router)
+app.include_router(diet_charts_router)
 
 
 @app.get("/healthz", include_in_schema=False)
