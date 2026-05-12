@@ -1,161 +1,160 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { listActionItems, patchActionItem, type ActionItemOut } from "@/lib/api/actionItems";
+import { listClients, type ClientOut } from "@/lib/api/clients";
 import {
-  listActionItems,
-  patchActionItem,
-  type ActionItemOut,
-} from "@/lib/api/actionItems";
+  groupByClient,
+  MOVE_FORWARD,
+  MOVE_BACK,
+  type ClientRow,
+} from "@/lib/actionItemsKanban";
 
-const STATUS_LABEL: Record<string, string> = {
-  open: "Open",
-  in_progress: "In progress",
-  missed: "Missed",
-  completed: "Completed",
-};
-
-const NEXT_STATUS: Record<string, string> = {
-  open: "in_progress",
-  in_progress: "completed",
-};
-
-function isOverdue(dateStr: string | null): boolean {
-  if (!dateStr) return false;
-  return new Date(dateStr) < new Date(new Date().toDateString());
+function isOverdue(item: ActionItemOut): boolean {
+  if (item.status === "missed") return true;
+  if (!item.due_date) return false;
+  return new Date(item.due_date) < new Date(new Date().toDateString());
 }
 
-function ActionItemRow({
+function ItemCard({
   item,
-  onStatusChange,
+  onMove,
 }: {
   item: ActionItemOut;
-  onStatusChange: (updated: ActionItemOut) => void;
+  onMove: (id: string, newStatus: string) => void;
 }) {
   const [transitioning, setTransitioning] = useState(false);
-  const next = NEXT_STATUS[item.status];
+  const overdue = isOverdue(item);
+  const forward = MOVE_FORWARD[item.status];
+  const back = MOVE_BACK[item.status];
 
-  async function handleAdvance() {
-    if (!next) return;
+  async function handleMove(targetStatus: string) {
+    const originalStatus = item.status;
+    onMove(item.id, targetStatus); // optimistic
     setTransitioning(true);
     try {
-      const updated = await patchActionItem(item.id, { status: next });
-      onStatusChange(updated);
+      await patchActionItem(item.id, { status: targetStatus });
+    } catch {
+      onMove(item.id, originalStatus); // revert on error
     } finally {
       setTransitioning(false);
     }
   }
 
   return (
-    <li className="flex items-start justify-between py-3 gap-4">
-      <div className="space-y-0.5 min-w-0">
-        <p className="font-sans text-sm text-foreground">{item.description}</p>
-        {item.due_date && (
-          <p
-            className={cn(
-              "font-sans text-xs",
-              isOverdue(item.due_date)
-                ? "font-bold text-destructive"
-                : "text-muted-foreground",
-            )}
-          >
-            Due {new Date(item.due_date).toLocaleDateString("en-IN")}
-            {isOverdue(item.due_date) && " · Overdue"}
-          </p>
+    <div
+      className={cn(
+        "rounded-lg border p-3 space-y-1.5 text-sm",
+        overdue ? "border-destructive/40 bg-destructive/5" : "border-border bg-background",
+      )}
+    >
+      <p
+        className={cn(
+          "font-sans font-medium leading-snug",
+          item.status === "completed"
+            ? "line-through text-muted-foreground"
+            : "text-foreground",
         )}
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <Link href={`/clients/${item.client_id}`}>
-          <Badge variant="outline" className="cursor-pointer">
-            View client
-          </Badge>
-        </Link>
-        {next && (
-          <button
-            onClick={handleAdvance}
-            disabled={transitioning}
-            className="font-sans text-xs text-primary underline-offset-4 hover:underline disabled:opacity-50"
-          >
-            {transitioning ? "…" : `Mark ${STATUS_LABEL[next]?.toLowerCase()}`}
-          </button>
+      >
+        {item.description}
+      </p>
+      <p
+        className={cn(
+          "font-sans text-xs",
+          overdue ? "font-bold text-destructive" : "text-muted-foreground",
         )}
-      </div>
-    </li>
+      >
+        {new Date(item.created_at).toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })}
+        {overdue && " · Overdue"}
+      </p>
+      {transitioning ? (
+        <p className="font-sans text-xs text-muted-foreground">Moving…</p>
+      ) : (
+        <div className="flex flex-wrap gap-3 pt-0.5">
+          {back && (
+            <button
+              onClick={() => handleMove(back)}
+              className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+            >
+              {back === "open" ? "← Back to Open" : "← Reopen"}
+            </button>
+          )}
+          {forward && (
+            <button
+              onClick={() => handleMove(forward)}
+              className="font-sans text-xs text-primary underline-offset-4 hover:underline"
+            >
+              {forward === "in_progress" ? "Move to In Progress →" : "Mark Done →"}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
-function Section({
-  title,
+function Cell({
   items,
-  loading,
-  empty,
-  onStatusChange,
+  onMove,
 }: {
-  title: string;
   items: ActionItemOut[];
-  loading: boolean;
-  empty: string;
-  onStatusChange: (updated: ActionItemOut) => void;
+  onMove: (id: string, newStatus: string) => void;
 }) {
+  if (items.length === 0)
+    return <span className="font-sans text-sm text-muted-foreground">—</span>;
   return (
-    <section className="space-y-4">
-      <h2 className="font-heading text-xl font-bold text-foreground">{title}</h2>
-      <Separator />
-      {loading ? (
-        <div className="space-y-2">
-          <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-12 w-full" />
-        </div>
-      ) : items.length === 0 ? (
-        <p className="py-2 font-heading text-lg font-black text-muted-foreground">
-          {empty}
-        </p>
-      ) : (
-        <ul className="divide-y divide-border">
-          {items.map((item) => (
-            <ActionItemRow key={item.id} item={item} onStatusChange={onStatusChange} />
-          ))}
-        </ul>
-      )}
-    </section>
+    <div className="space-y-2">
+      {items.map((item) => (
+        <ItemCard key={item.id} item={item} onMove={onMove} />
+      ))}
+    </div>
   );
 }
 
 export default function ActionItemsPage() {
-  const [items, setItems] = useState<ActionItemOut[] | null>(null);
+  const [allItems, setAllItems] = useState<ActionItemOut[] | null>(null);
+  const [clients, setClients] = useState<ClientOut[] | null>(null);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     Promise.all([
-      listActionItems({ status: "open", limit: 50 }),
-      listActionItems({ status: "in_progress", limit: 50 }),
-      listActionItems({ status: "missed", limit: 50 }),
+      listActionItems({ status: "open",        limit: 100 }),
+      listActionItems({ status: "in_progress", limit: 100 }),
+      listActionItems({ status: "missed",      limit: 100 }),
+      listActionItems({ status: "completed",   limit: 100 }),
+      listClients({ limit: 100 }),
     ])
-      .then(([open, inProgress, missed]) => {
-        setItems([...open.items, ...inProgress.items, ...missed.items]);
+      .then(([open, inProgress, missed, done, clientsResult]) => {
+        setAllItems([
+          ...open.items,
+          ...inProgress.items,
+          ...missed.items,
+          ...done.items,
+        ]);
+        setClients(clientsResult.items);
       })
       .catch(() => setLoadError(true));
   }, []);
 
-  function handleStatusChange(updated: ActionItemOut) {
-    setItems((prev) =>
-      prev ? prev.map((i) => (i.id === updated.id ? updated : i)) : prev,
+  const handleMove = useCallback((id: string, newStatus: string) => {
+    setAllItems((prev) =>
+      prev ? prev.map((i) => (i.id === id ? { ...i, status: newStatus } : i)) : prev,
     );
-  }
+  }, []);
 
-  const loading = items === null && !loadError;
-
-  const open = (items ?? []).filter((i) => i.status === "open");
-  const inProgress = (items ?? []).filter((i) => i.status === "in_progress");
-  const missed = (items ?? []).filter((i) => i.status === "missed");
+  const loading = allItems === null && clients === null && !loadError;
+  const rows: ClientRow[] =
+    allItems && clients ? groupByClient(clients, allItems) : [];
 
   return (
     <div className="space-y-10">
-      {/* Page header */}
       <div>
         <p className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
           Accountability
@@ -165,33 +164,72 @@ export default function ActionItemsPage() {
         </h1>
       </div>
 
-      {loadError ? (
+      {loadError && (
         <p className="font-sans text-sm text-destructive">
           Could not load action items.
         </p>
-      ) : (
-        <div className="space-y-10">
-          <Section
-            title="Open"
-            items={open}
-            loading={loading}
-            empty="All clear. Nothing open."
-            onStatusChange={handleStatusChange}
-          />
-          <Section
-            title="In progress"
-            items={inProgress}
-            loading={loading}
-            empty="Nothing in progress."
-            onStatusChange={handleStatusChange}
-          />
-          <Section
-            title="Missed"
-            items={missed}
-            loading={loading}
-            empty="No missed items."
-            onStatusChange={handleStatusChange}
-          />
+      )}
+
+      {loading && (
+        <div className="space-y-2">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </div>
+      )}
+
+      {!loading && !loadError && rows.length === 0 && (
+        <p className="py-2 font-heading text-xl font-black text-muted-foreground">
+          All clear. <em>No active items.</em>
+        </p>
+      )}
+
+      {!loading && !loadError && rows.length > 0 && (
+        <div className="overflow-x-auto rounded-2xl border border-border">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted">
+                <th className="w-36 p-4 text-left font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                  Client
+                </th>
+                <th className="p-4 text-left font-sans text-xs font-bold uppercase tracking-widest text-foreground border-l border-border">
+                  Open
+                </th>
+                <th className="p-4 text-left font-sans text-xs font-bold uppercase tracking-widest text-foreground border-l border-border">
+                  In Progress
+                </th>
+                <th className="p-4 text-left font-sans text-xs font-bold uppercase tracking-widest text-foreground border-l border-border">
+                  Done
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr
+                  key={row.client.id}
+                  className="border-b border-border last:border-0 align-top"
+                >
+                  <td className="p-4">
+                    <Link
+                      href={`/clients/${row.client.id}`}
+                      className="font-heading text-sm font-bold text-foreground underline-offset-4 hover:underline"
+                    >
+                      {row.client.full_name}
+                    </Link>
+                  </td>
+                  <td className="p-4 border-l border-border">
+                    <Cell items={row.open} onMove={handleMove} />
+                  </td>
+                  <td className="p-4 border-l border-border">
+                    <Cell items={row.in_progress} onMove={handleMove} />
+                  </td>
+                  <td className="p-4 border-l border-border">
+                    <Cell items={row.done} onMove={handleMove} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
