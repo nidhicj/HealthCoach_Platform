@@ -44,6 +44,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 0 — Repo Scaffolding
+
 **Phase plan**: [`Unit_001_HcCoreCycle/PHASE-00-repo-scaffolding.md`](specs/Unit_001_HcCoreCycle/PHASE-00-repo-scaffolding.md)
 
 **Goal**: Empty but correct repo structure. Worker boots, frontend skeleton boots, local Postgres up. No domain code yet.
@@ -75,6 +76,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 1 — Data Layer
+
 **Phase plan**: [`Unit_001_HcCoreCycle/PHASE-01-data-layer.md`](specs/Unit_001_HcCoreCycle/PHASE-01-data-layer.md)
 
 **Goal**: Every table from the ERD exists in the database. Async session factory works. Migrations are reversible.
@@ -103,6 +105,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 2 — Auth Service
+
 **Phase plan**: [`Unit_001_HcCoreCycle/PHASE-02-auth-service.md`](specs/Unit_001_HcCoreCycle/PHASE-02-auth-service.md)
 
 **Goal**: HC and client can sign in via Google. JWT issued, refresh works, revoke works, protected endpoints enforced.
@@ -136,6 +139,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 3 — Domain CRUD
+
 **Phase plan**: [`Unit_001_HcCoreCycle/PHASE-03-domain-crud.md`](specs/Unit_001_HcCoreCycle/PHASE-03-domain-crud.md)
 
 **Goal**: HC can manage clients, sessions, MOMs (placeholder text), briefs (placeholder text), action items, check-ins. No AI yet — text fields filled manually.
@@ -164,6 +168,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 4 — LLM Service
+
 **Phase plan**: [`Unit_001_HcCoreCycle/PHASE-04-llm-service.md`](specs/Unit_001_HcCoreCycle/PHASE-04-llm-service.md)
 
 **Goal**: AI drafts work end-to-end via OpenRouter. Snippet library captures HC edits. Validation + retry + telemetry all wired.
@@ -199,6 +204,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 ---
 
 ### Phase 5 — HC Cycle Workflows + Client File Library
+
 **Phase plan**: `Unit_001_HcCoreCycle/PHASE-05-hc-cycle-workflows.md` *(write before P5 build sprint begins)*
 
 **Goal**: The actual product loop. Two parts that ship together but verify independently.
@@ -280,6 +286,7 @@ Verification has two subsections (Part A and Part B). Each is tickable independe
 ---
 
 ### Phase 6 — Frontend
+
 **Phase plan**: `Unit_001_HcCoreCycle/PHASE-06-frontend.md` *(write before P6 build sprint begins)*
 
 **Goal**: HC can do the entire core cycle through the browser.
@@ -311,6 +318,7 @@ Verification has two subsections (Part A and Part B). Each is tickable independe
 ---
 
 ### Phase 7 — External Scheduler
+
 **Phase plan**: `Unit_001_HcCoreCycle/PHASE-07-external-scheduler.md` *(write before P7 build sprint begins)*
 
 **Goal**: Periodic background tasks run via external scheduler hitting Worker endpoints. APScheduler is *not* used (per `ADR-0001` — incompatible with Workers no-threading).
@@ -336,6 +344,7 @@ Verification has two subsections (Part A and Part B). Each is tickable independe
 ---
 
 ### Phase 8 — Observability Live
+
 **Phase plan**: `Unit_001_HcCoreCycle/PHASE-08-observability-live.md` *(write before P8 build sprint begins)*
 
 **Goal**: Errors land in Sentry, structured logs appear in Cloudflare dashboard, `llm_calls` dashboards answer the trigger questions.
@@ -367,6 +376,7 @@ Verification has two subsections (Part A and Part B). Each is tickable independe
 ---
 
 ### Phase 9 — Pre-Pilot Smoke Gate
+
 **Phase plan**: `Unit_001_HcCoreCycle/PHASE-09-pilot-smoke-gate.md` *(write before P9 build sprint begins)*
 
 **Goal**: Production-config Worker proven against real RDS Mumbai + real OpenRouter + real S3 Mumbai. Cloudflare platform features enabled. Pilot HC seeded with snippet examples.
@@ -508,8 +518,8 @@ If a phase reveals a gap in the source docs (e.g. ambiguity Claude Code surfaces
 
 ## Changelog
 
-| Date       | Change         | Reason                                                                      |
-| ---------- | -------------- | --------------------------------------------------------------------------- |
-| 2026-04-28 | Initial draft. | Build sequence and verification structure needed before Claude Code starts. |
-| 2026-05-04 | Added phase-plan links for P0–P4; added "write PHASE file first" as step 1 in the How-to-use loop; added step 7 (complete PHASE file after verification). | Naming cleanup session established the PHASE file convention; PHASE-04 written retroactively and linked. P5 onward must write PHASE file before build sprint. |
+| Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Reason                                                                                                                                                                                                                                                                                                                                                        |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-04-28 | Initial draft.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Build sequence and verification structure needed before Claude Code starts.                                                                                                                                                                                                                                                                                   |
+| 2026-05-04 | Added phase-plan links for P0–P4; added "write PHASE file first" as step 1 in the How-to-use loop; added step 7 (complete PHASE file after verification).                                                                                                                                                                                                                                                                                                                                                | Naming cleanup session established the PHASE file convention; PHASE-04 written retroactively and linked. P5 onward must write PHASE file before build sprint.                                                                                                                                                                                                 |
 | 2026-05-05 | Reframed P5: split into Part A (HC Cycle Workflows — original P5 scope plus persistent `session_notes` column) and Part B (Client File Library — new scope: `client_files` table, S3-backed per-client/per-session folder structure, multi-file uploads, Zoom-summary tagging, file content as additional LLM prompt input, `session_notes.txt` mirror with DB as canonical). Each part has its own deliverables, acceptance criteria, and verification subsection in the eventual PHASE-05 plan. | New product decisions emerged during P5 prep conversation: HC needs in-app textarea for quick notes (persistent + editable) AND file uploads for richer session content (Zoom AI summaries, PDFs, external notes). Both feed the LLM prompt under distinct headers. Splitting into parts keeps verification gateable while the phase ships as one PHASE file. |

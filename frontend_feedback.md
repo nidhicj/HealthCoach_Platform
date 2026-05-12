@@ -8,20 +8,21 @@
 
 ## Triage summary
 
-| # | Item | Label | Effort |
-|---|---|---|---|
-| 1 | Dashboard section background blocks | `P6-fix` | Small |
-| 2 | Replace "Recent Clients" with something better | `P6B-spec` | Medium |
-| 3 | Today's session: show Client name + Session # | `P6-fix` | Small |
-| 4 | Action item checkboxes + client page layout | `P6-fix` | Medium |
-| 5 | Diet chart feature (preview, AI generation, editable table) | `P6B-spec` | Large |
+| # | Item                                                        | Label        | Effort |
+| - | ----------------------------------------------------------- | ------------ | ------ |
+| 1 | Dashboard section background blocks                         | `P6-fix`   | Small  |
+| 2 | Replace "Recent Clients" with something better              | `P6B-spec` | Medium |
+| 3 | Today's session: show Client name + Session #               | `P6-fix`   | Small  |
+| 4 | Action item checkboxes + client page layout                 | `P6-fix`   | Medium |
+| 5 | Diet chart feature (preview, AI generation, editable table) | `P6B-spec` | Large  |
 
 **Bottom line**: items 1, 3, 4 can be fixed in this session without any design discussion.
 Items 2 and 5 need a brainstorm with claude.ai first — they involve product decisions, not just code.
 
 ---
 
-## Item 1 — Dashboard section background blocks
+## ~~Item 1 — Dashboard section background blocks~~
+
 > "Need to add background color blocks for every section of dashboard — helps bifurcate visually"
 
 **Triage: `P6-fix`**
@@ -33,12 +34,14 @@ Can be done directly in `dashboard/page.tsx`.
 ---
 
 ## Item 2 — "Recent Clients" section: keep or replace?
+
 > "We can discuss if we even need 'Recent Clients' in dashboard — we may include something better"
 
 **Triage: `P6B-spec`**
 
 This is a product decision, not a code fix. "Recent Clients" is a default dashboard widget but
 may not be the most useful thing for an HC. Alternatives to brainstorm with claude.ai:
+
 - **Recent activity**: last session per client with status (brief generated? MOM sent?)
 - **Upcoming sessions**: clients with a session scheduled in the next 7 days
 - **Follow-up needed**: clients who haven't had a check-in in N days
@@ -50,7 +53,8 @@ useful for a coach who sees 8–15 clients?"*
 
 ---
 
-## Item 3 — Today's session: Client name + Session number
+## ~~Item 3 — Today's session: Client name + Session number~~
+
 > "'Today' section has 'Session #' only — need to change it to 'Client_name - Session #[#]'"
 
 **Triage: `P6-fix`**
@@ -61,7 +65,8 @@ instead of just `Session {session_number}`. One-line template change.
 
 ---
 
-## Item 4 — Open Action Items: checkboxes + client page section
+## ~~Item 4 — Open Action Items: checkboxes + client page section~~
+
 > "Open Action Items must have checkbox accountability — HC can know what is actually pending
 > vs followed up. Add section above sessions on client detail page with checkboxes. If checked,
 > AI should include it as a progress pointer."
@@ -69,6 +74,7 @@ instead of just `Session {session_number}`. One-line template change.
 **Triage: `P6-fix`** (UI + existing API) | Part of it may need spec clarification
 
 **What can be done in P6-fix:**
+
 - Add an "Open Action Items" section to the client detail page, above the sessions list
 - Each item has a checkbox on the left; checking it calls `PATCH /api/action-items/{id}` with
   `{"status": "completed"}` — this API already exists
@@ -85,6 +91,7 @@ P6B spec discussion if you want that level of explicitness.
 ---
 
 ## Item 5 — Diet chart feature
+
 > "Diet chart block for every client at details/sessions. Small preview on client page, expands
 > to full chart. 7-day × meals table. Timings in cells. Editable columns (add/remove meals like
 > snack). AI suggests chart after first session, HC approves, then displayed."
@@ -96,6 +103,7 @@ This is a substantial new feature. The DB tables (`diet_charts`, `diet_chart_rec
 is ready. But it needs design decisions before building:
 
 **Questions to resolve in brainstorm:**
+
 1. Is the diet chart per-client (one chart, updated over time) or per-session (a new version each session)?
 2. When AI suggests a chart, what data does it draw from — only the first session notes, or also the onboarding M000 notes?
 3. What does "HC approves" look like — a confirm button, or full edit-first-then-approve?
@@ -112,24 +120,21 @@ depending on scope.
 
 ---
 
-## What to do next
+## Item 6 -- Revise "Action Items" endpoint
 
-### Do now (this session with Claude Code)
-Items 1, 3, 4 are pure code changes on existing pages. No product decisions. I can implement
-them in one go — just confirm you want to proceed.
+What we have in 'action-items' endpoint is very much spread across and does not give a structured information. That's why I want to introduce a table structure for action items endpoint in the front end. That way the HC can think that this is their kanban board and understand that okay. This action item is ongoing or in progress or it's done. So this table structure I want to introduce. Maybe we can develop better things on top of this once I get an input from HC
 
-### Do before building items 2 and 5
-1. Open a new chat with claude.ai
-2. Share `docs/specs/Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` and
-   `docs/HANDOVER-P6.md` as context
-3. Brainstorm item 2 (dashboard widget) and item 5 (diet chart) as separate topics
-4. Have claude.ai produce a spec document for each
-5. Bring the spec back here to build
+**Table structure**
 
-### Naming if you create a sub-phase
-If items 2 + 5 (or just 5) become a separate build:
-- Phase plan: `docs/specs/Unit_001_HcCoreCycle/PHASE-06B-frontend-enhancements.md`
-- Or absorb into `PHASE-07-*.md` if it lines up with P7 scope
+| Client | logged on (DATE) | PHASE-1: Open Action items | PHASE-2: In progress | PHASE-3: Closed Action items |
+| ------ | ---------------- | -------------------------- | -------------------- | ---------------------------- |
+| CP001  | DD/MM/YYYY       | 1. _ _ _ _ _ _             | 1. _ _ _ _           | 1. _ _ _ _                   |
+|        | DD/MM/YYYY       | 2. _ _ _ _ _               | 2. _ _ _ _           | 2. _ _ _ _                   |
+| CP002  |                  |                            |                      |                              |
 
-The diet chart in particular could be its own unit (`Unit_002_DietCharts`) if it grows beyond a
-single session feature. Keep it in Unit 001 only if it stays tightly coupled to the HC session cycle.
+**Note** -
+
+* On the item "1. ___" in the Open Action items column (Phase 1) → it must be a "**DRAGGABLE ITEM BETWEEN PHASES** "
+* I have used '**phases'** term only for understanding purpose now. Must come up with something better - you suggest
+
+---

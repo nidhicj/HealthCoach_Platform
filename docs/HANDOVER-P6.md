@@ -469,6 +469,71 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ---
 
+## Post-P6 developments (2026-05-07)
+
+> This section documents changes that occurred after HANDOVER-P6 was initially written (commit `c5be324`).
+> It extends §Known issues and §Current git state. Read this before §What P7 needs to build.
+
+### Commits landed after initial HANDOVER-P6
+
+| Commit | What changed |
+|---|---|
+| `617b18d` | Mock script fix: wrong table name `session_briefs` → `briefs` in `05_verify_flywheel.sh` |
+| `af62526` | Added `frontend_feedback.md` — P6 UI review triage (5 items) |
+
+### P6 UI review — `frontend_feedback.md`
+
+A post-build UI review produced 5 items triaged as follows:
+
+| # | Item | Label | Status |
+|---|---|---|---|
+| 1 | Dashboard section visual separation (background cards) | `P6-fix` | Coded, uncommitted |
+| 2 | "Recent Clients" widget — keep or replace? | `P6B-spec` | Needs product brainstorm first |
+| 3 | Today's session: show Client name + Session # | `P6-fix` | Coded, uncommitted |
+| 4 | Open action items: checkboxes + section on client detail page | `P6-fix` | Coded, uncommitted |
+| 5 | Diet chart feature (preview, AI gen, editable table) | `P6B-spec` | Needs product brainstorm first |
+
+Items 2 and 5 are new carry-overs. They require product decisions + a spec before any code.
+Item 5 (diet chart) may warrant its own unit (`Unit_002_DietCharts`) — defer naming until spec is written.
+The DB tables (`diet_charts`, `diet_chart_recipes`, `prep_recipes`, `content_assignments`) already exist from P1.
+
+### Uncommitted code changes (P6-fix items 1, 3, 4)
+
+8 files modified, not yet committed:
+
+| File | Change |
+|---|---|
+| `frontend/src/app/(app)/dashboard/page.tsx` | Section background cards; client name + session # in Today |
+| `frontend/src/app/(app)/clients/[clientId]/page.tsx` | Open action items section above sessions list (+157 lines) |
+| `frontend/src/app/(app)/action-items/page.tsx` | Checkbox accountability |
+| `frontend/src/app/globals.css` | CSS cascade update |
+| `frontend/src/styles/tokens.generated.css` | Regenerated from theme.yaml |
+| `frontend/tests/unit/__snapshots__/theme-build.test.ts.snap` | Snapshot updated |
+| `frontend/theme.yaml` | Design token additions |
+| `scripts/build-theme.mjs` | Build script update |
+
+**These must be committed before P7 starts.** Run `cd frontend && npx vitest run` first to confirm unit tests pass.
+
+### Repo sync sweep — `docs/SYNC-2026-05-07.md`
+
+A full sweep of all docs was done on 2026-05-07. Nine discrepancies between documentation and implementation were found:
+
+| # | Where | What |
+|---|---|---|
+| D1 | SPEC-0001 §Stage 2 | Says `is_first_session=true` — column doesn't exist; code uses `session_number == 0` |
+| D2 | SPEC-0001 §API surface | Shows `/mom/send` endpoint — doesn't exist; `PATCH /sessions/{id}/mom` handles send |
+| D3 | REPO-INDEX.md | ADR-0003 listed as "Proposed" — it is Accepted |
+| D4 | REPO-INDEX.md | References SPEC-0002-llm-service.md — file does not exist |
+| D5 | ADR-0001 | Says Next.js 15 — actual is 16.2.4 |
+| D6 | ADR-0001, ADR-0003 | Document 4 LLM models in chain — live chain has 3 (`gpt-oss-120b` removed in P4) |
+| D7 | ADR-0004 | Repo layout doesn't match reality (`prompts/` location, `llm_service/` vs `llm/`) |
+| D8 | PHASE-06-frontend.md | Status still "Draft"; §4/§6/§7/§8 unfilled |
+| D9 | glossary.md | "MERGE-REQUIRED" banner never removed |
+
+All are doc fixes — none block P7 code. Full detail in `docs/SYNC-2026-05-07.md`.
+
+---
+
 ## What P7 needs to build
 
 > Read `docs/build-plan.md` §Phase 7 for the authoritative acceptance criteria.
@@ -499,7 +564,8 @@ error-handling spec detailed in this document. Confirm the priority with SoJo be
 
 ```
 branch: main
-last commit: 45852c5  fix(mock): resilient print_brief/print_mom_draft + S7 resume script
+last commit: af62526  docs: add frontend_feedback.md with P6 review triage
+uncommitted:  8 frontend files (P6-fix items 1, 3, 4 — see §Post-P6 developments)
 backend tests: 189 passing
 frontend e2e:  40 passing
 migrations:    5 applied (df7c84b2de4f is head)
