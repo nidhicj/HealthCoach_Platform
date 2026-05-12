@@ -6,10 +6,12 @@ exports[`theme build script > generated tokens.css snapshot has not regressed 1`
 
 @theme {
   /* Brand palette */
-  --color-parchment:   #F7F4EE;
-  --color-moss-shadow: #5C6652;
-  --color-dark-ink:    #2C2C1E;
-  --color-marigold:    #E8C547;
+  --color-parchment:    #F7F4EE;
+  --color-moss-shadow:  #5C6652;
+  --color-dark-ink:     #2C2C1E;
+  --color-marigold:     #E8C547;
+  --color-section-fill-01: #E8EDE5;
+  --color-section-fill-02: #EFE7C9;
 
   /* Functional colours — never decorative */
   --color-success: #3F7D4B;

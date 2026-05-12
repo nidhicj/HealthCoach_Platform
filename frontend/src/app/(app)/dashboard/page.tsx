@@ -22,19 +22,19 @@ function isOverdue(dateStr: string | null): boolean {
 
 export default function DashboardPage() {
   const [todaySessions, setTodaySessions] = useState<SessionOut[] | null>(null);
-  const [clients, setClients] = useState<ClientOut[] | null>(null);
+  const [clientMap, setClientMap] = useState<Map<string, ClientOut>>(new Map());
   const [actionItems, setActionItems] = useState<ActionItemOut[] | null>(null);
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     Promise.all([
       listSessions({ limit: 50 }),
-      listClients({ limit: 5 }),
+      listClients({ limit: 100 }),
       listActionItems({ status: "open", limit: 20 }),
     ])
       .then(([s, c, a]) => {
         setTodaySessions(s.items.filter((x) => isToday(x.scheduled_at)));
-        setClients(c.items);
+        setClientMap(new Map(c.items.map((cl) => [cl.id, cl])));
         const sorted = [...a.items].sort((x, y) => {
           return (isOverdue(x.due_date) ? 0 : 1) - (isOverdue(y.due_date) ? 0 : 1);
         });
@@ -44,14 +44,11 @@ export default function DashboardPage() {
   }, []);
 
   const loading = !loadError && todaySessions === null;
-
   const todayEmpty = !loading && !loadError && todaySessions?.length === 0;
-  // Only one Marigold per screen — goes to Today empty-state CTA when sessions empty
   const showMarigold = todayEmpty;
 
   return (
     <div className="space-y-10">
-      {/* Page header */}
       <div>
         <p className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
           {new Date().toLocaleDateString("en-IN", {
@@ -66,7 +63,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Section 1 — Today */}
-      <section className="space-y-4">
+      <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
         <h2 className="font-heading text-xl font-bold text-foreground">Today</h2>
         <Separator />
         {loading ? (
@@ -75,9 +72,7 @@ export default function DashboardPage() {
             <Skeleton className="h-16 w-full" />
           </div>
         ) : loadError ? (
-          <p className="font-sans text-sm text-destructive">
-            Could not load sessions.
-          </p>
+          <p className="font-sans text-sm text-destructive">Could not load sessions.</p>
         ) : todaySessions!.length === 0 ? (
           <div className="flex flex-col items-start gap-5 py-4">
             <p className="font-heading text-2xl font-black text-muted-foreground">
@@ -100,7 +95,7 @@ export default function DashboardPage() {
                 >
                   <div>
                     <p className="font-heading text-base font-bold text-foreground">
-                      Session {sess.session_number}
+                      {clientMap.get(sess.client_id)?.full_name ?? "—"} · Session {sess.session_number}
                     </p>
                     <p className="font-sans text-sm text-muted-foreground">
                       {new Date(sess.scheduled_at).toLocaleTimeString("en-IN", {
@@ -123,52 +118,8 @@ export default function DashboardPage() {
         )}
       </section>
 
-      {/* Section 2 — Recent clients */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-heading text-xl font-bold text-foreground">
-            Recent clients
-          </h2>
-          <Link
-            href="/clients"
-            className="font-sans text-xs text-primary underline-offset-4 hover:underline"
-          >
-            All clients →
-          </Link>
-        </div>
-        <Separator />
-        {loading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-          </div>
-        ) : clients?.length === 0 ? (
-          <p className="py-2 font-heading text-xl font-black text-muted-foreground">
-            No clients yet. <em>Start by adding one.</em>
-          </p>
-        ) : (
-          <ul className="divide-y divide-border">
-            {clients?.map((client) => (
-              <li key={client.id}>
-                <Link
-                  href={`/clients/${client.id}`}
-                  className="flex items-center justify-between py-3 transition-colors duration-150 hover:text-primary"
-                >
-                  <p className="font-heading text-base font-bold text-foreground">
-                    {client.full_name}
-                  </p>
-                  <span className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                    {client.journey_stage.replace(/_/g, " ")}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {/* Section 3 — Pending action items */}
-      <section className="space-y-4">
+      {/* Section 2 — Pending action items */}
+      <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
         <h2 className="font-heading text-xl font-bold text-foreground">
           Pending action items
         </h2>
@@ -185,30 +136,33 @@ export default function DashboardPage() {
         ) : (
           <ul className="divide-y divide-border">
             {actionItems?.map((item) => (
-              <li key={item.id} className="flex items-start justify-between py-3">
-                <div className="space-y-0.5">
-                  <p className="font-sans text-sm text-foreground">
-                    {item.description}
-                  </p>
-                  {item.due_date && (
-                    <p
-                      className={cn(
-                        "font-sans text-xs",
-                        isOverdue(item.due_date)
-                          ? "font-bold text-destructive"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      Due {new Date(item.due_date).toLocaleDateString("en-IN")}
-                      {isOverdue(item.due_date) && " · Overdue"}
+              <li key={item.id} className="py-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="font-sans text-xs font-bold text-muted-foreground">
+                      {clientMap.get(item.client_id)?.full_name ?? "—"}
+                      {" · "}
+                      {new Date(item.created_at).toLocaleDateString("en-IN")}
                     </p>
-                  )}
+                    <p className="font-sans text-sm text-foreground">{item.description}</p>
+                    {item.due_date && (
+                      <p
+                        className={cn(
+                          "font-sans text-xs",
+                          isOverdue(item.due_date)
+                            ? "font-bold text-destructive"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        Due {new Date(item.due_date).toLocaleDateString("en-IN")}
+                        {isOverdue(item.due_date) && " · Overdue"}
+                      </p>
+                    )}
+                  </div>
+                  <Link href={`/clients/${item.client_id}`}>
+                    <Badge variant="outline" className="shrink-0">View client</Badge>
+                  </Link>
                 </div>
-                <Link href={`/clients/${item.client_id}`}>
-                  <Badge variant="outline" className="shrink-0">
-                    View client
-                  </Badge>
-                </Link>
               </li>
             ))}
           </ul>
