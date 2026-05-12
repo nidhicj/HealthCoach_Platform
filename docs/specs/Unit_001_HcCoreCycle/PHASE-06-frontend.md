@@ -1484,3 +1484,1482 @@ The MOM draft endpoint checks `GET /clients/{id}/diet-chart` (reuses the DB quer
 - [ ] MOM draft for a client with an active chart contains the "diet chart has been prepared" line
 - [ ] MOM draft for a client with no chart does NOT contain that line
 - [ ] Deleting a template in the library does not affect client charts that were generated from it (`template_ref` is just an ID — it's a historical reference, not a live foreign key constraint)
+
+---
+
+## C.10 Implementation Plan
+
+> **For agentic workers:** Use `superpowers:executing-plans` or `superpowers:subagent-driven-development` to implement task-by-task. Steps use `- [ ]` syntax for tracking.
+
+**Goal:** Add diet chart feature end-to-end: HC uploads CSV templates, AI personalises a template per client, HC edits the 7-day grid inline, MOM draft notes when a chart exists.
+
+**Architecture:** New `diet_charts.py` router (6 endpoints, no prefix — routes span `/api/diet-charts/` and `/api/clients/{id}/diet-chart/`). LLM generation in `diet_chart_generate.py` following the `generate_mom_draft` pattern. Three frontend surfaces wired to the new API client module.
+
+**Tech Stack:** FastAPI + SQLAlchemy 2.0 + PostgreSQL JSONB (backend); Next.js App Router + React + Tailwind v4 + Zod (frontend); OpenRouter via `call_openrouter` + `parse_or_retry`.
+
+---
+
+### Task 1: Backend CRUD + CSV parser
+
+**Files:**
+- Create: `backend/src/api/diet_charts.py`
+- Create: `backend/tests/unit/test_diet_chart_csv.py`
+- Modify: `backend/src/main.py`
+
+- [ ] **Step 1: Write failing unit tests for `_parse_csv_bytes`**
+
+```python
+# backend/tests/unit/test_diet_chart_csv.py
+import pytest
+from src.api.diet_charts import _parse_csv_bytes
+
+SIMPLE_CSV = (
+    "Day,Breakfast,Lunch,Dinner\n"
+    "Monday,Oats · 7:30 AM,Dal rice · 1:00 PM,Soup · 8:00 PM\n"
+    "Tuesday,Eggs · 8:00 AM,Roti sabzi · 1:00 PM,Salad · 7:30 PM\n"
+)
+
+
+def test_parses_meal_slots():
+    result = _parse_csv_bytes(SIMPLE_CSV.encode())
+    assert result["meal_slots"] == ["Breakfast", "Lunch", "Dinner"]
+
+
+def test_parses_food_and_timing():
+    result = _parse_csv_bytes(SIMPLE_CSV.encode())
+    assert result["grid"]["Monday"]["Breakfast"] == {"food": "Oats", "timing": "7:30 AM"}
+    assert result["grid"]["Monday"]["Lunch"] == {"food": "Dal rice", "timing": "1:00 PM"}
+
+
+def test_skips_non_day_rows():
+    csv = "Day,Breakfast\nMonday,Oats · 8am\nTotal,ignored\n"
+    result = _parse_csv_bytes(csv.encode())
+    assert list(result["grid"].keys()) == ["Monday"]
+
+
+def test_raises_on_wrong_first_column():
+    csv = "NotDay,Breakfast\nMonday,Oats · 8am\n"
+    with pytest.raises(ValueError, match="First column header must be 'Day'"):
+        _parse_csv_bytes(csv.encode())
+
+
+def test_raises_on_no_slots():
+    csv = "Day\nMonday\n"
+    with pytest.raises(ValueError, match="at least one meal slot"):
+        _parse_csv_bytes(csv.encode())
+
+
+def test_cell_without_separator_gets_empty_timing():
+    csv = "Day,Breakfast\nMonday,Oats\n"
+    result = _parse_csv_bytes(csv.encode())
+    assert result["grid"]["Monday"]["Breakfast"] == {"food": "Oats", "timing": ""}
+
+
+def test_utf8_bom_stripped():
+    csv_bytes = "\xef\xbb\xbfDay,Breakfast\nMonday,Oats · 8am\n".encode()
+    result = _parse_csv_bytes(csv_bytes)
+    assert result["meal_slots"] == ["Breakfast"]
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+```
+cd backend && source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+pytest tests/unit/test_diet_chart_csv.py -v
+```
+Expected: `ModuleNotFoundError` — `src.api.diet_charts` does not exist yet.
+
+- [ ] **Step 3: Create `backend/src/api/diet_charts.py`**
+
+```python
+"""Diet chart endpoints — template library CRUD + client chart CRUD."""
+import csv
+import io
+from datetime import datetime, timezone
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException, UploadFile, status
+from pydantic import BaseModel
+from sqlalchemy import and_, select
+
+from src.api.deps import DbDep, HcClaimsDep, TenantDep
+from src.db.models.clients import Client
+from src.db.models.content import ContentAssignment, DietChart
+
+router = APIRouter(tags=["diet-charts"])
+
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+MAX_CSV_BYTES = 128 * 1024
+
+
+# ── schemas ────────────────────────────────────────────────────────────────────
+
+
+class DietChartOut(BaseModel):
+    id: UUID
+    name: str
+    description: str | None
+    parameters: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DietChartPatch(BaseModel):
+    parameters: dict
+
+
+class GenerateRequest(BaseModel):
+    template_id: UUID
+    client_goal: str | None = None
+
+
+class GenerateResponse(BaseModel):
+    chart: DietChartOut
+    generation_status: str  # "generated" | "fallback"
+
+
+# ── helpers ────────────────────────────────────────────────────────────────────
+
+
+def _parse_csv_bytes(data: bytes) -> dict:
+    """Parse diet chart CSV → {meal_slots, grid}.
+    Header: Day,<Slot1>,…  Cells: "food · timing".
+    """
+    text = data.decode("utf-8-sig").strip()
+    reader = csv.DictReader(io.StringIO(text))
+    if reader.fieldnames is None:
+        raise ValueError("CSV has no header row")
+    fieldnames = list(reader.fieldnames)
+    if not fieldnames or fieldnames[0].strip() != "Day":
+        raise ValueError("First column header must be 'Day'")
+    meal_slots = [f.strip() for f in fieldnames[1:] if f.strip()]
+    if not meal_slots:
+        raise ValueError("CSV must have at least one meal slot column")
+    grid: dict[str, dict[str, dict[str, str]]] = {}
+    for row in reader:
+        day = (row.get("Day") or "").strip()
+        if day not in DAYS:
+            continue
+        grid[day] = {}
+        for slot in meal_slots:
+            raw = (row.get(slot) or "").strip()
+            if "·" in raw:
+                food_part, timing_part = raw.split("·", 1)
+                grid[day][slot] = {"food": food_part.strip(), "timing": timing_part.strip()}
+            else:
+                grid[day][slot] = {"food": raw, "timing": ""}
+    return {"meal_slots": meal_slots, "grid": grid}
+
+
+def _to_out(chart: DietChart) -> DietChartOut:
+    return DietChartOut.model_validate(chart)
+
+
+async def _get_owned_client(db: DbDep, client_id: UUID, hc_id: str) -> Client:
+    client = (await db.execute(
+        select(Client).where(Client.id == client_id, Client.hc_user_id == UUID(hc_id))
+    )).scalar_one_or_none()
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return client
+
+
+async def _get_active_chart(db: DbDep, client_id: UUID, hc_id: str) -> DietChart | None:
+    return (await db.execute(
+        select(DietChart)
+        .join(ContentAssignment, and_(
+            ContentAssignment.content_type == "diet_chart",
+            ContentAssignment.content_id == DietChart.id,
+        ))
+        .where(
+            ContentAssignment.client_id == client_id,
+            ContentAssignment.hc_user_id == UUID(hc_id),
+            DietChart.archived_at.is_(None),
+        )
+        .order_by(ContentAssignment.assigned_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+
+# ── template routes ────────────────────────────────────────────────────────────
+
+
+@router.post("/api/diet-charts/templates/upload", status_code=status.HTTP_201_CREATED)
+async def upload_template(
+    file: UploadFile,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> DietChartOut:
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=422, detail="File must be a .csv")
+    data = await file.read(MAX_CSV_BYTES + 1)
+    if len(data) > MAX_CSV_BYTES:
+        raise HTTPException(status_code=422, detail="CSV exceeds 128 KB limit")
+    try:
+        parsed = _parse_csv_bytes(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    name = file.filename[:-4]
+    template_key = name.lower().replace(" ", "-")
+    chart = DietChart(
+        hc_user_id=UUID(hc_id),
+        name=name,
+        description=None,
+        parameters={"is_template": True, "template_key": template_key, **parsed},
+    )
+    db.add(chart)
+    await db.flush()
+    await db.commit()
+    return _to_out(chart)
+
+
+@router.get("/api/diet-charts/templates")
+async def list_templates(
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> list[DietChartOut]:
+    rows = (await db.execute(
+        select(DietChart)
+        .where(
+            DietChart.hc_user_id == UUID(hc_id),
+            DietChart.parameters["is_template"].as_boolean().is_(True),
+            DietChart.archived_at.is_(None),
+        )
+        .order_by(DietChart.created_at.asc())
+    )).scalars().all()
+    return [_to_out(r) for r in rows]
+
+
+@router.delete("/api/diet-charts/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def archive_template(
+    template_id: UUID,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> None:
+    chart = (await db.execute(
+        select(DietChart).where(
+            DietChart.id == template_id,
+            DietChart.hc_user_id == UUID(hc_id),
+            DietChart.parameters["is_template"].as_boolean().is_(True),
+        )
+    )).scalar_one_or_none()
+    if chart is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    chart.archived_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.commit()
+
+
+# ── client chart routes ────────────────────────────────────────────────────────
+
+
+@router.get("/api/clients/{client_id}/diet-chart")
+async def get_client_diet_chart(
+    client_id: UUID,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> DietChartOut:
+    await _get_owned_client(db, client_id, hc_id)
+    chart = await _get_active_chart(db, client_id, hc_id)
+    if chart is None:
+        raise HTTPException(status_code=404, detail="No active diet chart for this client")
+    return _to_out(chart)
+
+
+@router.post("/api/clients/{client_id}/diet-chart/generate")
+async def generate_client_diet_chart(
+    client_id: UUID,
+    body: GenerateRequest,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> GenerateResponse:
+    await _get_owned_client(db, client_id, hc_id)
+    template = (await db.execute(
+        select(DietChart).where(
+            DietChart.id == body.template_id,
+            DietChart.hc_user_id == UUID(hc_id),
+            DietChart.parameters["is_template"].as_boolean().is_(True),
+            DietChart.archived_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if template is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    existing = await _get_active_chart(db, client_id, hc_id)
+    if existing is not None:
+        existing.archived_at = datetime.now(timezone.utc)
+        await db.flush()
+    from src.llm_service.diet_chart_generate import generate_diet_chart  # noqa: PLC0415
+    chart_params, generation_status = await generate_diet_chart(
+        db=db,
+        hc_user_id=UUID(hc_id),
+        client_id=client_id,
+        template_params=template.parameters or {},
+        client_goal=body.client_goal,
+    )
+    chart = DietChart(
+        hc_user_id=UUID(hc_id),
+        name=f"{template.name} — {datetime.now(timezone.utc).strftime('%d %b %Y')}",
+        description=None,
+        parameters=chart_params,
+    )
+    db.add(chart)
+    await db.flush()
+    assignment = ContentAssignment(
+        hc_user_id=UUID(hc_id),
+        client_id=client_id,
+        session_id=None,
+        content_type="diet_chart",
+        content_id=chart.id,
+    )
+    db.add(assignment)
+    await db.flush()
+    await db.commit()
+    return GenerateResponse(chart=_to_out(chart), generation_status=generation_status)
+
+
+@router.patch("/api/clients/{client_id}/diet-chart")
+async def patch_client_diet_chart(
+    client_id: UUID,
+    body: DietChartPatch,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> DietChartOut:
+    await _get_owned_client(db, client_id, hc_id)
+    chart = await _get_active_chart(db, client_id, hc_id)
+    if chart is None:
+        raise HTTPException(status_code=404, detail="No active diet chart for this client")
+    chart.parameters = body.parameters
+    chart.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.commit()
+    return _to_out(chart)
+```
+
+- [ ] **Step 4: Register router in `backend/src/main.py`**
+
+Add after line 15 (the last router import):
+```python
+from src.api.diet_charts import router as diet_charts_router
+```
+Add after line 56 (`app.include_router(check_ins_router)`):
+```python
+app.include_router(diet_charts_router)
+```
+
+- [ ] **Step 5: Run unit tests**
+
+```
+pytest tests/unit/test_diet_chart_csv.py -v
+```
+Expected: 7 tests PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add backend/src/api/diet_charts.py \
+        backend/tests/unit/test_diet_chart_csv.py \
+        backend/src/main.py
+git commit -m "feat(diet-charts): backend CRUD endpoints + CSV parser"
+```
+
+---
+
+### Task 2: LLM generation + MOM integration
+
+**Files:**
+- Create: `backend/prompts/diet_chart_generate_v1.md`
+- Create: `backend/src/llm_service/schemas/diet_chart.py`
+- Create: `backend/src/llm_service/diet_chart_generate.py`
+- Create: `backend/tests/unit/test_diet_chart_generate.py`
+- Modify: `backend/src/llm_service/__init__.py`
+
+- [ ] **Step 1: Write failing unit tests**
+
+```python
+# backend/tests/unit/test_diet_chart_generate.py
+import pytest
+from src.llm_service.schemas.diet_chart import DietChartGridSchema
+
+VALID_JSON = (
+    '{"meal_slots": ["Breakfast", "Lunch"],'
+    ' "grid": {"Monday": {"Breakfast": {"food": "Oats", "timing": "7:30 AM"},'
+    ' "Lunch": {"food": "Dal rice", "timing": "1:00 PM"}}}}'
+)
+
+TEMPLATE_PARAMS = {
+    "is_template": True,
+    "template_key": "high-protein",
+    "meal_slots": ["Breakfast"],
+    "grid": {"Monday": {"Breakfast": {"food": "Eggs", "timing": "8:00 AM"}}},
+}
+
+
+def test_schema_parses_valid_json():
+    schema = DietChartGridSchema.model_validate_json(VALID_JSON)
+    assert schema.meal_slots == ["Breakfast", "Lunch"]
+    assert schema.grid["Monday"]["Breakfast"].food == "Oats"
+
+
+def test_to_parameters_sets_is_template_false():
+    schema = DietChartGridSchema.model_validate_json(VALID_JSON)
+    assert schema.to_parameters(TEMPLATE_PARAMS)["is_template"] is False
+
+
+def test_to_parameters_preserves_template_key():
+    schema = DietChartGridSchema.model_validate_json(VALID_JSON)
+    assert schema.to_parameters(TEMPLATE_PARAMS)["template_key"] == "high-protein"
+
+
+def test_to_parameters_serialises_cells_as_dicts():
+    schema = DietChartGridSchema.model_validate_json(VALID_JSON)
+    params = schema.to_parameters(TEMPLATE_PARAMS)
+    assert params["grid"]["Monday"]["Breakfast"] == {"food": "Oats", "timing": "7:30 AM"}
+
+
+def test_template_grid_section_includes_day_and_food():
+    from src.llm_service.diet_chart_generate import _template_grid_section
+    section = _template_grid_section(TEMPLATE_PARAMS)
+    assert "Monday" in section
+    assert "Eggs · 8:00 AM" in section
+
+
+def test_template_grid_section_omits_dot_when_timing_empty():
+    from src.llm_service.diet_chart_generate import _template_grid_section
+    params = {
+        "meal_slots": ["Breakfast"],
+        "grid": {"Monday": {"Breakfast": {"food": "Oats", "timing": ""}}},
+    }
+    section = _template_grid_section(params)
+    assert "Oats" in section
+    assert "·" not in section
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+```
+pytest tests/unit/test_diet_chart_generate.py -v
+```
+Expected: `ModuleNotFoundError`.
+
+- [ ] **Step 3: Create `backend/prompts/diet_chart_generate_v1.md`**
+
+```markdown
+---
+version: "diet_chart_generate_v1"
+created: "2026-05-12"
+notes: >
+  First version. Personalises a 7-day template grid to the client's goal.
+  Returns strict JSON matching DietChartGridSchema.
+---
+You are a clinical nutrition assistant helping a health coach personalise a 7-day diet chart for a client.
+
+The coach has selected the following template diet chart:
+
+{{TEMPLATE_GRID}}
+
+Client's health goal: {{CLIENT_GOAL}}
+
+Return a personalised version of the grid adjusted for this goal.
+
+Return ONLY valid JSON — no markdown fences, no explanation:
+{
+  "meal_slots": ["<slot1>", ...],
+  "grid": {
+    "Monday":    {"<slot>": {"food": "<description>", "timing": "<HH:MM AM/PM>"}, ...},
+    "Tuesday":   { ... },
+    "Wednesday": { ... },
+    "Thursday":  { ... },
+    "Friday":    { ... },
+    "Saturday":  { ... },
+    "Sunday":    { ... }
+  }
+}
+
+Rules:
+- Preserve all slot names and day names exactly as given
+- Include all 7 days
+- Food descriptions under 60 characters per cell
+- Keep timings from the template unless nutritionally important to change
+
+{{FORMAT_HINT}}
+```
+
+- [ ] **Step 4: Create `backend/src/llm_service/schemas/diet_chart.py`**
+
+```python
+from pydantic import BaseModel
+
+
+class MealCellSchema(BaseModel):
+    food: str
+    timing: str
+
+
+class DietChartGridSchema(BaseModel):
+    meal_slots: list[str]
+    grid: dict[str, dict[str, MealCellSchema]]
+
+    def to_parameters(self, template_params: dict) -> dict:
+        return {
+            "is_template": False,
+            "template_key": template_params.get("template_key", ""),
+            "meal_slots": self.meal_slots,
+            "grid": {
+                day: {
+                    slot: {"food": cell.food, "timing": cell.timing}
+                    for slot, cell in slots.items()
+                }
+                for day, slots in self.grid.items()
+            },
+        }
+```
+
+- [ ] **Step 5: Create `backend/src/llm_service/diet_chart_generate.py`**
+
+```python
+"""LLM-based diet chart personalisation. Per ADR-0003."""
+from __future__ import annotations
+
+import logging
+from uuid import UUID
+
+import sentry_sdk
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.llm_service.chain import build_models_array, fallback_count_for
+from src.llm_service.client import call_openrouter
+from src.llm_service.config import get_llm_config
+from src.llm_service.prompts import load_prompt
+from src.llm_service.retry import STRICT_FORMAT_HINT, parse_or_retry
+from src.llm_service.schemas.diet_chart import DietChartGridSchema
+from src.llm_service.tracking import write_llm_call
+
+logger = logging.getLogger(__name__)
+
+_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def _template_grid_section(template_params: dict) -> str:
+    lines = ["Template grid:"]
+    slots: list[str] = template_params.get("meal_slots", [])
+    grid: dict = template_params.get("grid", {})
+    for day in _DAYS:
+        if day not in grid:
+            continue
+        lines.append(f"  {day}:")
+        for slot in slots:
+            cell = grid[day].get(slot, {})
+            food = cell.get("food", "")
+            timing = cell.get("timing", "")
+            if timing:
+                lines.append(f"    {slot}: {food} · {timing}")
+            else:
+                lines.append(f"    {slot}: {food}")
+    return "\n".join(lines)
+
+
+async def generate_diet_chart(
+    db: AsyncSession,
+    *,
+    hc_user_id: UUID,
+    client_id: UUID,
+    template_params: dict,
+    client_goal: str | None,
+    request_id: UUID | None = None,
+) -> tuple[dict, str]:
+    """
+    Personalise a diet chart from a template via LLM.
+    Returns (parameters_dict, generation_status) where generation_status is
+    "generated" or "fallback".
+    """
+    cfg = get_llm_config()
+    prompt_file = load_prompt("diet_chart_generate_v1")
+    models = build_models_array(cfg)
+
+    template_section = _template_grid_section(template_params)
+    goal_text = client_goal or "general health and balanced nutrition"
+
+    system_prompt = (
+        prompt_file.body
+        .replace("{{TEMPLATE_GRID}}", template_section)
+        .replace("{{CLIENT_GOAL}}", goal_text)
+        .replace("{{FORMAT_HINT}}", "")
+    )
+    user_message = "Personalise the template diet chart for this client."
+
+    try:
+        result = await call_openrouter(
+            models=models,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            no_training=cfg.no_training_header,
+            no_retention=cfg.no_retention_header,
+        )
+    except Exception as exc:
+        await write_llm_call(
+            db,
+            hc_user_id=hc_user_id,
+            client_id=client_id,
+            session_id=None,
+            use_case="diet_chart_generation",
+            prompt_version=prompt_file.version,
+            model_requested=models[0],
+            model_served=None,
+            fallback_count=0,
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=0,
+            validation_failed=False,
+            snippet_count=0,
+            snippet_tokens=0,
+            inr_cost_estimate=None,
+            raw_request_id=None,
+            error_message=str(exc),
+            prompt_text=system_prompt,
+            completion_text="",
+            request_id=request_id,
+        )
+        logger.warning(
+            "diet_chart_generation.llm_error.fallback",
+            extra={"hc_user_id": str(hc_user_id), "client_id": str(client_id), "error": str(exc)},
+        )
+        sentry_sdk.capture_message(
+            f"diet_chart_generation: LLM call failed — {exc}",
+            level="warning",
+        )
+        return {**template_params, "is_template": False}, "fallback"
+
+    async def retry_fn() -> str:
+        retry_result = await call_openrouter(
+            models=models,
+            system_prompt=system_prompt + STRICT_FORMAT_HINT,
+            user_message=user_message,
+            no_training=cfg.no_training_header,
+            no_retention=cfg.no_retention_header,
+        )
+        return retry_result.content
+
+    parsed, validation_failed, error_msg = await parse_or_retry(
+        result.content, DietChartGridSchema, retry_fn
+    )
+
+    fc = fallback_count_for(result.model_served, cfg)
+    await write_llm_call(
+        db,
+        hc_user_id=hc_user_id,
+        client_id=client_id,
+        session_id=None,
+        use_case="diet_chart_generation",
+        prompt_version=prompt_file.version,
+        model_requested=models[0],
+        model_served=result.model_served,
+        fallback_count=fc,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        latency_ms=result.latency_ms,
+        validation_failed=validation_failed,
+        snippet_count=0,
+        snippet_tokens=0,
+        inr_cost_estimate=None,
+        raw_request_id=result.raw_request_id,
+        error_message=error_msg,
+        prompt_text=system_prompt,
+        completion_text=result.content,
+        request_id=request_id,
+    )
+
+    if parsed is None:
+        logger.warning(
+            "diet_chart_generation.parse_failed.fallback",
+            extra={
+                "hc_user_id": str(hc_user_id),
+                "client_id": str(client_id),
+                "raw_snippet": result.content[:200],
+            },
+        )
+        sentry_sdk.capture_message(
+            "diet_chart_generation: JSON parse failed, returning template fallback",
+            level="warning",
+        )
+        return {**template_params, "is_template": False}, "fallback"
+
+    return parsed.to_parameters(template_params), "generated"
+```
+
+- [ ] **Step 6: Add MOM diet chart note to `backend/src/llm_service/__init__.py`**
+
+In the imports section, extend line 8 (`from sqlalchemy import select`) to:
+```python
+from sqlalchemy import and_, select
+```
+After line 14 (`from src.db.models.coaching import ActionItem, CheckIn, Mom`), add:
+```python
+from src.db.models.content import ContentAssignment, DietChart
+```
+After line 127 (the `user_message = notes_section + ...` assignment), insert:
+```python
+    _active_chart = (await db.execute(
+        select(DietChart)
+        .join(ContentAssignment, and_(
+            ContentAssignment.content_type == "diet_chart",
+            ContentAssignment.content_id == DietChart.id,
+        ))
+        .where(
+            ContentAssignment.client_id == client_id,
+            ContentAssignment.hc_user_id == hc_user_id,
+            DietChart.archived_at.is_(None),
+        )
+        .limit(1)
+    )).scalar_one_or_none()
+    if _active_chart is not None:
+        user_message += "\n\nNote: A diet chart has been prepared for this client."
+```
+
+- [ ] **Step 7: Run unit tests**
+
+```
+pytest tests/unit/test_diet_chart_generate.py -v
+```
+Expected: 6 tests PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add backend/prompts/diet_chart_generate_v1.md \
+        backend/src/llm_service/schemas/diet_chart.py \
+        backend/src/llm_service/diet_chart_generate.py \
+        backend/tests/unit/test_diet_chart_generate.py \
+        backend/src/llm_service/__init__.py
+git commit -m "feat(diet-charts): LLM generation + MOM integration"
+```
+
+---
+
+### Task 3: Frontend — 3 surfaces
+
+**Files:**
+- Create: `frontend/src/lib/api/dietCharts.ts`
+- Create: `frontend/src/app/(app)/settings/diet-chart-templates/page.tsx`
+- Create: `frontend/src/app/(app)/clients/[clientId]/diet-chart/page.tsx`
+- Modify: `frontend/src/app/(app)/clients/[clientId]/page.tsx`
+
+- [ ] **Step 1: Create `frontend/src/lib/api/dietCharts.ts`**
+
+```typescript
+import { z } from "zod";
+import { API_URL } from "@/lib/config";
+import { fetchWithAuth } from "@/lib/auth/client";
+
+export const DietChartOutSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  parameters: z.record(z.unknown()).nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export const GenerateResponseSchema = z.object({
+  chart: DietChartOutSchema,
+  generation_status: z.string(),
+});
+
+export type DietChartOut = z.infer<typeof DietChartOutSchema>;
+
+export async function uploadTemplate(file: File): Promise<DietChartOut> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetchWithAuth(`${API_URL}/api/diet-charts/templates/upload`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  return DietChartOutSchema.parse(await res.json());
+}
+
+export async function listTemplates(): Promise<DietChartOut[]> {
+  const res = await fetchWithAuth(`${API_URL}/api/diet-charts/templates`);
+  if (!res.ok) throw new Error(`List templates failed: ${res.status}`);
+  return z.array(DietChartOutSchema).parse(await res.json());
+}
+
+export async function deleteTemplate(templateId: string): Promise<void> {
+  const res = await fetchWithAuth(
+    `${API_URL}/api/diet-charts/templates/${templateId}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) throw new Error(`Delete template failed: ${res.status}`);
+}
+
+export async function getClientDietChart(clientId: string): Promise<DietChartOut | null> {
+  const res = await fetchWithAuth(`${API_URL}/api/clients/${clientId}/diet-chart`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Get diet chart failed: ${res.status}`);
+  return DietChartOutSchema.parse(await res.json());
+}
+
+export async function generateDietChart(
+  clientId: string,
+  input: { template_id: string; client_goal?: string },
+): Promise<{ chart: DietChartOut; generation_status: string }> {
+  const res = await fetchWithAuth(
+    `${API_URL}/api/clients/${clientId}/diet-chart/generate`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!res.ok) throw new Error(`Generate diet chart failed: ${res.status}`);
+  return GenerateResponseSchema.parse(await res.json());
+}
+
+export async function patchDietChart(
+  clientId: string,
+  parameters: Record<string, unknown>,
+): Promise<DietChartOut> {
+  const res = await fetchWithAuth(
+    `${API_URL}/api/clients/${clientId}/diet-chart`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parameters }),
+    },
+  );
+  if (!res.ok) throw new Error(`Patch diet chart failed: ${res.status}`);
+  return DietChartOutSchema.parse(await res.json());
+}
+```
+
+- [ ] **Step 2: Create `frontend/src/app/(app)/settings/diet-chart-templates/page.tsx`**
+
+```tsx
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import {
+  listTemplates,
+  uploadTemplate,
+  deleteTemplate,
+  type DietChartOut,
+} from "@/lib/api/dietCharts";
+
+export default function DietChartTemplatesPage() {
+  const [templates, setTemplates] = useState<DietChartOut[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    listTemplates()
+      .then(setTemplates)
+      .catch(() => setLoadError(true));
+  }, []);
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const created = await uploadTemplate(file);
+      setTemplates((prev) => (prev ? [...prev, created] : [created]));
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await deleteTemplate(id);
+      setTemplates((prev) => (prev ? prev.filter((t) => t.id !== id) : prev));
+    } catch {
+      // leave list as-is; optimistic delete not safe here
+    }
+  }
+
+  return (
+    <div className="max-w-2xl space-y-8">
+      <div>
+        <p className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+          Settings
+        </p>
+        <h1 className="mt-1 font-heading text-4xl font-black text-foreground">
+          Diet chart templates
+        </h1>
+        <p className="mt-2 font-sans text-sm text-muted-foreground">
+          Upload CSV templates. Each template is a 7-day grid the AI uses as a starting point when generating a client chart.
+        </p>
+      </div>
+
+      <section className="space-y-4">
+        <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-foreground">
+          Upload a template
+        </h2>
+        <Separator />
+        <p className="font-sans text-xs text-muted-foreground">
+          CSV format: header row <code className="font-mono">Day,Breakfast,Lunch,…</code>, rows 2–8 are Monday–Sunday, cells are{" "}
+          <code className="font-mono">food · timing</code>.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            onChange={handleFileChange}
+            disabled={uploading}
+            className="font-sans text-sm text-foreground file:mr-3 file:cursor-pointer file:rounded file:border-0 file:bg-primary file:px-3 file:py-1.5 file:font-sans file:text-xs file:font-bold file:uppercase file:tracking-widest file:text-primary-foreground disabled:opacity-50"
+          />
+          {uploading && (
+            <span className="font-sans text-xs text-muted-foreground">Uploading…</span>
+          )}
+        </div>
+        {uploadError && (
+          <p className="font-sans text-xs text-destructive">{uploadError}</p>
+        )}
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-foreground">
+          Library
+        </h2>
+        <Separator />
+        {loadError ? (
+          <p className="font-sans text-sm text-destructive">Could not load templates.</p>
+        ) : templates === null ? (
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : templates.length === 0 ? (
+          <p className="py-2 font-heading text-xl font-black text-muted-foreground">
+            No templates yet. <em>Upload one above.</em>
+          </p>
+        ) : (
+          <ul className="divide-y divide-border rounded-2xl border border-border">
+            {templates.map((t) => (
+              <li key={t.id} className="flex items-center justify-between px-5 py-4">
+                <div>
+                  <p className="font-heading text-base font-bold text-foreground">{t.name}</p>
+                  <p className="font-sans text-xs text-muted-foreground">
+                    {Array.isArray(
+                      (t.parameters as Record<string, unknown>)?.meal_slots,
+                    )
+                      ? (
+                          (t.parameters as Record<string, unknown>)
+                            .meal_slots as string[]
+                        ).join(" · ")
+                      : ""}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleDelete(t.id)}
+                  className="font-sans text-xs text-destructive underline-offset-4 hover:underline"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: Create `frontend/src/app/(app)/clients/[clientId]/diet-chart/page.tsx`**
+
+```tsx
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import {
+  getClientDietChart,
+  generateDietChart,
+  patchDietChart,
+  listTemplates,
+  type DietChartOut,
+} from "@/lib/api/dietCharts";
+import { getClient, type ClientDetailOut } from "@/lib/api/clients";
+
+type GridCell = { food: string; timing: string };
+type Grid = Record<string, Record<string, GridCell>>;
+
+const DAYS = [
+  "Monday", "Tuesday", "Wednesday", "Thursday",
+  "Friday", "Saturday", "Sunday",
+];
+
+function getGrid(chart: DietChartOut): Grid {
+  return ((chart.parameters as Record<string, unknown>)?.grid as Grid) ?? {};
+}
+
+function getMealSlots(chart: DietChartOut): string[] {
+  return (
+    (chart.parameters as Record<string, unknown>)?.meal_slots as string[]
+  ) ?? [];
+}
+
+export default function DietChartEditorPage() {
+  const { clientId } = useParams<{ clientId: string }>();
+  const [client, setClient] = useState<ClientDetailOut | null>(null);
+  const [chart, setChart] = useState<DietChartOut | null | undefined>(undefined);
+  const [templates, setTemplates] = useState<DietChartOut[]>([]);
+  const [editedGrid, setEditedGrid] = useState<Grid>({});
+  const [mealSlots, setMealSlots] = useState<string[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [clientGoal, setClientGoal] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [fallbackWarning, setFallbackWarning] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [newSlotName, setNewSlotName] = useState("");
+
+  useEffect(() => {
+    if (!clientId) return;
+    Promise.all([
+      getClient(clientId),
+      getClientDietChart(clientId),
+      listTemplates(),
+    ])
+      .then(([c, dc, tpls]) => {
+        setClient(c);
+        setChart(dc);
+        setTemplates(tpls);
+        if (tpls.length > 0) setSelectedTemplateId(tpls[0].id);
+        if (dc) {
+          setEditedGrid(getGrid(dc));
+          setMealSlots(getMealSlots(dc));
+        }
+      })
+      .catch(() => setLoadError(true));
+  }, [clientId]);
+
+  async function handleGenerate() {
+    if (!selectedTemplateId) return;
+    setGenerating(true);
+    setFallbackWarning(false);
+    try {
+      const { chart: newChart, generation_status } = await generateDietChart(
+        clientId,
+        { template_id: selectedTemplateId, client_goal: clientGoal || undefined },
+      );
+      setChart(newChart);
+      setEditedGrid(getGrid(newChart));
+      setMealSlots(getMealSlots(newChart));
+      if (generation_status === "fallback") setFallbackWarning(true);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleSave() {
+    if (!chart) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const params = {
+        ...(chart.parameters as Record<string, unknown>),
+        meal_slots: mealSlots,
+        grid: editedGrid,
+      };
+      const updated = await patchDietChart(clientId, params);
+      setChart(updated);
+      setEditedGrid(getGrid(updated));
+      setMealSlots(getMealSlots(updated));
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function updateCell(
+    day: string,
+    slot: string,
+    field: "food" | "timing",
+    value: string,
+  ) {
+    setEditedGrid((prev) => ({
+      ...prev,
+      [day]: {
+        ...(prev[day] ?? {}),
+        [slot]: {
+          ...(prev[day]?.[slot] ?? { food: "", timing: "" }),
+          [field]: value,
+        },
+      },
+    }));
+  }
+
+  function addMealSlot() {
+    const name = newSlotName.trim();
+    if (!name || mealSlots.includes(name)) return;
+    setMealSlots((prev) => [...prev, name]);
+    setEditedGrid((prev) => {
+      const next = { ...prev };
+      for (const day of DAYS) {
+        next[day] = { ...(next[day] ?? {}), [name]: { food: "", timing: "" } };
+      }
+      return next;
+    });
+    setNewSlotName("");
+  }
+
+  const loading = chart === undefined && !loadError;
+
+  return (
+    <div className="space-y-8">
+      <Link
+        href={`/clients/${clientId}`}
+        className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+      >
+        ← {client?.full_name ?? "Client"}
+      </Link>
+
+      <div>
+        <p className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+          Nutrition
+        </p>
+        <h1 className="mt-1 font-heading text-4xl font-black text-foreground">
+          Diet chart
+        </h1>
+      </div>
+
+      {loadError && (
+        <p className="font-sans text-sm text-destructive">
+          Could not load diet chart.
+        </p>
+      )}
+
+      {loading && (
+        <div className="space-y-3">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      )}
+
+      {!loading && !loadError && (
+        <>
+          <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
+            <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+              {chart ? "Regenerate chart" : "Generate chart"}
+            </h2>
+            <Separator />
+            {templates.length === 0 ? (
+              <p className="font-sans text-sm text-muted-foreground">
+                No templates in library.{" "}
+                <Link
+                  href="/settings/diet-chart-templates"
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  Upload one →
+                </Link>
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <label className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                      Template
+                    </label>
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(e) => setSelectedTemplateId(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 font-sans text-sm text-foreground"
+                    >
+                      {templates.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                      Client goal (optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={clientGoal}
+                      onChange={(e) => setClientGoal(e.target.value)}
+                      placeholder="e.g. weight loss, high protein…"
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 font-sans text-sm text-foreground placeholder:text-muted-foreground"
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={handleGenerate}
+                  disabled={generating || !selectedTemplateId}
+                  className="rounded-lg bg-primary px-4 py-2 font-sans text-xs font-bold uppercase tracking-widest text-primary-foreground disabled:opacity-50"
+                >
+                  {generating ? "Generating…" : chart ? "Regenerate" : "Generate"}
+                </button>
+              </div>
+            )}
+          </section>
+
+          {fallbackWarning && (
+            <div className="rounded-lg border border-amber-400 bg-amber-50 px-4 py-3">
+              <p className="font-sans text-sm text-amber-800">
+                AI generation failed — showing the template grid unchanged. Edit cells below and save.
+              </p>
+            </div>
+          )}
+
+          {chart && (
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+                  7-day grid
+                </h2>
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="rounded-lg bg-primary px-4 py-2 font-sans text-xs font-bold uppercase tracking-widest text-primary-foreground disabled:opacity-50"
+                >
+                  {saving ? "Saving…" : "Save chart"}
+                </button>
+              </div>
+              {saveError && (
+                <p className="font-sans text-xs text-destructive">{saveError}</p>
+              )}
+              <div className="overflow-x-auto rounded-2xl border border-border">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted">
+                      <th className="w-24 p-3 text-left font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                        Day
+                      </th>
+                      {mealSlots.map((slot) => (
+                        <th
+                          key={slot}
+                          className="min-w-[160px] border-l border-border p-3 text-left font-sans text-xs font-bold uppercase tracking-widest text-foreground"
+                        >
+                          {slot}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {DAYS.map((day) => (
+                      <tr
+                        key={day}
+                        className="border-b border-border align-top last:border-0"
+                      >
+                        <td className="p-3">
+                          <span className="font-heading text-sm font-bold text-foreground">
+                            {day.slice(0, 3)}
+                          </span>
+                        </td>
+                        {mealSlots.map((slot) => {
+                          const cell = editedGrid[day]?.[slot] ?? {
+                            food: "",
+                            timing: "",
+                          };
+                          return (
+                            <td key={slot} className="border-l border-border p-2">
+                              <div className="space-y-1">
+                                <input
+                                  type="text"
+                                  value={cell.food}
+                                  onChange={(e) =>
+                                    updateCell(day, slot, "food", e.target.value)
+                                  }
+                                  placeholder="Food"
+                                  className="w-full rounded border border-border bg-background px-2 py-1 font-sans text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                />
+                                <input
+                                  type="text"
+                                  value={cell.timing}
+                                  onChange={(e) =>
+                                    updateCell(day, slot, "timing", e.target.value)
+                                  }
+                                  placeholder="Timing"
+                                  className="w-full rounded border border-border bg-background px-2 py-1 font-sans text-xs text-muted-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                />
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={newSlotName}
+                  onChange={(e) => setNewSlotName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addMealSlot()}
+                  placeholder="New meal slot name…"
+                  className="w-56 rounded-lg border border-border bg-background px-3 py-2 font-sans text-sm text-foreground placeholder:text-muted-foreground"
+                />
+                <button
+                  onClick={addMealSlot}
+                  disabled={!newSlotName.trim()}
+                  className="font-sans text-xs text-primary underline-offset-4 hover:underline disabled:opacity-40"
+                >
+                  + Add column
+                </button>
+              </div>
+            </section>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Add diet chart section to `frontend/src/app/(app)/clients/[clientId]/page.tsx`**
+
+Add to imports (after `listActionItems` import on line 14):
+```typescript
+import { getClientDietChart, type DietChartOut } from "@/lib/api/dietCharts";
+```
+
+Add to state (after `showClosed` on line 44):
+```typescript
+const [dietChart, setDietChart] = useState<DietChartOut | null | undefined>(undefined);
+```
+
+Extend the `Promise.all` in `useEffect` to include `getClientDietChart(clientId)` as a fifth call, and destructure the fifth result as `dc`, then call `setDietChart(dc)`. The updated `useEffect` body becomes:
+```typescript
+Promise.all([
+  getClient(clientId),
+  getClientAst(clientId),
+  listSessions({ client_id: clientId, limit: 20 }),
+  listActionItems({ client_id: clientId, status: "completed", limit: 50 }),
+  getClientDietChart(clientId),
+])
+  .then(([c, a, s, closed, dc]) => {
+    setClient(c);
+    setAst(a);
+    setSessions(s.items);
+    setClosedItems(closed.items);
+    setDietChart(dc);
+  })
+  .catch(() => setLoadError(true));
+```
+
+Add the following section after the closing `</section>` tag of the Session History section (after line 329):
+```tsx
+{/* Diet chart */}
+<section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
+  <div className="flex items-center justify-between">
+    <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+      Diet chart
+    </h2>
+    <Link
+      href={`/clients/${clientId}/diet-chart`}
+      className="font-sans text-xs text-primary underline-offset-4 hover:underline"
+    >
+      {dietChart ? "Edit chart →" : "Generate →"}
+    </Link>
+  </div>
+  <Separator />
+  {dietChart === undefined ? (
+    <Skeleton className="h-24 w-full" />
+  ) : dietChart === null ? (
+    <p className="py-2 font-sans text-sm italic text-muted-foreground">
+      No diet chart yet.
+    </p>
+  ) : (
+    (() => {
+      const params = dietChart.parameters as Record<string, unknown>;
+      const grid = (params?.grid ?? {}) as Record<
+        string,
+        Record<string, { food: string; timing: string }>
+      >;
+      const slots = (params?.meal_slots ?? []) as string[];
+      return (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="py-1.5 pr-3 text-left font-sans font-bold text-muted-foreground">
+                  Day
+                </th>
+                {slots.slice(0, 3).map((s) => (
+                  <th
+                    key={s}
+                    className="border-l border-border px-3 py-1.5 text-left font-sans font-bold text-muted-foreground"
+                  >
+                    {s}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {["Monday", "Tuesday"].map((day) => (
+                <tr key={day} className="border-b border-border last:border-0">
+                  <td className="py-1.5 pr-3 font-heading font-bold text-foreground">
+                    {day.slice(0, 3)}
+                  </td>
+                  {slots.slice(0, 3).map((s) => (
+                    <td
+                      key={s}
+                      className="border-l border-border px-3 py-1.5 font-sans text-foreground"
+                    >
+                      {grid[day]?.[s]?.food ?? "—"}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    })()
+  )}
+</section>
+```
+
+- [ ] **Step 5: Start dev server and smoke-test the 3 surfaces**
+
+```
+cd frontend && npm run dev
+```
+
+Check in browser:
+- `/settings/diet-chart-templates` — renders heading + "No templates yet."
+- `/clients/<any-id>` — Diet chart section visible in left column, shows skeleton then "No diet chart yet."
+- `/clients/<any-id>/diet-chart` — renders generate form with "No templates in library. Upload one →"
+
+No console errors in any of these states.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add "frontend/src/lib/api/dietCharts.ts" \
+        "frontend/src/app/(app)/settings/diet-chart-templates/page.tsx" \
+        "frontend/src/app/(app)/clients/[clientId]/diet-chart/page.tsx" \
+        "frontend/src/app/(app)/clients/[clientId]/page.tsx"
+git commit -m "feat(diet-charts): frontend — template library, chart editor, client detail preview"
+```
+
+---
+
+*P6C implementation plan authored 2026-05-12.*
