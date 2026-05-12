@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { getClient, getClientAst, type ClientDetailOut, type AstOut } from "@/lib/api/clients";
 import { listSessions, type SessionOut } from "@/lib/api/sessions";
 import { listActionItems, patchActionItem, type ActionItemOut } from "@/lib/api/actionItems";
+import { getClientDietChart, type DietChartOut } from "@/lib/api/dietCharts";
 
 function isOverdue(dateStr: string | null): boolean {
   if (!dateStr) return false;
@@ -42,6 +43,7 @@ export default function ClientDetailPage() {
   const [closedItems, setClosedItems] = useState<ActionItemOut[] | null>(null);
   const [reopenedIds, setReopenedIds] = useState<Set<string>>(new Set());
   const [showClosed, setShowClosed] = useState(false);
+  const [dietChart, setDietChart] = useState<DietChartOut | null | undefined>(undefined);
 
   useEffect(() => {
     if (!clientId) return;
@@ -50,12 +52,14 @@ export default function ClientDetailPage() {
       getClientAst(clientId),
       listSessions({ client_id: clientId, limit: 20 }),
       listActionItems({ client_id: clientId, status: "completed", limit: 50 }),
+      getClientDietChart(clientId),
     ])
-      .then(([c, a, s, closed]) => {
+      .then(([c, a, s, closed, dc]) => {
         setClient(c);
         setAst(a);
         setSessions(s.items);
         setClosedItems(closed.items);
+        setDietChart(dc);
       })
       .catch(() => setLoadError(true));
   }, [clientId]);
@@ -325,6 +329,76 @@ export default function ClientDetailPage() {
                       </li>
                     ))}
                   </ul>
+                )}
+              </section>
+
+              {/* Diet chart */}
+              <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+                    Diet chart
+                  </h2>
+                  <Link
+                    href={`/clients/${clientId}/diet-chart`}
+                    className="font-sans text-xs text-primary underline-offset-4 hover:underline"
+                  >
+                    {dietChart ? "Edit chart →" : "Generate →"}
+                  </Link>
+                </div>
+                <Separator />
+                {dietChart === undefined ? (
+                  <Skeleton className="h-24 w-full" />
+                ) : dietChart === null ? (
+                  <p className="py-2 font-sans text-sm italic text-muted-foreground">
+                    No diet chart yet.
+                  </p>
+                ) : (
+                  (() => {
+                    const params = dietChart.parameters as Record<string, unknown>;
+                    const grid = (params?.grid ?? {}) as Record<
+                      string,
+                      Record<string, { food: string; timing: string }>
+                    >;
+                    const slots = (params?.meal_slots ?? []) as string[];
+                    return (
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-xs">
+                          <thead>
+                            <tr className="border-b border-border">
+                              <th className="py-1.5 pr-3 text-left font-sans font-bold text-muted-foreground">
+                                Day
+                              </th>
+                              {slots.slice(0, 3).map((s) => (
+                                <th
+                                  key={s}
+                                  className="border-l border-border px-3 py-1.5 text-left font-sans font-bold text-muted-foreground"
+                                >
+                                  {s}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {["Monday", "Tuesday"].map((day) => (
+                              <tr key={day} className="border-b border-border last:border-0">
+                                <td className="py-1.5 pr-3 font-heading font-bold text-foreground">
+                                  {day.slice(0, 3)}
+                                </td>
+                                {slots.slice(0, 3).map((s) => (
+                                  <td
+                                    key={s}
+                                    className="border-l border-border px-3 py-1.5 font-sans text-foreground"
+                                  >
+                                    {grid[day]?.[s]?.food ?? "—"}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    );
+                  })()
                 )}
               </section>
             </div>
