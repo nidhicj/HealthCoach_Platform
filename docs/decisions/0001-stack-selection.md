@@ -287,6 +287,37 @@ These external facts were verified during the decision-making process. Findings 
 
 ---
 
+## Local dev environment
+
+Production uses AWS RDS (managed). For local development, run PostgreSQL in Docker — pinned to the same major version as production to catch any version-specific SQL early.
+
+```bash
+# Start (first time or after a machine restart)
+docker compose up -d postgres
+
+# Stop (keeps data in named volume)
+docker compose stop postgres
+
+# Full reset (drops all local data — re-run migrations after)
+docker compose down -v && docker compose up -d postgres
+```
+
+After `docker compose up -d postgres`, wait ~10 s then run migrations:
+
+```bash
+cd backend && alembic upgrade head
+```
+
+**Why Docker, not system Postgres:** system `apt upgrade` silently creates new PG clusters on different ports (5432 → 5433 → …), breaking `DATABASE_URL` without warning. The pinned Docker image (`postgres:17.4` in `docker-compose.yml`) is immune to this. Update the pin only when PG 17 reaches EOL (November 2029).
+
+The `parivarthan_test` database must be created manually on first start (it is not auto-created by the image):
+
+```bash
+docker exec parivarthan_platform-postgres-1 psql -U postgres -c "CREATE DATABASE parivarthan_test;"
+```
+
+---
+
 ## Changelog
 
 | Date                 | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Reason                                                                                                                                                                                                                                                                                                        |
