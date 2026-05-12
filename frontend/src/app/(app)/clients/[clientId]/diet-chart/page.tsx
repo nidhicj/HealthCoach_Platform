@@ -40,7 +40,7 @@ export default function DietChartEditorPage() {
   const [editedGrid, setEditedGrid] = useState<Grid>({});
   const [mealSlots, setMealSlots] = useState<string[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [clientGoal, setClientGoal] = useState("");
+  const [modifications, setModifications] = useState("");
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [fallbackWarning, setFallbackWarning] = useState(false);
@@ -75,7 +75,7 @@ export default function DietChartEditorPage() {
     try {
       const { chart: newChart, generation_status } = await generateDietChart(
         clientId,
-        { template_id: selectedTemplateId, client_goal: clientGoal || undefined },
+        { template_id: selectedTemplateId, modifications: modifications || undefined },
       );
       setChart(newChart);
       setEditedGrid(getGrid(newChart));
@@ -210,13 +210,13 @@ export default function DietChartEditorPage() {
                   </div>
                   <div className="space-y-1">
                     <label className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                      Client goal (optional)
+                      Modifications / additions (optional)
                     </label>
                     <input
                       type="text"
-                      value={clientGoal}
-                      onChange={(e) => setClientGoal(e.target.value)}
-                      placeholder="e.g. weight loss, high protein…"
+                      value={modifications}
+                      onChange={(e) => setModifications(e.target.value)}
+                      placeholder="e.g. replace Saturday dinner with paneer, add evening snack Mon–Wed…"
                       className="w-full rounded-lg border border-border bg-background px-3 py-2 font-sans text-sm text-foreground placeholder:text-muted-foreground"
                     />
                   </div>

@@ -45,7 +45,7 @@ async def generate_diet_chart(
     hc_user_id: UUID,
     client_id: UUID,
     template_params: dict,
-    client_goal: str | None,
+    modifications: str | None,
     request_id: UUID | None = None,
 ) -> tuple[dict, str]:
     """
@@ -54,16 +54,16 @@ async def generate_diet_chart(
     "generated" or "fallback".
     """
     cfg = get_llm_config()
-    prompt_file = load_prompt("diet_chart_generate_v1")
+    prompt_file = load_prompt("diet_chart_generate_v2")
     models = build_models_array(cfg)
 
     template_section = _template_grid_section(template_params)
-    goal_text = client_goal or "general health and balanced nutrition"
+    modifications_text = modifications or "No specific modifications — personalise for balanced nutrition."
 
     system_prompt = (
         prompt_file.body
         .replace("{{TEMPLATE_GRID}}", template_section)
-        .replace("{{CLIENT_GOAL}}", goal_text)
+        .replace("{{MODIFICATIONS}}", modifications_text)
         .replace("{{FORMAT_HINT}}", "")
     )
     user_message = "Personalise the template diet chart for this client."

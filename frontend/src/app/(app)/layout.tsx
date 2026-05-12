@@ -13,6 +13,7 @@ const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/clients", label: "Clients" },
   { href: "/action-items", label: "Action Items" },
+  { href: "/settings/diet-chart-templates", label: "Diet Charts" },
   { href: "/settings/sessions", label: "Settings" },
 ] as const;
 

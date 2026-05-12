@@ -38,7 +38,7 @@ class DietChartPatch(BaseModel):
 
 class GenerateRequest(BaseModel):
     template_id: UUID
-    client_goal: str | None = None
+    modifications: str | None = None
 
 
 class GenerateResponse(BaseModel):
@@ -227,7 +227,7 @@ async def generate_client_diet_chart(
         hc_user_id=UUID(hc_id),
         client_id=client_id,
         template_params=template.parameters or {},
-        client_goal=body.client_goal,
+        modifications=body.modifications,
     )
     chart = DietChart(
         hc_user_id=UUID(hc_id),

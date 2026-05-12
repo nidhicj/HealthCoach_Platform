@@ -56,7 +56,7 @@ export async function getClientDietChart(clientId: string): Promise<DietChartOut
 
 export async function generateDietChart(
   clientId: string,
-  input: { template_id: string; client_goal?: string },
+  input: { template_id: string; modifications?: string },
 ): Promise<{ chart: DietChartOut; generation_status: string }> {
   const res = await fetchWithAuth(
     `${API_URL}/api/clients/${clientId}/diet-chart/generate`,
