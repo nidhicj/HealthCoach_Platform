@@ -525,6 +525,662 @@ clientRows = clients
 
 ---
 
+## B.5 Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Restructure the dashboard (remove Recent Clients, enrich pending item rows) and replace the action items page with a client×status kanban table.
+
+**Architecture:** Three tasks, three commits. Task 1 is a pure template edit to `dashboard/page.tsx`. Tasks 2–3 build the kanban: grouping logic is extracted to `lib/actionItemsKanban.ts` (tested in isolation before the page is touched), then the page is replaced. Zero backend changes. Zero new dependencies.
+
+**Tech Stack:** Next.js 16.2.4, React, Tailwind v4, shadcn/ui, Vitest (unit tests), Playwright (e2e)
+
+---
+
+### Task 1: Dashboard restructure
+
+**Files:**
+- Modify: `frontend/src/app/(app)/dashboard/page.tsx`
+
+No new unit tests — this is a template-only change. Existing Playwright `core-cycle.spec.ts` covers the dashboard render path.
+
+- [ ] **Step 1: Replace `dashboard/page.tsx` with the following**
+
+```tsx
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { listSessions, type SessionOut } from "@/lib/api/sessions";
+import { listClients, type ClientOut } from "@/lib/api/clients";
+import { listActionItems, type ActionItemOut } from "@/lib/api/actionItems";
+
+function isToday(iso: string): boolean {
+  return new Date(iso).toDateString() === new Date().toDateString();
+}
+
+function isOverdue(dateStr: string | null): boolean {
+  if (!dateStr) return false;
+  return new Date(dateStr) < new Date(new Date().toDateString());
+}
+
+export default function DashboardPage() {
+  const [todaySessions, setTodaySessions] = useState<SessionOut[] | null>(null);
+  const [clientMap, setClientMap] = useState<Map<string, ClientOut>>(new Map());
+  const [actionItems, setActionItems] = useState<ActionItemOut[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      listSessions({ limit: 50 }),
+      listClients({ limit: 100 }),
+      listActionItems({ status: "open", limit: 20 }),
+    ])
+      .then(([s, c, a]) => {
+        setTodaySessions(s.items.filter((x) => isToday(x.scheduled_at)));
+        setClientMap(new Map(c.items.map((cl) => [cl.id, cl])));
+        const sorted = [...a.items].sort((x, y) => {
+          return (isOverdue(x.due_date) ? 0 : 1) - (isOverdue(y.due_date) ? 0 : 1);
+        });
+        setActionItems(sorted);
+      })
+      .catch(() => setLoadError(true));
+  }, []);
+
+  const loading = !loadError && todaySessions === null;
+  const todayEmpty = !loading && !loadError && todaySessions?.length === 0;
+  const showMarigold = todayEmpty;
+
+  return (
+    <div className="space-y-10">
+      <div>
+        <p className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+          {new Date().toLocaleDateString("en-IN", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          })}
+        </p>
+        <h1 className="mt-1 font-heading text-4xl font-black text-foreground">
+          Dashboard
+        </h1>
+      </div>
+
+      {/* Section 1 — Today */}
+      <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
+        <h2 className="font-heading text-xl font-bold text-foreground">Today</h2>
+        <Separator />
+        {loading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+        ) : loadError ? (
+          <p className="font-sans text-sm text-destructive">Could not load sessions.</p>
+        ) : todaySessions!.length === 0 ? (
+          <div className="flex flex-col items-start gap-5 py-4">
+            <p className="font-heading text-2xl font-black text-muted-foreground">
+              No sessions today. <em>Quiet morning.</em>
+            </p>
+            <Link
+              href="/clients"
+              className={cn(buttonVariants({ variant: showMarigold ? "accent" : "default" }))}
+            >
+              New session
+            </Link>
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {todaySessions!.map((sess) => (
+              <li key={sess.id}>
+                <Link
+                  href={`/clients/${sess.client_id}/sessions/${sess.id}`}
+                  className="flex items-center justify-between rounded-lg border border-border px-4 py-3 transition-colors duration-150 hover:bg-muted"
+                >
+                  <div>
+                    <p className="font-heading text-base font-bold text-foreground">
+                      {clientMap.get(sess.client_id)?.full_name ?? "—"} · Session {sess.session_number}
+                    </p>
+                    <p className="font-sans text-sm text-muted-foreground">
+                      {new Date(sess.scheduled_at).toLocaleTimeString("en-IN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                  {sess.ended_at ? (
+                    <Badge variant="secondary">Ended</Badge>
+                  ) : sess.started_at ? (
+                    <Badge>In progress</Badge>
+                  ) : (
+                    <Badge variant="outline">Scheduled</Badge>
+                  )}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Section 2 — Pending action items */}
+      <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
+        <h2 className="font-heading text-xl font-bold text-foreground">
+          Pending action items
+        </h2>
+        <Separator />
+        {loading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : actionItems?.length === 0 ? (
+          <p className="py-2 font-heading text-xl font-black text-muted-foreground">
+            All clear. <em>Nothing pending.</em>
+          </p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {actionItems?.map((item) => (
+              <li key={item.id} className="py-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="font-sans text-xs font-bold text-muted-foreground">
+                      {clientMap.get(item.client_id)?.full_name ?? "—"}
+                      {" · "}
+                      {new Date(item.created_at).toLocaleDateString("en-IN")}
+                    </p>
+                    <p className="font-sans text-sm text-foreground">{item.description}</p>
+                    {item.due_date && (
+                      <p
+                        className={cn(
+                          "font-sans text-xs",
+                          isOverdue(item.due_date)
+                            ? "font-bold text-destructive"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        Due {new Date(item.due_date).toLocaleDateString("en-IN")}
+                        {isOverdue(item.due_date) && " · Overdue"}
+                      </p>
+                    )}
+                  </div>
+                  <Link href={`/clients/${item.client_id}`}>
+                    <Badge variant="outline" className="shrink-0">View client</Badge>
+                  </Link>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Run Vitest — confirm no regressions**
+
+```bash
+cd frontend && npx vitest run
+```
+Expected: all existing tests pass (count unchanged — no new tests for this task).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/src/app/(app)/dashboard/page.tsx
+git commit -m "feat(frontend): restructure dashboard — remove Recent Clients, enrich pending items rows"
+```
+
+---
+
+### Task 2: Extract and test kanban grouping logic
+
+**Files:**
+- Create: `frontend/src/lib/actionItemsKanban.ts`
+- Create: `frontend/tests/unit/actionItemsKanban.test.ts`
+
+- [ ] **Step 1: Write the failing unit test**
+
+Create `frontend/tests/unit/actionItemsKanban.test.ts`:
+
+```ts
+import { describe, it, expect } from "vitest";
+import { groupByClient, MOVE_FORWARD, MOVE_BACK } from "@/lib/actionItemsKanban";
+import type { ClientOut } from "@/lib/api/clients";
+import type { ActionItemOut } from "@/lib/api/actionItems";
+
+const NOW = new Date().toISOString();
+
+function makeClient(id: string): ClientOut {
+  return {
+    id,
+    hc_user_id: "hc-1",
+    full_name: `Client ${id}`,
+    code: null,
+    email: null,
+    phone: null,
+    timezone: null,
+    journey_stage: "active",
+    course_start_date: null,
+    course_end_date: null,
+    course_goal: null,
+    created_at: NOW,
+    updated_at: NOW,
+  };
+}
+
+function makeItem(id: string, clientId: string, status: string): ActionItemOut {
+  return {
+    id,
+    client_id: clientId,
+    session_id: null,
+    hc_user_id: "hc-1",
+    description: `Item ${id}`,
+    due_date: null,
+    status,
+    completed_at: null,
+    created_at: NOW,
+  };
+}
+
+describe("groupByClient", () => {
+  it("routes open/in_progress/completed items to correct columns", () => {
+    const clients = [makeClient("c1"), makeClient("c2")];
+    const items = [
+      makeItem("i1", "c1", "open"),
+      makeItem("i2", "c1", "in_progress"),
+      makeItem("i3", "c1", "completed"),
+      makeItem("i4", "c2", "missed"),
+    ];
+    const rows = groupByClient(clients, items);
+
+    expect(rows).toHaveLength(2);
+    const c1 = rows.find((r) => r.client.id === "c1")!;
+    expect(c1.open.map((i) => i.id)).toEqual(["i1"]);
+    expect(c1.in_progress.map((i) => i.id)).toEqual(["i2"]);
+    expect(c1.done.map((i) => i.id)).toEqual(["i3"]);
+
+    const c2 = rows.find((r) => r.client.id === "c2")!;
+    expect(c2.open.map((i) => i.id)).toEqual(["i4"]);
+    expect(c2.in_progress).toHaveLength(0);
+    expect(c2.done).toHaveLength(0);
+  });
+
+  it("places missed items in the open column", () => {
+    const rows = groupByClient(
+      [makeClient("c1")],
+      [makeItem("i1", "c1", "missed")],
+    );
+    expect(rows[0].open).toHaveLength(1);
+    expect(rows[0].open[0].status).toBe("missed");
+  });
+
+  it("omits clients with zero items across all columns", () => {
+    const rows = groupByClient(
+      [makeClient("c1"), makeClient("c2")],
+      [makeItem("i1", "c1", "open")],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].client.id).toBe("c1");
+  });
+
+  it("returns empty array when items list is empty", () => {
+    expect(groupByClient([makeClient("c1")], [])).toHaveLength(0);
+  });
+});
+
+describe("MOVE_FORWARD", () => {
+  it("open → in_progress", () => expect(MOVE_FORWARD["open"]).toBe("in_progress"));
+  it("missed → in_progress", () => expect(MOVE_FORWARD["missed"]).toBe("in_progress"));
+  it("in_progress → completed", () => expect(MOVE_FORWARD["in_progress"]).toBe("completed"));
+  it("completed has no forward target", () => expect(MOVE_FORWARD["completed"]).toBeUndefined());
+});
+
+describe("MOVE_BACK", () => {
+  it("in_progress → open", () => expect(MOVE_BACK["in_progress"]).toBe("open"));
+  it("completed → in_progress", () => expect(MOVE_BACK["completed"]).toBe("in_progress"));
+  it("open has no back target", () => expect(MOVE_BACK["open"]).toBeUndefined());
+});
+```
+
+- [ ] **Step 2: Run to confirm it fails**
+
+```bash
+cd frontend && npx vitest run tests/unit/actionItemsKanban.test.ts
+```
+Expected: FAIL — `Cannot find module '@/lib/actionItemsKanban'`
+
+- [ ] **Step 3: Create the utility file**
+
+Create `frontend/src/lib/actionItemsKanban.ts`:
+
+```ts
+import type { ClientOut } from "@/lib/api/clients";
+import type { ActionItemOut } from "@/lib/api/actionItems";
+
+export const MOVE_FORWARD: Record<string, string> = {
+  open:        "in_progress",
+  missed:      "in_progress",
+  in_progress: "completed",
+};
+
+export const MOVE_BACK: Record<string, string> = {
+  in_progress: "open",
+  completed:   "in_progress",
+};
+
+export type ClientRow = {
+  client: ClientOut;
+  open: ActionItemOut[];
+  in_progress: ActionItemOut[];
+  done: ActionItemOut[];
+};
+
+export function groupByClient(
+  clients: ClientOut[],
+  items: ActionItemOut[],
+): ClientRow[] {
+  return clients
+    .map((client) => ({
+      client,
+      open: items.filter(
+        (i) => i.client_id === client.id && (i.status === "open" || i.status === "missed"),
+      ),
+      in_progress: items.filter(
+        (i) => i.client_id === client.id && i.status === "in_progress",
+      ),
+      done: items.filter(
+        (i) => i.client_id === client.id && i.status === "completed",
+      ),
+    }))
+    .filter((row) => row.open.length + row.in_progress.length + row.done.length > 0);
+}
+```
+
+- [ ] **Step 4: Run tests — confirm all pass**
+
+```bash
+cd frontend && npx vitest run tests/unit/actionItemsKanban.test.ts
+```
+Expected: 11 tests pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/lib/actionItemsKanban.ts frontend/tests/unit/actionItemsKanban.test.ts
+git commit -m "feat(frontend): add groupByClient + kanban transition maps with unit tests"
+```
+
+---
+
+### Task 3: Implement the action items kanban page
+
+**Files:**
+- Modify: `frontend/src/app/(app)/action-items/page.tsx`
+
+- [ ] **Step 1: Replace `action-items/page.tsx` with the following**
+
+```tsx
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { listActionItems, patchActionItem, type ActionItemOut } from "@/lib/api/actionItems";
+import { listClients, type ClientOut } from "@/lib/api/clients";
+import {
+  groupByClient,
+  MOVE_FORWARD,
+  MOVE_BACK,
+  type ClientRow,
+} from "@/lib/actionItemsKanban";
+
+function isOverdue(item: ActionItemOut): boolean {
+  if (item.status === "missed") return true;
+  if (!item.due_date) return false;
+  return new Date(item.due_date) < new Date(new Date().toDateString());
+}
+
+function ItemCard({
+  item,
+  onMove,
+}: {
+  item: ActionItemOut;
+  onMove: (id: string, newStatus: string) => void;
+}) {
+  const [transitioning, setTransitioning] = useState(false);
+  const overdue = isOverdue(item);
+  const forward = MOVE_FORWARD[item.status];
+  const back = MOVE_BACK[item.status];
+
+  async function handleMove(targetStatus: string) {
+    const originalStatus = item.status;
+    onMove(item.id, targetStatus); // optimistic
+    setTransitioning(true);
+    try {
+      await patchActionItem(item.id, { status: targetStatus });
+    } catch {
+      onMove(item.id, originalStatus); // revert on error
+    } finally {
+      setTransitioning(false);
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border p-3 space-y-1.5 text-sm",
+        overdue ? "border-destructive/40 bg-destructive/5" : "border-border bg-background",
+      )}
+    >
+      <p
+        className={cn(
+          "font-sans font-medium leading-snug",
+          item.status === "completed"
+            ? "line-through text-muted-foreground"
+            : "text-foreground",
+        )}
+      >
+        {item.description}
+      </p>
+      <p
+        className={cn(
+          "font-sans text-xs",
+          overdue ? "font-bold text-destructive" : "text-muted-foreground",
+        )}
+      >
+        {new Date(item.created_at).toLocaleDateString("en-IN", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })}
+        {overdue && " · Overdue"}
+      </p>
+      {transitioning ? (
+        <p className="font-sans text-xs text-muted-foreground">Moving…</p>
+      ) : (
+        <div className="flex flex-wrap gap-3 pt-0.5">
+          {back && (
+            <button
+              onClick={() => handleMove(back)}
+              className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+            >
+              {back === "open" ? "← Back to Open" : "← Reopen"}
+            </button>
+          )}
+          {forward && (
+            <button
+              onClick={() => handleMove(forward)}
+              className="font-sans text-xs text-primary underline-offset-4 hover:underline"
+            >
+              {forward === "in_progress" ? "Move to In Progress →" : "Mark Done →"}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Cell({
+  items,
+  onMove,
+}: {
+  items: ActionItemOut[];
+  onMove: (id: string, newStatus: string) => void;
+}) {
+  if (items.length === 0)
+    return <span className="font-sans text-sm text-muted-foreground">—</span>;
+  return (
+    <div className="space-y-2">
+      {items.map((item) => (
+        <ItemCard key={item.id} item={item} onMove={onMove} />
+      ))}
+    </div>
+  );
+}
+
+export default function ActionItemsPage() {
+  const [allItems, setAllItems] = useState<ActionItemOut[] | null>(null);
+  const [clients, setClients] = useState<ClientOut[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      listActionItems({ status: "open",        limit: 100 }),
+      listActionItems({ status: "in_progress", limit: 100 }),
+      listActionItems({ status: "missed",      limit: 100 }),
+      listActionItems({ status: "completed",   limit: 100 }),
+      listClients({ limit: 100 }),
+    ])
+      .then(([open, inProgress, missed, done, clientsResult]) => {
+        setAllItems([
+          ...open.items,
+          ...inProgress.items,
+          ...missed.items,
+          ...done.items,
+        ]);
+        setClients(clientsResult.items);
+      })
+      .catch(() => setLoadError(true));
+  }, []);
+
+  const handleMove = useCallback((id: string, newStatus: string) => {
+    setAllItems((prev) =>
+      prev ? prev.map((i) => (i.id === id ? { ...i, status: newStatus } : i)) : prev,
+    );
+  }, []);
+
+  const loading = allItems === null && clients === null && !loadError;
+  const rows: ClientRow[] =
+    allItems && clients ? groupByClient(clients, allItems) : [];
+
+  return (
+    <div className="space-y-10">
+      <div>
+        <p className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+          Accountability
+        </p>
+        <h1 className="mt-1 font-heading text-4xl font-black text-foreground">
+          Action items
+        </h1>
+      </div>
+
+      {loadError && (
+        <p className="font-sans text-sm text-destructive">
+          Could not load action items.
+        </p>
+      )}
+
+      {loading && (
+        <div className="space-y-2">
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+          <Skeleton className="h-12 w-full" />
+        </div>
+      )}
+
+      {!loading && !loadError && rows.length === 0 && (
+        <p className="py-2 font-heading text-xl font-black text-muted-foreground">
+          All clear. <em>No active items.</em>
+        </p>
+      )}
+
+      {!loading && !loadError && rows.length > 0 && (
+        <div className="overflow-x-auto rounded-2xl border border-border">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted">
+                <th className="w-36 p-4 text-left font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                  Client
+                </th>
+                <th className="p-4 text-left font-sans text-xs font-bold uppercase tracking-widest text-foreground border-l border-border">
+                  Open
+                </th>
+                <th className="p-4 text-left font-sans text-xs font-bold uppercase tracking-widest text-foreground border-l border-border">
+                  In Progress
+                </th>
+                <th className="p-4 text-left font-sans text-xs font-bold uppercase tracking-widest text-foreground border-l border-border">
+                  Done
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr
+                  key={row.client.id}
+                  className="border-b border-border last:border-0 align-top"
+                >
+                  <td className="p-4">
+                    <Link
+                      href={`/clients/${row.client.id}`}
+                      className="font-heading text-sm font-bold text-foreground underline-offset-4 hover:underline"
+                    >
+                      {row.client.full_name}
+                    </Link>
+                  </td>
+                  <td className="p-4 border-l border-border">
+                    <Cell items={row.open} onMove={handleMove} />
+                  </td>
+                  <td className="p-4 border-l border-border">
+                    <Cell items={row.in_progress} onMove={handleMove} />
+                  </td>
+                  <td className="p-4 border-l border-border">
+                    <Cell items={row.done} onMove={handleMove} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Run all Vitest unit tests**
+
+```bash
+cd frontend && npx vitest run
+```
+Expected: all tests pass (11 from Task 2 + all pre-existing tests).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add frontend/src/app/(app)/action-items/page.tsx
+git commit -m "feat(frontend): replace action items list with client×status kanban table"
+```
+
+---
+
 ## B.4 Verification
 
 - [ ] Dashboard shows exactly two sections: Today and Pending Action Items
