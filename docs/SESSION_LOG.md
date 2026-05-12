@@ -4,6 +4,63 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-05-12 — P6B: Dashboard restructure + Action Items Kanban
+
+**Done**:
+
+- **CLAUDE.md §6**: Added binding override table — superpowers skill output paths now redirect into `PHASE-NN-*.md` files instead of `docs/superpowers/`. Prevents silent folder creation in all future sessions.
+- **`docs/superpowers/` deleted**: Historical `plans/2026-04-30-scaffold-data-auth.md` confirmed fully executed (P0+P1+P2); content absorbed into PHASE-00/01/02 docs. Brainstorm spec deleted. `.superpowers/` and `graphify-out/` added to `.gitignore`.
+- **PHASE-06-frontend.md restructured**: Existing P6A content wrapped as Part A; Part B design spec + implementation plan added; Part C diet chart stub added with 6 open questions for future brainstorm.
+- **P6B Task 1** (commit `0f454c2`): Dashboard — removed "Recent Clients" section, enriched pending action item rows to two-line format (`{client} · {date}` / `{description}`).
+- **P6B Task 2** (commit `e118319`): Extracted `frontend/src/lib/actionItemsKanban.ts` (`groupByClient`, `MOVE_FORWARD`, `MOVE_BACK`); 11 unit tests in `frontend/tests/unit/actionItemsKanban.test.ts` — TDD (red→green verified).
+- **P6B Task 3** (commit `57e5484`): Replaced action items page with client×status kanban table (Open / In Progress / Done). Missed items in Open column with red treatment. Bidirectional click-to-move with optimistic update + revert on error.
+
+**Test count**: 43 tests, all green.
+
+**Decided**:
+- Part B scope: frontend-only, no new npm deps, no backend changes
+- Missed items stay in Open column (red card) — not a separate 4th column
+- P6B marked Complete. P6C (diet chart) deferred to a future brainstorm session.
+
+---
+
+## 2026-05-07 — Repo sync sweep + HANDOVER-P6 update + P6 UI review fixes
+
+**Done**:
+
+- **Full repo sweep** (`docs/SYNC-2026-05-07.md` created): read all ADRs (0001–0006), all phase plans (PHASE-00 through PHASE-06), SPEC-0001, all domain docs, HANDOVER-P6, SESSION_LOG, build-plan, REPO-INDEX, diagrams, and `frontend_feedback.md` in a single pass. Nine discrepancies between docs and implementation found and documented. All are doc-only fixes; none block P7.
+
+- **HANDOVER-P6.md updated**: added `§Post-P6 developments` section covering: two post-HANDOVER-P6 commits, `frontend_feedback.md` review findings, 8 uncommitted P6-fix files, and SYNC sweep results with all 9 discrepancies. Git state block updated from `45852c5` to `af62526`.
+
+- **P6 UI review** (`frontend_feedback.md` — committed `af62526`): 5 items triaged. Items 1, 3, 4 coded and uncommitted. Items 2 and 5 deferred as `P6B-spec`.
+  - Item 1 (`P6-fix`): Dashboard section background cards for visual separation
+  - Item 3 (`P6-fix`): Client name + Session # in Today's sessions list
+  - Item 4 (`P6-fix`): Open action items section above sessions on client detail page; checkbox accountability
+  - Item 2 (`P6B-spec`): "Recent Clients" widget — keep or replace? Needs brainstorm
+  - Item 5 (`P6B-spec`): Diet chart feature — full spec needed before any code
+
+- **Mock script fix** (commit `617b18d`): corrected table name `session_briefs` → `briefs` in `backend/scripts/mock_p6/05_verify_flywheel.sh`.
+
+**Decided**:
+- `frontend_feedback.md` items 2 and 5 require product brainstorm in Claude AI before implementation — not P6-fix, not P7 without a spec
+- Diet chart may warrant its own unit (`Unit_002_DietCharts`) — defer naming until spec is written; DB tables already exist from P1
+- SYNC document is the artifact for Claude AI sync context; HANDOVER-P6 + SYNC-2026-05-07 are the two docs to share for any P7 design conversation
+
+**Bugs found / fixed**:
+- Mock flywheel script was querying non-existent `session_briefs` table; fixed to `briefs`
+
+**Known issues / carry-overs into P7**:
+- 8 frontend files uncommitted — commit before P7 starts; run `cd frontend && npx vitest run` first
+- `docs/SYNC-2026-05-07.md` uncommitted — commit with frontend files
+- PHASE-06-frontend.md §4/§6/§7/§8 still unfilled (D8 from SYNC doc) — complete before PHASE-07 is written
+- 9 doc discrepancies documented in SYNC doc — doc fixes, do not block P7
+- All P7 carry-overs from HANDOVER-P6 §Known issues still apply (M000 UX gap, LLM timeout, Sentry stub, etc.)
+- `PROJECT-CUSTOM-INSTRUCTIONS.md` at repo root was missing — recreated by SoJo
+
+**Test count**: 189 backend / 40 e2e / ~12 unit (unchanged)
+
+---
+
 ## 2026-05-06 — P6: Frontend E2E Fixes + P6 Verification Guide + AI Mock Test Scripts
 
 **Done**:

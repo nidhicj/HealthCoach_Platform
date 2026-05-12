@@ -5,7 +5,7 @@
 | Part | Label | Scope | Status |
 |------|-------|-------|--------|
 | A | HC Console + Brand Identity | All screens P6 built: dashboard, clients, sessions, action items, settings. Brand tokens, motion system, Playwright tests. | Complete |
-| B | Dashboard Restructure + Action Items Kanban | Remove "Recent Clients", restructure pending items rows, replace action items page with client×status kanban table. Frontend-only, no backend changes. | Spec complete — implementation pending |
+| B | Dashboard Restructure + Action Items Kanban | Remove "Recent Clients", restructure pending items rows, replace action items page with client×status kanban table. Frontend-only, no backend changes. | Complete |
 | C | Diet Chart Feature | AI-suggested diet chart per client: backend CRUD endpoints, LLM generation, frontend preview + editable 7-day table. DB tables already exist from P1. | To be designed — brainstorm session pending |
 
 ---
