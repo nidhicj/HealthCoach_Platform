@@ -1,7 +1,18 @@
-# PHASE-06: Frontend (HC Console) + Brand Identity Adoption
+# PHASE-06: Frontend (HC Console) — Parts A, B, C
 
 **Unit**: Unit_001_HcCoreCycle
-**Status**: Draft
+
+| Part | Label | Scope | Status |
+|------|-------|-------|--------|
+| A | HC Console + Brand Identity | All screens P6 built: dashboard, clients, sessions, action items, settings. Brand tokens, motion system, Playwright tests. | Complete |
+| B | Dashboard Restructure + Action Items Kanban | Remove "Recent Clients", restructure pending items rows, replace action items page with client×status kanban table. Frontend-only, no backend changes. | Spec complete — implementation pending |
+| C | Diet Chart Feature | AI-suggested diet chart per client: backend CRUD endpoints, LLM generation, frontend preview + editable 7-day table. DB tables already exist from P1. | To be designed — brainstorm session pending |
+
+---
+
+# Part A — HC Console + Brand Identity
+
+**Status**: Complete
 **Verification date**: TBD — see `docs/VERIFICATION.md` § P6 (to be created during build)
 **Implements**: `SPEC-0001-hc-core-cycle.md` §Stage 2 (M000 first session screens), §Stage 3 (between-sessions HC view), §Stage 4 (M00N session screens), §Stage 5 (triage flag surfaces), §Stage 6 (coach-reviewed gate UX) — all expressed as HC-facing screens. Plus brand identity adoption decisions captured here in §3 (no prior SPEC; may become SPEC-0002 if the pattern recurs for future surfaces).
 **ADRs implemented**: ADR-0001 (frontend stack — Next.js 15 App Router, Tailwind, shadcn/ui), ADR-0004 (`frontend/` layout), ADR-0005 (auth — JWT in memory + HTTP-only refresh cookie pattern honoured by client). ADR-0003 (LLM strategy) is consumed via existing backend endpoints; no LLM changes in P6.
@@ -365,3 +376,214 @@ Known carry-overs that downstream phases inherit:
 - **Handover-doc-after-manual-verification convention** — applies to P7, P8, P9.
 
 *Additional carry-overs to be filled at completion as the build surfaces them.*
+
+---
+
+# Part B — Dashboard Restructure + Action Items Kanban
+
+**Status**: Spec complete — implementation pending  
+**Session**: Brainstormed and designed 2026-05-12  
+**Implements**: `frontend_feedback.md` Items 2 and 6  
+**Backend changes**: None — all existing APIs  
+**New dependencies**: None
+
+---
+
+## B.1 Scope
+
+Two frontend-only changes to `dashboard/page.tsx` and `action-items/page.tsx`. No migrations, no backend endpoints, no new npm packages.
+
+---
+
+## B.2 Item 2 — Dashboard Restructure
+
+**File**: `frontend/src/app/(app)/dashboard/page.tsx`
+
+### What changes
+
+Remove the "Recent Clients" section entirely. Dashboard retains two sections only:
+1. **Today** — unchanged
+2. **Pending Action Items** — rows restructured
+
+### Pending Action Items row layout
+
+Each item renders two lines:
+
+```
+Ravi Kumar  ·  12/05/2026        ← client full_name + created_at (en-IN locale, DD/MM/YYYY)
+Protein tracking log              ← description
+```
+
+### Data sources — no new fetches
+
+- `clientMap: Map<string, ClientOut>` — already built from the existing `listClients` call (kept because Today section still needs it for client names on session rows)
+- `item.created_at` — present on `ActionItemOut`
+- `item.description` — present on `ActionItemOut`
+- `item.client_id` — key for `clientMap` lookup
+
+### Definition of done
+
+- "Recent Clients" section and `clients` / `setClients` state removed
+- `setClients(c.items.slice(0, 5))` line removed from `useEffect .then()`; `listClients` fetch stays
+- Each pending item row: `{full_name} · {created_at formatted}` line 1, `{description}` line 2
+- Overdue items retain existing red date treatment
+
+---
+
+## B.3 Item 6 — Action Items Kanban
+
+**File**: `frontend/src/app/(app)/action-items/page.tsx`
+
+### What changes
+
+Replace the three-section vertical list (Open / In Progress / Missed) with a single client×status table.
+
+### Table structure
+
+| Client | Open | In Progress | Done |
+|--------|------|-------------|------|
+| Ravi Kumar | item cards… | item cards… | item cards… |
+| Sunita Rao | item cards… | item cards… | — |
+
+- **Rows**: one per client (grouped by `client_id`); clients with zero items across all columns are hidden
+- **Columns**: Open · In Progress · Done — 3 fixed columns
+- **Missed/overdue items** live in Open column — red card border + "Overdue" label; no 4th column
+- **Empty cells** render a muted `—`
+- Table is `overflow-x-auto` for narrow viewports
+
+### Item card anatomy
+
+```
+┌──────────────────────────────┐
+│ Protein tracking log         │  ← description
+│ 08 May 2026        Overdue   │  ← created_at + overdue label if applicable
+│ Move to In Progress →        │  ← forward action
+│ ← Back to Open               │  ← backward action (In Progress and Done only)
+└──────────────────────────────┘
+```
+
+### Click-to-move actions by column
+
+| Column | Forward | Backward |
+|--------|---------|----------|
+| Open | "Move to In Progress →" | — |
+| In Progress | "Mark Done →" | "← Back to Open" |
+| Done | — | "← Reopen" |
+
+Each button calls `patchActionItem(item.id, { status: targetStatus })` with optimistic local state update; reverts on error.
+
+### Status transition map
+
+```ts
+const MOVE_FORWARD: Record<string, string> = {
+  open:        "in_progress",
+  missed:      "in_progress",  // missed items can advance
+  in_progress: "completed",
+}
+const MOVE_BACK: Record<string, string> = {
+  in_progress: "open",
+  completed:   "in_progress",
+}
+```
+
+### Data fetching
+
+```ts
+Promise.all([
+  listActionItems({ status: "open",        limit: 100 }),
+  listActionItems({ status: "in_progress", limit: 100 }),
+  listActionItems({ status: "missed",      limit: 100 }),
+  listActionItems({ status: "completed",   limit: 100 }),
+  listClients({ limit: 100 }),  // for display names + row grouping
+])
+```
+
+`missed` items are merged into the `open` bucket for display (red card treatment).
+
+### Grouping logic
+
+```ts
+clientRows = clients
+  .map(client => ({
+    client,
+    open:        items.filter(i => i.client_id === client.id && (i.status === "open" || i.status === "missed")),
+    in_progress: items.filter(i => i.client_id === client.id && i.status === "in_progress"),
+    done:        items.filter(i => i.client_id === client.id && i.status === "completed"),
+  }))
+  .filter(row => row.open.length + row.in_progress.length + row.done.length > 0)
+```
+
+### Definition of done
+
+- Table renders one row per client with ≥1 item (any status)
+- Items group correctly; missed items appear in Open column with red treatment
+- All click-to-move buttons PATCH the correct status and update state optimistically
+- Optimistic revert on error
+- Empty cells show `—`
+- Table scrolls horizontally on narrow screens
+- No new npm dependencies
+
+---
+
+## B.4 Verification
+
+- [ ] Dashboard shows exactly two sections: Today and Pending Action Items
+- [ ] Each pending item row shows `{client_name} · {date}` on line 1 and `{description}` on line 2
+- [ ] Overdue pending items still show red date text
+- [ ] Action items page renders as a table with correct client rows
+- [ ] Items appear in correct columns; missed items appear in Open with red styling
+- [ ] Moving Open → In Progress via button updates the card to In Progress column
+- [ ] Moving In Progress → Done via button updates the card to Done column
+- [ ] Moving backwards (← Reopen, ← Back to Open) works correctly
+- [ ] Optimistic update reverts if the PATCH fails
+- [ ] All existing Playwright e2e tests still pass
+
+---
+
+# Part C — Diet Chart Feature
+
+**Status**: To be designed — brainstorm session pending  
+**Phase label**: P6C  
+**Implements**: `frontend_feedback.md` Item 5
+
+---
+
+## C.1 Scope
+
+A diet chart feature for the HC, per client. Stays in Unit 001 (HC-facing). Requires a full 3-layer build: backend CRUD endpoints, LLM generation, and frontend.
+
+**DB tables already exist from P1** (zero migration work needed):
+- `diet_charts` — one chart per client (or per session — TBD in brainstorm)
+- `diet_chart_recipes` — individual meal entries in the chart
+- `prep_recipes` — recipe/prep details
+- `content_assignments` — linking content to clients
+
+---
+
+## C.2 Known requirements (from feedback)
+
+- 7-day × meals table; timings in cells; columns are meal slots (editable: add/remove e.g. snack)
+- AI suggests a chart after the first session; HC reviews and approves before it's saved
+- Small preview on the client detail page; expands to full chart view
+- Editable: HC can modify cells after AI suggestion
+
+---
+
+## C.3 Open questions (to resolve in brainstorm before any code)
+
+1. Is the diet chart per-client (one chart, updated over time) or per-session (a new version per session)?
+2. What data does the AI draw from — first session notes only, or also M000 onboarding notes?
+3. What does "HC approves" look like — a confirm button, or edit-first-then-approve?
+4. How does the editable table work — inline cell editing, or a dedicated edit mode?
+5. Is the chart eventually sent to the client, or is it internal HC tooling for now?
+6. Does a session MOM reference the diet chart?
+
+---
+
+## C.4 What to build (high-level, to be detailed after brainstorm)
+
+1. **Backend**: `GET/POST/PATCH /api/clients/{id}/diet-chart` endpoints + LLM prompt for chart generation
+2. **Frontend**: Preview card on client detail page + full-screen chart editor
+3. **No new migrations** — tables already exist
+
+*Detailed spec to be written after the P6C brainstorm session.*
