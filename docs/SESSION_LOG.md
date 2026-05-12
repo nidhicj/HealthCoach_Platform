@@ -4,6 +4,25 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-05-12 — P6C: Diet Chart Feature (full implementation)
+
+**Done**:
+
+- **P6C spec written** (commit `02ab7d0`): PHASE-06-frontend.md Part C filled in — design decisions, data model (JSONB `parameters`, `content_assignments` link), 6 backend endpoints, LLM generation + fallback spec, 3 frontend surfaces, MOM integration, acceptance criteria, implementation plan (C.10).
+- **Task 1** (commit `3de979a`): `backend/src/api/diet_charts.py` — 6 endpoints (template upload/list/delete + client chart get/generate/patch); `_parse_csv_bytes` CSV parser; 7 unit tests — TDD (red→green verified). Router registered in `main.py`.
+- **Task 2** (commit `4902f11`): `backend/prompts/diet_chart_generate_v1.md` prompt; `backend/src/llm_service/schemas/diet_chart.py` (`DietChartGridSchema`); `backend/src/llm_service/diet_chart_generate.py` — full LLM generation following `generate_mom_draft` pattern, with structured fallback (warn log + Sentry + `generation_status: "fallback"`); 6 unit tests. MOM integration: `__init__.py` now appends "A diet chart has been prepared for this client." to `user_message` when an active chart exists.
+- **Task 3** (commit `968b55e`): `frontend/src/lib/api/dietCharts.ts` API client (6 functions, Zod v4 schemas); `/settings/diet-chart-templates` page (upload + library list); `/clients/[clientId]/diet-chart` full editor (7-day grid, inline cell editing, add meal slot column, generate/regenerate, fallback amber banner, save); client detail page updated with diet chart 2-day preview section + "Edit chart →" / "Generate →" link.
+
+**Test count**: backend 45 unit tests + 43 frontend Vitest tests, all green.
+
+**Bug fixed in plan**: BOM test used `"\xef\xbb\xbf".encode()` (Python string escape → multi-byte UTF-8), not actual BOM bytes. Fixed to `b'\xef\xbb\xbf' + content.encode("utf-8")`.
+
+**Zod v4 note**: `z.record(z.unknown())` no longer valid — must be `z.record(z.string(), z.unknown())`.
+
+**Next**: integration-test the full flow end-to-end (upload template → generate chart → edit → save → verify MOM draft picks up the note). C.9 acceptance criteria checklist.
+
+---
+
 ## 2026-05-12 — P6B: Dashboard restructure + Action Items Kanban
 
 **Done**:
