@@ -11,6 +11,12 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getClient, getClientAst, type ClientDetailOut, type AstOut } from "@/lib/api/clients";
 import { listSessions, type SessionOut } from "@/lib/api/sessions";
+import { listActionItems, patchActionItem, type ActionItemOut } from "@/lib/api/actionItems";
+
+function isOverdue(dateStr: string | null): boolean {
+  if (!dateStr) return false;
+  return new Date(dateStr) < new Date(new Date().toDateString());
+}
 
 const JOURNEY_STAGE_LABEL: Record<string, string> = {
   onboarding: "Onboarding",
@@ -32,6 +38,10 @@ export default function ClientDetailPage() {
   const [ast, setAst] = useState<AstOut | null>(null);
   const [sessions, setSessions] = useState<SessionOut[] | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+  const [closedItems, setClosedItems] = useState<ActionItemOut[] | null>(null);
+  const [reopenedIds, setReopenedIds] = useState<Set<string>>(new Set());
+  const [showClosed, setShowClosed] = useState(false);
 
   useEffect(() => {
     if (!clientId) return;
@@ -39,16 +49,48 @@ export default function ClientDetailPage() {
       getClient(clientId),
       getClientAst(clientId),
       listSessions({ client_id: clientId, limit: 20 }),
+      listActionItems({ client_id: clientId, status: "completed", limit: 50 }),
     ])
-      .then(([c, a, s]) => {
+      .then(([c, a, s, closed]) => {
         setClient(c);
         setAst(a);
         setSessions(s.items);
+        setClosedItems(closed.items);
       })
       .catch(() => setLoadError(true));
   }, [clientId]);
 
+  async function toggleItem(id: string, markComplete: boolean) {
+    if (markComplete) {
+      setCompletedIds((prev) => new Set(prev).add(id));
+      setReopenedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      try {
+        await patchActionItem(id, { status: "completed" });
+      } catch {
+        setCompletedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      }
+    } else {
+      setReopenedIds((prev) => new Set(prev).add(id));
+      setCompletedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      try {
+        await patchActionItem(id, { status: "open" });
+      } catch {
+        setReopenedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      }
+    }
+  }
+
   const loading = !loadError && client === null;
+
+  const displayOpen = [
+    ...(ast?.open_items ?? []).filter((i) => !completedIds.has(i.id)),
+    ...(closedItems ?? []).filter((i) => reopenedIds.has(i.id)),
+  ];
+
+  const displayClosed = [
+    ...(closedItems ?? []).filter((i) => !reopenedIds.has(i.id)),
+    ...(ast?.open_items ?? []).filter((i) => completedIds.has(i.id)),
+  ];
 
   return (
     <div className="space-y-8">
@@ -95,7 +137,7 @@ export default function ClientDetailPage() {
             {/* Left: meta + session history */}
             <div className="space-y-8">
               {/* Client meta */}
-              <section className="space-y-3">
+              <section className="space-y-3 rounded-2xl border border-border bg-muted p-6">
                 <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
                   Details
                 </h2>
@@ -122,8 +164,115 @@ export default function ClientDetailPage() {
                 </dl>
               </section>
 
+              {/* Open action items */}
+              <section className="space-y-4 rounded-2xl border border-border bg-section-fill-02 p-6">
+                <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+                  Open action items
+                </h2>
+                <Separator />
+                {ast === null ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </div>
+                ) : displayOpen.length === 0 ? (
+                  <p className="py-2 font-heading text-lg font-black text-muted-foreground">
+                    All clear. <em>Nothing pending.</em>
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-border">
+                    {displayOpen.map((item) => (
+                      <li key={item.id} className="flex items-start gap-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={false}
+                          onChange={() => toggleItem(item.id, true)}
+                          className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                        />
+                        <div className="space-y-0.5">
+                          <p className="font-sans text-sm text-foreground">
+                            {item.description}
+                          </p>
+                          {item.due_date && (
+                            <p
+                              className={cn(
+                                "font-sans text-xs",
+                                isOverdue(item.due_date)
+                                  ? "font-bold text-destructive"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              Due {new Date(item.due_date).toLocaleDateString("en-IN")}
+                              {isOverdue(item.due_date) && " · Overdue"}
+                            </p>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              {/* Closed action items (collapsible) */}
+              <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
+                <button
+                  type="button"
+                  onClick={() => setShowClosed((v) => !v)}
+                  className="flex w-full items-center justify-between"
+                >
+                  <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+                    Closed action items
+                    {displayClosed.length > 0 && (
+                      <span className="ml-2 font-normal normal-case tracking-normal text-muted-foreground">
+                        ({displayClosed.length})
+                      </span>
+                    )}
+                  </h2>
+                  <span className="font-sans text-xs text-muted-foreground">
+                    {showClosed ? "▲" : "▼"}
+                  </span>
+                </button>
+                {showClosed && (
+                  <>
+                    <Separator />
+                    {closedItems === null ? (
+                      <div className="space-y-2">
+                        <Skeleton className="h-10 w-full" />
+                      </div>
+                    ) : displayClosed.length === 0 ? (
+                      <p className="py-2 font-sans text-sm italic text-muted-foreground">
+                        No completed items yet.
+                      </p>
+                    ) : (
+                      <ul className="divide-y divide-border">
+                        {displayClosed.map((item) => (
+                          <li key={item.id} className="flex items-start gap-3 py-3 opacity-60">
+                            <input
+                              type="checkbox"
+                              checked={true}
+                              onChange={() => toggleItem(item.id, false)}
+                              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                            />
+                            <div className="space-y-0.5">
+                              <p className="font-sans text-sm text-foreground line-through">
+                                {item.description}
+                              </p>
+                              {item.due_date && (
+                                <p className="font-sans text-xs text-muted-foreground">
+                                  Due {new Date(item.due_date).toLocaleDateString("en-IN")}
+                                </p>
+                              )}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </section>
+
               {/* Session history */}
-              <section className="space-y-4">
+              <section className="space-y-4 rounded-2xl border border-border bg-section-fill-02 p-6">
                 <div className="flex items-center justify-between">
                   <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
                     Sessions
@@ -182,7 +331,7 @@ export default function ClientDetailPage() {
 
             {/* Right: AST card */}
             <aside className="space-y-4">
-              <Card>
+              <Card className="bg-muted">
                 <CardHeader>
                   <CardTitle className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
                     Client status

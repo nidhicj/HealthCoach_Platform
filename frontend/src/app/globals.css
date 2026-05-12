@@ -55,7 +55,7 @@
   --secondary:           color-mix(in srgb, #5C6652 10%, #F7F4EE);
   --secondary-foreground: #2C2C1E;
 
-  --muted:               color-mix(in srgb, #5C6652 8%, #F7F4EE);
+  --muted:               var(--color-section-fill-01); /* hex lives in theme.yaml → section_fill_01 */
   --muted-foreground:    color-mix(in srgb, #2C2C1E 60%, transparent);
 
   /* Marigold: used on at most ONE element per screen */

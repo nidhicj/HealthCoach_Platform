@@ -76,10 +76,12 @@ const css = `/* AUTO-GENERATED — do not edit. Source: frontend/theme.yaml */
 
 @theme {
   /* Brand palette */
-  --color-parchment:   ${p.parchment};
-  --color-moss-shadow: ${p.moss_shadow};
-  --color-dark-ink:    ${p.dark_ink};
-  --color-marigold:    ${p.marigold};
+  --color-parchment:    ${p.parchment};
+  --color-moss-shadow:  ${p.moss_shadow};
+  --color-dark-ink:     ${p.dark_ink};
+  --color-marigold:     ${p.marigold};
+  --color-section-fill-01: ${p.section_fill_01};
+  --color-section-fill-02: ${p.section_fill_02};
 
   /* Functional colours — never decorative */
   --color-success: ${p.functional.success};

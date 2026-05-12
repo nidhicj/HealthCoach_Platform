@@ -3,6 +3,8 @@ palette:
   moss_shadow: "#5C6652"   # voice — bounded blocks only
   dark_ink:    "#2C2C1E"   # body text + one architectural element per screen
   marigold:    "#E8C547"   # 0 or 1 element per screen, primary CTA only
+  section_fill_01: "#E8EDE5"  # odd sections  — swap to experiment
+  section_fill_02: "#EFE7C9"  # even sections — swap to experiment (default = parchment)
   functional:
     success: "#3F7D4B"     # success states only
     warning: "#B8722C"     # warnings only
