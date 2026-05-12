@@ -154,6 +154,18 @@ Cross-cutting concerns (ADRs, diagrams, domain docs) stay flat in their existing
 Templates: `docs/specs/template-phase-plan.md` and `docs/specs/0000-template_SPEC.md`.
 Skills: `.claude/skills/skill-write-spec.md` and `.claude/skills/skill-write-phase-plan.md`.
 
+### Superpowers skill output path overrides (BINDING)
+
+Superpowers skills (`brainstorming`, `writing-plans`, etc.) default to writing files under `docs/superpowers/`. **This project does not use that path.** These overrides apply in every session, without exception:
+
+| Skill default | This project's path |
+|---|---|
+| `docs/superpowers/specs/YYYY-MM-DD-*.md` | Embed in the relevant `docs/specs/Unit_NNN_*/PHASE-NN-*.md` as a new Part section (e.g. Part B, Part C) |
+| `docs/superpowers/plans/YYYY-MM-DD-*.md` | Embed as a `## Implementation plan` section inside the relevant `PHASE-NN-*.md` file |
+| Any new folder under `docs/` not listed in §5 | **Do not create.** Ask SoJo first. |
+
+When a skill instructs Claude to write a file to `docs/superpowers/`, Claude must instead redirect that content into the established doc structure above. Never create `docs/superpowers/` or any sibling folder that is not already present in §5.
+
 ---
 
 ## 7. Skills available
@@ -234,3 +246,13 @@ Will hold `dev`, `test`, `typecheck`, `lint`, `migrate`, `build`, `deploy` comma
 ## 12. When in doubt
 
 Default behavior when Claude is uncertain: **stop, declare what's missing, ask**. Silence or plausible-sounding guesses are the two failure modes the anthem exists to prevent.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- ALWAYS read graphify-out/GRAPH_REPORT.md before reading any source files, running grep/glob searches, or answering codebase questions. The graph is your primary map of the codebase.
+- IF graphify-out/wiki/index.md EXISTS, navigate it instead of reading raw files
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
