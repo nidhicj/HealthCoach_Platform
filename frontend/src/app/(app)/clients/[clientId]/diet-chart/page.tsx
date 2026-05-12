@@ -47,6 +47,8 @@ export default function DietChartEditorPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [newSlotName, setNewSlotName] = useState("");
+  const [editingSlot, setEditingSlot] = useState<string | null>(null);
+  const [editingSlotValue, setEditingSlotValue] = useState("");
 
   useEffect(() => {
     if (!clientId) return;
@@ -123,6 +125,37 @@ export default function DietChartEditorPage() {
         },
       },
     }));
+  }
+
+  function renameSlot(oldName: string, newName: string) {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName || mealSlots.includes(trimmed)) {
+      setEditingSlot(null);
+      return;
+    }
+    setMealSlots((prev) => prev.map((s) => (s === oldName ? trimmed : s)));
+    setEditedGrid((prev) => {
+      const next: Grid = {};
+      for (const day of DAYS) {
+        next[day] = {};
+        for (const slot of mealSlots) {
+          const key = slot === oldName ? trimmed : slot;
+          next[day][key] = prev[day]?.[slot] ?? { food: "", timing: "" };
+        }
+      }
+      return next;
+    });
+    setEditingSlot(null);
+  }
+
+  function moveSlot(index: number, direction: "left" | "right") {
+    const swapIdx = direction === "left" ? index - 1 : index + 1;
+    if (swapIdx < 0 || swapIdx >= mealSlots.length) return;
+    setMealSlots((prev) => {
+      const next = [...prev];
+      [next[index], next[swapIdx]] = [next[swapIdx], next[index]];
+      return next;
+    });
   }
 
   function addMealSlot() {
@@ -264,12 +297,53 @@ export default function DietChartEditorPage() {
                       <th className="w-24 p-3 text-left font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
                         Day
                       </th>
-                      {mealSlots.map((slot) => (
+                      {mealSlots.map((slot, idx) => (
                         <th
                           key={slot}
                           className="min-w-[160px] border-l border-border p-3 text-left font-sans text-xs font-bold uppercase tracking-widest text-foreground"
                         >
-                          {slot}
+                          {editingSlot === slot ? (
+                            <input
+                              autoFocus
+                              value={editingSlotValue}
+                              onChange={(e) => setEditingSlotValue(e.target.value)}
+                              onBlur={() => renameSlot(slot, editingSlotValue)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") renameSlot(slot, editingSlotValue);
+                                if (e.key === "Escape") setEditingSlot(null);
+                              }}
+                              className="w-full rounded border border-primary bg-background px-1 py-0.5 font-sans text-xs font-bold uppercase tracking-widest text-foreground focus:outline-none"
+                            />
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => { setEditingSlot(slot); setEditingSlotValue(slot); }}
+                                className="flex-1 text-left hover:text-primary"
+                                title="Click to rename"
+                              >
+                                {slot}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveSlot(idx, "left")}
+                                disabled={idx === 0}
+                                className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-20"
+                                title="Move left"
+                              >
+                                ←
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moveSlot(idx, "right")}
+                                disabled={idx === mealSlots.length - 1}
+                                className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-20"
+                                title="Move right"
+                              >
+                                →
+                              </button>
+                            </div>
+                          )}
                         </th>
                       ))}
                     </tr>
