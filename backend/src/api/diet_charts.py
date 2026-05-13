@@ -86,10 +86,15 @@ def _parse_csv_bytes(data: bytes) -> dict:
 
 
 def _parse_tsv_rows(text: str) -> list[list[str]]:
-    """Parse TSV (Google Sheets copy-paste) into a 2-D array, trimming trailing empty cells."""
+    """Parse TSV (Google Sheets copy-paste) into a 2-D array.
+
+    Uses csv.reader so quoted fields with embedded newlines (e.g. multi-line
+    ingredient lists) are parsed correctly. Trailing empty cells per row are
+    stripped; fully empty rows are dropped.
+    """
     rows = []
-    for line in text.splitlines():
-        cells = line.split("\t")
+    reader = csv.reader(io.StringIO(text), delimiter="\t")
+    for cells in reader:
         while cells and not cells[-1].strip():
             cells.pop()
         if cells:

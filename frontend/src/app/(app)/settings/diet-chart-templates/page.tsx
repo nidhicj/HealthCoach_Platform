@@ -29,7 +29,7 @@ function TemplateGrid({ template }: { template: DietChartOut }) {
                   <td
                     key={ci}
                     className={[
-                      "px-3 py-2 font-sans align-top",
+                      "px-3 py-2 font-sans align-top whitespace-pre-wrap",
                       ci === 0
                         ? "font-bold text-foreground"
                         : "text-muted-foreground",

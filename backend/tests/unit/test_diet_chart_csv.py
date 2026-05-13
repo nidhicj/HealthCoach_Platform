@@ -78,3 +78,22 @@ def test_tsv_preserves_empty_cells_within_row():
 def test_tsv_empty_string_returns_empty_list():
     assert _parse_tsv_rows("") == []
     assert _parse_tsv_rows("   \n\t\n  ") == []
+
+
+def test_tsv_handles_quoted_multiline_cells():
+    # Google Sheets wraps cells containing newlines in double-quotes
+    tsv = 'Breakfast\t"Aim for 35g\n\nAll calculations include:\n1/4 cup nuts"\tOmelet'
+    rows = _parse_tsv_rows(tsv)
+    assert len(rows) == 1
+    assert rows[0][0] == "Breakfast"
+    assert rows[0][1] == "Aim for 35g\n\nAll calculations include:\n1/4 cup nuts"
+    assert rows[0][2] == "Omelet"
+
+
+def test_tsv_ingredient_continuation_rows():
+    # Rows with only column 4 filled (empty leading cells for each ingredient)
+    tsv = "Dinner\tKeep it light\tOption 1: Black Chana\t1/2 cup chickpeas\n\t\t\t1 cup moringa leaves\n\t\t\t1 cup bottle gourd"
+    rows = _parse_tsv_rows(tsv)
+    assert rows[0] == ["Dinner", "Keep it light", "Option 1: Black Chana", "1/2 cup chickpeas"]
+    assert rows[1] == ["", "", "", "1 cup moringa leaves"]
+    assert rows[2] == ["", "", "", "1 cup bottle gourd"]
