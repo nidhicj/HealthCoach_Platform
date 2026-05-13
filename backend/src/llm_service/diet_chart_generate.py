@@ -21,6 +21,15 @@ _DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Su
 
 
 def _template_grid_section(template_params: dict) -> str:
+    if template_params.get("template_type") == "raw_table":
+        rows: list[list[str]] = template_params.get("rows", [])
+        if not rows:
+            return "Template: (empty)"
+        lines = ["Template diet chart (full table — rows are meal types, columns are notes/options/ingredients):"]
+        for row in rows:
+            lines.append("  " + "  |  ".join(row))
+        return "\n".join(lines)
+
     lines = ["Template grid:"]
     slots: list[str] = template_params.get("meal_slots", [])
     grid: dict = template_params.get("grid", {})

@@ -70,6 +70,16 @@ export async function generateDietChart(
   return GenerateResponseSchema.parse(await res.json());
 }
 
+export async function pasteTemplate(name: string, text: string): Promise<DietChartOut> {
+  const res = await fetchWithAuth(`${API_URL}/api/diet-charts/templates/paste`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, text }),
+  });
+  if (!res.ok) throw new Error(`Paste template failed: ${res.status}`);
+  return DietChartOutSchema.parse(await res.json());
+}
+
 export async function patchDietChart(
   clientId: string,
   parameters: Record<string, unknown>,

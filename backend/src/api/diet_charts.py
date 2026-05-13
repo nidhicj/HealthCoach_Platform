@@ -16,6 +16,7 @@ router = APIRouter(tags=["diet-charts"])
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 MAX_CSV_BYTES = 128 * 1024
+MAX_PASTE_BYTES = 256 * 1024
 
 
 # ── schemas ────────────────────────────────────────────────────────────────────
@@ -34,6 +35,11 @@ class DietChartOut(BaseModel):
 
 class DietChartPatch(BaseModel):
     parameters: dict
+
+
+class PasteTemplateIn(BaseModel):
+    name: str
+    text: str
 
 
 class GenerateRequest(BaseModel):
@@ -77,6 +83,18 @@ def _parse_csv_bytes(data: bytes) -> dict:
             else:
                 grid[day][slot] = {"food": raw, "timing": ""}
     return {"meal_slots": meal_slots, "grid": grid}
+
+
+def _parse_tsv_rows(text: str) -> list[list[str]]:
+    """Parse TSV (Google Sheets copy-paste) into a 2-D array, trimming trailing empty cells."""
+    rows = []
+    for line in text.splitlines():
+        cells = line.split("\t")
+        while cells and not cells[-1].strip():
+            cells.pop()
+        if cells:
+            rows.append(cells)
+    return rows
 
 
 def _to_out(chart: DietChart) -> DietChartOut:
@@ -179,6 +197,37 @@ async def archive_template(
     chart.archived_at = datetime.now(timezone.utc)
     await db.flush()
     await db.commit()
+
+
+@router.post("/api/diet-charts/templates/paste", status_code=status.HTTP_201_CREATED)
+async def paste_template(
+    body: PasteTemplateIn,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> DietChartOut:
+    if len(body.text.encode("utf-8")) > MAX_PASTE_BYTES:
+        raise HTTPException(status_code=422, detail="Pasted content exceeds 256 KB limit")
+    rows = _parse_tsv_rows(body.text)
+    if not rows:
+        raise HTTPException(status_code=422, detail="No content found in pasted text")
+    name = body.name.strip() or "Untitled"
+    template_key = name.lower().replace(" ", "-")
+    chart = DietChart(
+        hc_user_id=UUID(hc_id),
+        name=name,
+        description=None,
+        parameters={
+            "is_template": True,
+            "template_type": "raw_table",
+            "template_key": template_key,
+            "rows": rows,
+        },
+    )
+    db.add(chart)
+    await db.flush()
+    await db.commit()
+    return _to_out(chart)
 
 
 # ── client chart routes ────────────────────────────────────────────────────────
