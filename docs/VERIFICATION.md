@@ -4,6 +4,58 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 
 ---
 
+## P8 — Observability Live
+
+**Status**: Partial — code complete 2026-06-16; live verification (AC4 Sentry smoke test, AC5 SQL queries against populated DB) deferred to P9 when production DSN and pilot data are available.
+
+### How to run (code verification)
+
+```bash
+cd backend
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+pytest tests/unit/ -q
+# Expected: 66 passed
+```
+
+### Acceptance criteria
+
+| AC | Check | Method | Result |
+|---|---|---|---|
+| AC1 | `request.start` + `request.end` log lines emitted with method/path/ip/ua/status/ms | `test_request_emits_start_log_line` + `test_request_emits_end_log_line_with_status_and_ms` | ✅ Unit tests green |
+| AC2 | No snippet/original_text in log output | `scrub()` denylist covers all content keys; tested in `test_scrub.py` / `test_scrub_extended.py` | ✅ Existing scrub tests green |
+| AC3 | No email pattern in log output | `scrub()` applies `_EMAIL_RE` to all string values; unit-tested | ✅ Existing scrub tests green |
+| AC4 | Deliberate exception → Sentry ≤30s, no PII, `request_id` tag present | Requires production `SENTRY_DSN` | ⏳ Deferred to P9 |
+| AC5 | All 5 ADR-0006 §8 SQL queries execute without error | Requires populated pilot DB | ⏳ Deferred to P9 |
+| AC6 | ADR-0006 §7 alert rules documented in `incident-response.md` | `docs/ops/incident-response.md § Sentry alert rules` | ✅ Done |
+
+### Live verification steps (run at P9)
+
+**AC4 — Sentry smoke test**
+```bash
+# 1. Set SENTRY_DSN in .env
+# 2. Start backend: uvicorn src.main:app --port 8000
+# 3. Hit a non-existent route to trigger a 500: curl http://localhost:8000/force-error
+# 4. Check Sentry dashboard within 30s
+#    Confirm: error fingerprint present, no email/phone in breadcrumbs, request_id tag visible
+```
+
+**AC5 — 5 SQL queries**
+```bash
+psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev
+# Paste each query from docs/decisions/0006-observability.md §8
+# Expected: executes without error (empty results acceptable pre-pilot)
+```
+
+### Unit test delta
+
+| Phase | Count |
+|---|---|
+| P7 total | 63 |
+| + Task 1 (request logging) | +3 |
+| **P8 total** | **66** |
+
+---
+
 ## P7 — External Scheduler
 
 **Status**: Verified 2026-06-16 — unit tests (63/63). AC4/AC5 (DB-level retirement sweep) deferred to P9 smoke gate where a populated dev DB will be available.

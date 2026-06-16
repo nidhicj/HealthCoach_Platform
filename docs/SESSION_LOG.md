@@ -4,6 +4,22 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-06-16 — P7 + P8: External Scheduler + Observability Live
+
+**Done**:
+
+- **P7 — External Scheduler** (4 commits): `POST /internal/scheduled-tasks` endpoint authenticated by `X-Scheduler-Token`; snippet retirement sweep using `COALESCE(last_used_at, created_at) < now() - 180 days`; idempotent (`retired_at IS NULL` guard); structured log `event=scheduled_task_run`; GitHub Actions cron (01:00 UTC daily, `workflow_dispatch` for manual trigger); `scheduler_secret` setting added to `Settings` + `.env.example`. 9 unit tests (TDD). AC4/AC5 (DB-level retirement) deferred to P9.
+
+- **P8 — Observability Live** (2 commits): `request_id_middleware` enhanced to emit `request.start` (method, path, ip, ua) and `request.end` (status, ms) JSON log lines on every HTTP request; `sentry_sdk.set_tag("request_id", ...)` wired so Sentry errors correlate with Cloudflare log lines via UUID; 3 unit tests added (capsys stdout capture). Sentry alert rules documented in `docs/ops/incident-response.md`. AC4 (Sentry smoke test) and AC5 (5 SQL queries vs populated DB) deferred to P9 where production DSN and pilot data will be available.
+
+- **Housekeeping**: `pyproject.toml` gained `pythonpath = ["."]` so `pytest tests/unit/` works without `PYTHONPATH` prefix.
+
+**Test count**: 52 (P6 baseline) → 66 (P8 end): +2 config, +9 scheduler, +3 request logging.
+
+**Next**: P9 — Pre-Pilot Smoke Gate. Covers: production Worker against real RDS Mumbai + OpenRouter + S3, Cloudflare platform config (rate limiting, WAF), Sentry smoke test (AC4), SQL queries vs pilot data (AC5), DPDP deletion test, pilot HC onboarding.
+
+---
+
 ## 2026-05-12 — P6C: Diet Chart Feature (full implementation)
 
 **Done**:
