@@ -1,4 +1,5 @@
 """FastAPI application entry point. Per ADR-0001/ADR-0006."""
+import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncGenerator
@@ -45,7 +46,31 @@ app.add_middleware(
 async def request_id_middleware(request: Request, call_next: Any) -> Response:
     request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
     request.state.request_id = request_id
+
+    try:
+        import sentry_sdk
+        sentry_sdk.set_tag("request_id", request_id)
+    except Exception:
+        pass
+
+    logger = get_logger(request_id=request_id)
+    ip = request.client.host if request.client else ""
+    ua = (request.headers.get("user-agent", "") or "")[:200]
+
+    logger.info("request.start", method=request.method, path=request.url.path, ip=ip, ua=ua)
+
+    started = time.monotonic()
     response: Response = await call_next(request)
+    ms = round((time.monotonic() - started) * 1000)
+
+    logger.info(
+        "request.end",
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+        ms=ms,
+    )
+
     response.headers["X-Request-ID"] = request_id
     return response
 
