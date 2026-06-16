@@ -6,7 +6,7 @@
  * a trailing ** wildcard, so a single regex handler is more reliable).
  */
 import type { Page } from "@playwright/test";
-import { STUB_CLIENT_ID, STUB_SESSION_ID } from "./routes.fixture";
+import { STUB_CLIENT_ID, STUB_SESSION_ID, STUB_TEMPLATE_ID } from "./routes.fixture";
 
 const FAKE_TOKEN = "fake-access-token-for-e2e";
 const NOW = new Date().toISOString();
@@ -54,6 +54,46 @@ const STUB_AST = {
   trend_tags: [],
   open_items: [],
   missed_items: [],
+};
+
+export const STUB_TEMPLATE = {
+  id: STUB_TEMPLATE_ID,
+  name: "Base Weekly Plan",
+  description: null,
+  parameters: {
+    meal_slots: ["Breakfast", "Lunch", "Dinner"],
+    grid: {
+      Monday: {
+        Breakfast: { food: "Oats", timing: "8am" },
+        Lunch: { food: "Dal rice", timing: "1pm" },
+        Dinner: { food: "Sabzi roti", timing: "8pm" },
+      },
+    },
+    is_template: true,
+  },
+  created_at: NOW,
+  updated_at: NOW,
+};
+
+export const STUB_GENERATED_CHART = {
+  id: "dc-stub-001",
+  name: "Ananya's diet plan",
+  description: null,
+  parameters: {
+    meal_slots: ["Breakfast", "Lunch", "Dinner"],
+    grid: {
+      Monday: { Breakfast: { food: "Poha", timing: "8am" }, Lunch: { food: "Dal rice", timing: "1pm" }, Dinner: { food: "Sabzi chapati", timing: "8pm" } },
+      Tuesday: { Breakfast: { food: "Upma", timing: "8am" }, Lunch: { food: "Rajma rice", timing: "1pm" }, Dinner: { food: "Khichdi", timing: "8pm" } },
+      Wednesday: { Breakfast: { food: "Idli", timing: "8am" }, Lunch: { food: "Chole rice", timing: "1pm" }, Dinner: { food: "Roti sabzi", timing: "8pm" } },
+      Thursday: { Breakfast: { food: "Dosa", timing: "8am" }, Lunch: { food: "Dal tadka", timing: "1pm" }, Dinner: { food: "Paneer roti", timing: "8pm" } },
+      Friday: { Breakfast: { food: "Paratha", timing: "8am" }, Lunch: { food: "Pulao", timing: "1pm" }, Dinner: { food: "Soup salad", timing: "8pm" } },
+      Saturday: { Breakfast: { food: "Poha", timing: "9am" }, Lunch: { food: "Biryani", timing: "2pm" }, Dinner: { food: "Dal roti", timing: "8pm" } },
+      Sunday: { Breakfast: { food: "Aloo paratha", timing: "9am" }, Lunch: { food: "Chole bhature", timing: "1pm" }, Dinner: { food: "Khichdi", timing: "8pm" } },
+    },
+    is_template: false,
+  },
+  created_at: NOW,
+  updated_at: NOW,
 };
 
 const STUB_BRIEF = {
@@ -187,6 +227,34 @@ export async function mockAuthAndApi(page: Page) {
     // ── check-ins ─────────────────────────────────────────────────────────────
     if (path.startsWith("/api/check-ins") || path.startsWith("/api/clients/") && path.includes("/check-ins")) {
       return route.fulfill(jsonOk({ items: [], next_cursor: null }));
+    }
+
+    // ── diet chart templates ──────────────────────────────────────────────────
+    if (path === "/api/diet-charts/templates") {
+      if (method === "GET") return route.fulfill(jsonOk([STUB_TEMPLATE]));
+    }
+    if (path === "/api/diet-charts/templates/paste") {
+      return route.fulfill(jsonOk(STUB_TEMPLATE, 201));
+    }
+    if (path.startsWith("/api/diet-charts/templates/") && method === "DELETE") {
+      return route.fulfill({ status: 204, body: "" });
+    }
+
+    // ── client diet chart ─────────────────────────────────────────────────────
+    // GET returns 404 (no chart yet); PATCH returns updated chart.
+    // generate returns STUB_GENERATED_CHART. All keep Promise.all from rejecting.
+    if (path === `/api/clients/${STUB_CLIENT_ID}/diet-chart/generate`) {
+      return route.fulfill(jsonOk({ chart: STUB_GENERATED_CHART, generation_status: "success" }));
+    }
+    if (path === `/api/clients/${STUB_CLIENT_ID}/diet-chart`) {
+      if (method === "GET") return route.fulfill({ status: 404, body: "" });
+      if (method === "PATCH") {
+        const body = JSON.parse(req.postData() ?? "{}");
+        return route.fulfill(jsonOk({
+          ...STUB_GENERATED_CHART,
+          parameters: body.parameters ?? STUB_GENERATED_CHART.parameters,
+        }));
+      }
     }
 
     // Fallthrough — let anything else hit the network (shouldn't happen in tests)

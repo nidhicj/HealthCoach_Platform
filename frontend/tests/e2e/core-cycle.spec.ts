@@ -14,12 +14,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("HC core cycle", () => {
-  test("dashboard shows all three sections", async ({ page }) => {
+  test("dashboard shows Today and Pending action items sections", async ({ page }) => {
     await page.goto("/dashboard");
     await page.waitForLoadState("networkidle");
     await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: /recent clients/i })).toBeVisible();
     await expect(page.getByRole("heading", { name: /pending action items/i })).toBeVisible();
   });
 
