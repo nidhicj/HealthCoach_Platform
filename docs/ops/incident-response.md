@@ -45,6 +45,30 @@ When a SEV-1 hits and SoJo is unreachable: pilot HC has a documented manual work
 
 ---
 
+## Sentry alert rules
+
+Three rules per ADR-0006 §7. Configure in: **Sentry → your project → Alerts → Create Alert Rule**.
+
+### Rule 1 — New error fingerprint
+- **Trigger**: first occurrence of any new issue fingerprint in the `production` environment
+- **Action**: email SoJo immediately
+- **Sentry UI**: Alert type = Issue → "A new issue is created" → filter: `environment:production`
+
+### Rule 2 — Error rate spike (same fingerprint)
+- **Trigger**: same issue fires > 5 times in 1 hour
+- **Action**: email SoJo (escalation signal — something is actively broken)
+- **Sentry UI**: Alert type = Issue → "The issue is seen more than 5 times in 1 hour"
+
+### Rule 3 — LLM validation failure (pilot-critical)
+- **Trigger**: any event tagged `kind=llm_validation_failed` during pilot, even once
+- **Action**: email SoJo; treat as same-day review obligation
+- **Sentry UI**: Alert type = Metric → Event type = Errors → filter: `kind:llm_validation_failed` → threshold: count > 0 in 24 h
+- **Why**: the free-model chain is brittle (ADR-0001 risk #8); every validation failure during pilot must be reviewed to catch prompt regressions before the HC notices
+
+**Verification step (do at P9 deployment)**: after configuring the rules, trigger Rule 1 deliberately — force an unhandled exception in the production Worker, confirm email arrives within 5 minutes and contains no PII.
+
+---
+
 ## SEV-1 procedure
 
 > **FILL IN** with actual contact methods/URLs as configured.
