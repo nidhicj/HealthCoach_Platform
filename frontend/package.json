@@ -5,7 +5,7 @@
   "scripts": {
     "predev": "node ../scripts/build-theme.mjs",
     "prebuild": "node ../scripts/build-theme.mjs",
-    "dev": "next dev",
+    "dev": "NEXT_DIST_DIR=/dev/shm/parivarthan-next next dev",
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
