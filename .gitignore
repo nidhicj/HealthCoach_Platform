@@ -33,7 +33,7 @@ out/
 Thumbs.db
 
 # Claude
-.claude/settings.local.json
+.claude/*
 
 # Tool artifacts (brainstorm sessions, knowledge graph cache)
 .superpowers/
@@ -50,3 +50,8 @@ archive/*
 downloaded.txt
 myfile.txt
 
+frontend/dev
+
+template_diet_charts
+competitor-landscape.html
+trascipt.txt

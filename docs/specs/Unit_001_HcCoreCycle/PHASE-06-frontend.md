@@ -6,7 +6,7 @@
 | ---- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | A    | HC Console + Brand Identity                 | All screens P6 built: dashboard, clients, sessions, action items, settings. Brand tokens, motion system, Playwright tests.                              | Complete                                     |
 | B    | Dashboard Restructure + Action Items Kanban | Remove "Recent Clients", restructure pending items rows, replace action items page with client×status kanban table. Frontend-only, no backend changes. | Complete                                     |
-| C    | Diet Chart Feature                          | AI-suggested diet chart per client: backend CRUD endpoints, LLM generation, frontend preview + editable 7-day table. DB tables already exist from P1.   | Spec complete — implementation pending      |
+| C    | Diet Chart Feature                          | AI-suggested diet chart per client: backend CRUD endpoints, LLM generation, frontend preview + editable 7-day table. DB tables already exist from P1.   | Complete                                     |
 
 ---
 
@@ -382,7 +382,7 @@ Known carry-overs that downstream phases inherit:
 
 # Part B — Dashboard Restructure + Action Items Kanban
 
-**Status**: Spec complete — implementation pending
+**Status**: Complete
 **Session**: Brainstormed and designed 2026-05-12
 **Implements**: `frontend_feedback.md` Items 2 and 6
 **Backend changes**: None — all existing APIs
@@ -1207,7 +1207,7 @@ git commit -m "feat(frontend): replace action items list with client×status kan
 
 # Part C — Diet Chart Feature
 
-**Status**: Spec complete — implementation pending
+**Status**: Complete
 **Phase label**: P6C
 **Implements**: `frontend_feedback.md` Item 5
 **Brainstorm date**: 2026-05-12
