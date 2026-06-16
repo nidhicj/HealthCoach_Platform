@@ -1,0 +1,25 @@
+name: Scheduled Tasks
+
+on:
+  schedule:
+    - cron: '0 1 * * *'   # 01:00 UTC = 06:30 IST, daily
+  workflow_dispatch:        # manual trigger for testing without waiting for cron
+
+jobs:
+  run-scheduled-tasks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger snippet retirement sweep
+        run: |
+          HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST "${{ secrets.API_BASE_URL }}/internal/scheduled-tasks" \
+            -H "X-Scheduler-Token: ${{ secrets.SCHEDULER_SECRET }}" \
+            -H "Content-Type: application/json")
+          echo "HTTP status: $HTTP_STATUS"
+          cat /tmp/response.json
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "Scheduled task endpoint returned $HTTP_STATUS — failing job"
+            exit 1
+          fi
