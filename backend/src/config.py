@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     app_version: str = "0.1.0"
 
+    scheduler_secret: str = ""
+
     @field_validator("database_url", "jwt_private_key", "jwt_public_key", mode="before")
     @classmethod
     def _not_empty_in_prod(cls, v: str, info: object) -> str:
