@@ -4,6 +4,40 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 
 ---
 
+## P7 — External Scheduler
+
+**Status**: Verified 2026-06-16 — unit tests (63/63). AC4/AC5 (DB-level retirement sweep) deferred to P9 smoke gate where a populated dev DB will be available.
+
+### How to run
+
+```bash
+cd backend
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+PYTHONPATH=$(pwd) pytest tests/unit/ -q
+# Expected: 63 passed
+```
+
+### Acceptance criteria
+
+| # | Check | Method | Result |
+|---|---|---|---|
+| AC1 | Endpoint returns 200 with correct token | `curl -X POST .../internal/scheduled-tasks -H "X-Scheduler-Token: <secret>"` → `{"tasks_run":["snippet_retirement"],"retired_count":0}` | ✅ Verified manually against local dev server |
+| AC2 | No token → 401; wrong token → 401 | `curl` without header / with wrong header | ✅ Both return 401 |
+| AC3 | Idempotency: running twice produces same end state | `retired_at IS NULL` guard in SQL + `test_already_retired_snippet_is_skipped` unit test | ✅ Logic verified by unit test |
+| AC4 | 200-day-old snippet gets `retired_at` set after sweep | Requires populated dev DB — defer to P9 smoke gate | ⏳ Deferred to P9 |
+| AC5 | Recent snippet `retired_at` stays NULL after sweep | Requires populated dev DB — defer to P9 smoke gate | ⏳ Deferred to P9 |
+
+### Unit test delta
+
+| Phase | Count |
+|---|---|
+| P6 baseline | 52 |
+| + Task 1 (config) | +2 |
+| + Task 2 (scheduler logic) | +9 |
+| **P7 total** | **63** |
+
+---
+
 ## P6A — HC Console + Brand Identity
 
 **Status**: Verified 2026-06-15 — automated test suite (54/54). Manual UI steps 3–14 skipped: features exercised in-use during development; automated tests provide regression coverage.
@@ -287,29 +321,29 @@ On the dashboard, open DevTools → Elements. Inspect computed styles:
 
 ### Summary table
 
-| Check                                                                  | Pass | Notes |
-| ---------------------------------------------------------------------- | ---- | ----- |
-| 43 unit tests pass                                                     | ✅   |       |
-| 54 e2e tests pass                                                      | ✅   | 40→54 after P6B+C |
-| TypeScript build clean                                                 | ✅   |       |
-| Sign-in screen — Fraunces, Marigold button, Parchment bg              | ✅   | Verified in-use during development |
-| Unauthenticated redirect to /sign-in                                   | ✅   | auth.spec.ts |
-| Google OAuth → dashboard                                              | ✅   | auth.spec.ts |
-| Dashboard — Today + Pending Action Items sections (no Recent Clients) | ✅   | core-cycle.spec.ts |
-| Client list + create new client                                        | ✅   | core-cycle.spec.ts |
-| Client detail — AST card + sessions                                   | ✅   | core-cycle.spec.ts |
-| New session form → navigates to session view                          | ✅   | core-cycle.spec.ts |
-| Session tabs — all 3 tab-switch correctly                             | ✅   | core-cycle.spec.ts |
-| Brief tab — brief text or generate button                             | ✅   | core-cycle.spec.ts |
-| Notes tab — autosave (no error after typing)                          | ✅   | core-cycle.spec.ts |
-| MOM editor — generate draft + send → confirmation                    | ✅   | core-cycle.spec.ts |
-| End session → "Ended" badge                                           | ✅   | core-cycle.spec.ts |
+| Check                                                                  | Pass | Notes                                      |
+| ---------------------------------------------------------------------- | ---- | ------------------------------------------ |
+| 43 unit tests pass                                                     | ✅   |                                            |
+| 54 e2e tests pass                                                      | ✅   | 40→54 after P6B+C                         |
+| TypeScript build clean                                                 | ✅   |                                            |
+| Sign-in screen — Fraunces, Marigold button, Parchment bg              | ✅   | Verified in-use during development         |
+| Unauthenticated redirect to /sign-in                                   | ✅   | auth.spec.ts                               |
+| Google OAuth → dashboard                                              | ✅   | auth.spec.ts                               |
+| Dashboard — Today + Pending Action Items sections (no Recent Clients) | ✅   | core-cycle.spec.ts                         |
+| Client list + create new client                                        | ✅   | core-cycle.spec.ts                         |
+| Client detail — AST card + sessions                                   | ✅   | core-cycle.spec.ts                         |
+| New session form → navigates to session view                          | ✅   | core-cycle.spec.ts                         |
+| Session tabs — all 3 tab-switch correctly                             | ✅   | core-cycle.spec.ts                         |
+| Brief tab — brief text or generate button                             | ✅   | core-cycle.spec.ts                         |
+| Notes tab — autosave (no error after typing)                          | ✅   | core-cycle.spec.ts                         |
+| MOM editor — generate draft + send → confirmation                    | ✅   | core-cycle.spec.ts                         |
+| End session → "Ended" badge                                           | ✅   | core-cycle.spec.ts                         |
 | Action items page — kanban table, 3 columns, move-forward/back        | ✅   | Verified in-use; actionItemsKanban.test.ts |
-| Settings — sign out everywhere clears session                         | ✅   | auth.spec.ts |
-| Nav active state per route                                             | ✅   | Verified in-use during development |
-| Mobile 375px — no page-level horizontal scroll                        | ✅   | mobile-375.spec.ts (15 routes) |
-| Brand — Fraunces h1, Manrope body                                     | ✅   | brand-rules.spec.ts |
-| Brand — single Marigold, no pure white bg                             | ✅   | brand-rules.spec.ts |
+| Settings — sign out everywhere clears session                         | ✅   | auth.spec.ts                               |
+| Nav active state per route                                             | ✅   | Verified in-use during development         |
+| Mobile 375px — no page-level horizontal scroll                        | ✅   | mobile-375.spec.ts (15 routes)             |
+| Brand — Fraunces h1, Manrope body                                     | ✅   | brand-rules.spec.ts                        |
+| Brand — single Marigold, no pure white bg                             | ✅   | brand-rules.spec.ts                        |
 
 ---
 
@@ -576,19 +610,19 @@ npm run test:e2e
 
 ### Summary table
 
-| Check                                            | Pass | Notes |
-| ------------------------------------------------ | ---- | ----- |
+| Check                                            | Pass | Notes                                         |
+| ------------------------------------------------ | ---- | --------------------------------------------- |
 | All unit tests pass                              | ✅   | includes actionItemsKanban.test.ts (11 tests) |
-| TypeScript build clean                           | ✅   |       |
-| Dashboard — no "Recent Clients" section         | ✅   | core-cycle.spec.ts updated |
-| Pending items: two-line format                   | ✅   | Verified in-use during development |
-| Kanban table — 3 columns, client rows           | ✅   | actionItemsKanban.test.ts |
-| Missed items in Open column, red styling         | ✅   | actionItemsKanban.test.ts |
-| Move Open → In Progress works                   | ✅   | actionItemsKanban.test.ts |
-| Move In Progress → Done works                   | ✅   | actionItemsKanban.test.ts |
-| Move backward (← Reopen, ← Back to Open) works | ✅   | actionItemsKanban.test.ts |
-| Mobile 375px — no page-level scroll             | ✅   | mobile-375.spec.ts |
-| 54 e2e tests pass (no regressions)               | ✅   |       |
+| TypeScript build clean                           | ✅   |                                               |
+| Dashboard — no "Recent Clients" section         | ✅   | core-cycle.spec.ts updated                    |
+| Pending items: two-line format                   | ✅   | Verified in-use during development            |
+| Kanban table — 3 columns, client rows           | ✅   | actionItemsKanban.test.ts                     |
+| Missed items in Open column, red styling         | ✅   | actionItemsKanban.test.ts                     |
+| Move Open → In Progress works                   | ✅   | actionItemsKanban.test.ts                     |
+| Move In Progress → Done works                   | ✅   | actionItemsKanban.test.ts                     |
+| Move backward (← Reopen, ← Back to Open) works | ✅   | actionItemsKanban.test.ts                     |
+| Mobile 375px — no page-level scroll             | ✅   | mobile-375.spec.ts                            |
+| 54 e2e tests pass (no regressions)               | ✅   |                                               |
 
 ---
 
@@ -984,27 +1018,27 @@ curl -s -o /dev/null -w "%{http_code}" \
 
 ### Summary table
 
-| Check                                                                                                    | Pass | Notes |
-| -------------------------------------------------------------------------------------------------------- | ---- | ----- |
-| 45 backend unit tests pass                                                                               | [ ]  | Not re-run this session |
-| All 7 diet chart routes registered                                                                       | [ ]  | Not re-run this session |
-| Upload CSV template → 201, parameters parsed correctly                                                  | [ ]  | Skipped — verified in-use |
-| Template appears in list                                                                                 | ✅   | diet-chart.spec.ts: "library lists template names" |
-| Generate chart →`generation_status = "generated"` within 30s                                          | [ ]  | Skipped — LLM quality confirmed in-use (≥95%) |
-| `llm_calls` row: `use_case = 'diet_chart_generation'`, `prompt_version = 'diet_chart_generate_v2'` | [ ]  | Skipped — verified in-use |
-| `llm_calls` row: token counts + latency populated                                                      | [ ]  | Skipped — verified in-use |
+| Check                                                                                                    | Pass | Notes                                                                   |
+| -------------------------------------------------------------------------------------------------------- | ---- | ----------------------------------------------------------------------- |
+| 45 backend unit tests pass                                                                               | [ ]  | Not re-run this session                                                 |
+| All 7 diet chart routes registered                                                                       | [ ]  | Not re-run this session                                                 |
+| Upload CSV template → 201, parameters parsed correctly                                                  | [ ]  | Skipped — verified in-use                                              |
+| Template appears in list                                                                                 | ✅   | diet-chart.spec.ts: "library lists template names"                      |
+| Generate chart →`generation_status = "generated"` within 30s                                          | [ ]  | Skipped — LLM quality confirmed in-use (≥95%)                         |
+| `llm_calls` row: `use_case = 'diet_chart_generation'`, `prompt_version = 'diet_chart_generate_v2'` | [ ]  | Skipped — verified in-use                                              |
+| `llm_calls` row: token counts + latency populated                                                      | [ ]  | Skipped — verified in-use                                              |
 | GET /diet-chart returns generated content                                                                | ✅   | diet-chart.spec.ts: "7-day grid cell inputs editable when chart exists" |
-| PATCH → cell edit persists after GET                                                                    | ✅   | diet-chart.spec.ts: cell editing test + mock-api.ts PATCH handler |
-| Second generate → first chart `archived_at` set                                                       | [ ]  | Skipped — covered by backend unit tests |
-| MOM draft with active chart mentions diet chart                                                          | [ ]  | Skipped — verified in-use |
-| MOM draft without chart has no diet chart mention                                                        | [ ]  | Skipped — verified in-use |
-| Delete template → 204; client chart unaffected                                                          | ✅   | diet-chart.spec.ts: "Remove button removes template" |
-| HC2 cannot see HC1's templates or client charts (→ 404)                                                 | [ ]  | Skipped — covered by backend unit tests |
-| Template paste form saves and appears in library                                                         | ✅   | diet-chart.spec.ts: "paste form saves template" |
-| Template expand/collapse shows grid preview                                                              | ✅   | diet-chart.spec.ts: "template row expands to show grid preview" |
-| Generate section visible when no chart + templates exist                                                 | ✅   | diet-chart.spec.ts: "shows Generate section with template select" |
-| Upload link shown when no templates                                                                      | ✅   | diet-chart.spec.ts: "shows upload link when template library is empty" |
-| Generate button renders 7-day grid                                                                       | ✅   | diet-chart.spec.ts: "Generate button renders the 7-day grid" |
+| PATCH → cell edit persists after GET                                                                    | ✅   | diet-chart.spec.ts: cell editing test + mock-api.ts PATCH handler       |
+| Second generate → first chart `archived_at` set                                                       | [ ]  | Skipped — covered by backend unit tests                                |
+| MOM draft with active chart mentions diet chart                                                          | [ ]  | Skipped — verified in-use                                              |
+| MOM draft without chart has no diet chart mention                                                        | [ ]  | Skipped — verified in-use                                              |
+| Delete template → 204; client chart unaffected                                                          | ✅   | diet-chart.spec.ts: "Remove button removes template"                    |
+| HC2 cannot see HC1's templates or client charts (→ 404)                                                 | [ ]  | Skipped — covered by backend unit tests                                |
+| Template paste form saves and appears in library                                                         | ✅   | diet-chart.spec.ts: "paste form saves template"                         |
+| Template expand/collapse shows grid preview                                                              | ✅   | diet-chart.spec.ts: "template row expands to show grid preview"         |
+| Generate section visible when no chart + templates exist                                                 | ✅   | diet-chart.spec.ts: "shows Generate section with template select"       |
+| Upload link shown when no templates                                                                      | ✅   | diet-chart.spec.ts: "shows upload link when template library is empty"  |
+| Generate button renders 7-day grid                                                                       | ✅   | diet-chart.spec.ts: "Generate button renders the 7-day grid"            |
 
 ---
 
@@ -2363,35 +2397,3 @@ Expected: **no output** (all httpx usage goes through `make_http_client()`)
 | `docker-compose up` brings up postgres healthy                  | ✅     |
 
 ---
-
-## P7 — External Scheduler
-
-**Status**: Verified 2026-06-16 — unit tests (63/63). AC4/AC5 (DB-level retirement) deferred to P9 smoke gate where a populated dev DB will be available.
-
-### How to run
-
-```bash
-cd backend
-source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
-PYTHONPATH=$(pwd) pytest tests/unit/ -q
-# Expected: 63 passed
-```
-
-### Acceptance criteria
-
-| # | Check | Method | Result |
-|---|---|---|---|
-| AC1 | Endpoint returns 200 with correct token | `curl -X POST .../internal/scheduled-tasks -H "X-Scheduler-Token: <secret>"` → `{"tasks_run":["snippet_retirement"],"retired_count":0}` | ✅ Verified manually against local dev server |
-| AC2 | No token → 401; wrong token → 401 | `curl` without header / with wrong header | ✅ Verified manually — both return 401 |
-| AC3 | Idempotency: running twice produces same state | `retired_at IS NULL` guard in SQL + `test_already_retired_snippet_is_skipped` unit test | ✅ Logic verified by unit test |
-| AC4 | 200-day-old snippet gets `retired_at` set | Requires populated dev DB — defer to P9 smoke gate | ⏳ Deferred to P9 |
-| AC5 | Recent snippet `retired_at` stays NULL | Requires populated dev DB — defer to P9 smoke gate | ⏳ Deferred to P9 |
-
-### Unit test delta
-
-| Phase | Count |
-|---|---|
-| P6 baseline | 52 |
-| + Task 1 (config) | +2 |
-| + Task 2 (scheduler logic) | +9 |
-| **P7 total** | **63** |
