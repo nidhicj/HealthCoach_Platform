@@ -1,4 +1,4 @@
-name: Deploy Worker
+name: Deploy Backend
 
 on:
   push:
@@ -10,15 +10,54 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     environment: production
+    permissions:
+      contents: read
+      id-token: write   # required for Workload Identity Federation
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@v3
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
         with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          workingDirectory: backend
-          command: deploy --env production
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - id: deploy
+        name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: parivarthan-backend
+          region: asia-south1
+          source: ./backend
+          flags: >-
+            --port=8080
+            --min-instances=0
+            --max-instances=5
+            --memory=512Mi
+            --cpu=1
+            --timeout=60s
+            --no-allow-unauthenticated
+          env_vars: |
+            APP_ENV=production
+          secrets: |
+            DATABASE_URL=DATABASE_URL:latest
+            JWT_PRIVATE_KEY=JWT_PRIVATE_KEY:latest
+            JWT_PUBLIC_KEY=JWT_PUBLIC_KEY:latest
+            GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest
+            GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
+            OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest
+            LLM_CALL_ENCRYPTION_KEY=LLM_CALL_ENCRYPTION_KEY:latest
+            R2_ACCOUNT_ID=R2_ACCOUNT_ID:latest
+            R2_ACCESS_KEY_ID=R2_ACCESS_KEY_ID:latest
+            R2_SECRET_ACCESS_KEY=R2_SECRET_ACCESS_KEY:latest
+            R2_BUCKET_NAME=R2_BUCKET_NAME:latest
+            SENTRY_DSN=SENTRY_DSN:latest
+            SCHEDULER_SECRET=SCHEDULER_SECRET:latest
+            FRONTEND_URL=FRONTEND_URL:latest
+            API_BASE_URL=API_BASE_URL:latest
+
+      - name: Print deployed URL
+        run: echo "Deployed to ${{ steps.deploy.outputs.url }}"
