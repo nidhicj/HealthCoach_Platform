@@ -39,7 +39,7 @@ jobs:
             --memory=512Mi
             --cpu=1
             --timeout=60s
-            --no-allow-unauthenticated
+            --allow-unauthenticated
           env_vars: |
             APP_ENV=production
           secrets: |
