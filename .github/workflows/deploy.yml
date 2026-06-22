@@ -29,9 +29,10 @@ jobs:
         name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          service: parivarthan-backend
+          service: parivarthan-api
           region: asia-south1
           source: ./backend
+          wait: true
           flags: >-
             --port=8080
             --min-instances=0
