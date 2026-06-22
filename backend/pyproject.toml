@@ -16,6 +16,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "pypdf>=4.0",
     "python-docx>=1.1",
+    "uvicorn[standard]>=0.30",
 ]
 
 [dependency-groups]
@@ -24,7 +25,6 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.5",
     "mypy>=1.10",
-    "uvicorn[standard]>=0.30",
 ]
 
 [tool.pytest.ini_options]
