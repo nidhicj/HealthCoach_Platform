@@ -10,8 +10,8 @@
 
 | Environment | Hostname | Backend | Frontend | DB | When used |
 |---|---|---|---|---|---|
-| Local dev | `localhost:8787` (backend), `localhost:3000` (frontend) | `pywrangler dev` | `npm run dev` | Local Docker Postgres | Daily development |
-| Production | **FILL IN**: actual prod URL once domain is configured (e.g. `app.healthcoach.in`) | Cloudflare Worker | Cloudflare Pages | AWS RDS Mumbai | Pilot HC + clients |
+| Local dev | `localhost:8000` (backend), `localhost:3000` (frontend) | `uvicorn src.main:app --reload` | `npm run dev` | Local Docker Postgres | Daily development |
+| Production | **FILL IN**: actual prod URL once domain is configured (e.g. `app.healthcoach.in`) | GCP Cloud Run (`asia-south1`) | Cloudflare Pages | Supabase Mumbai | Pilot HC + clients |
 
 > **DECIDE**: do you want a separate staging environment between dev and production? At MVP scale (1 HC), arguments both ways: skipping it saves cost (~$25/mo of duplicated infra); having it would catch DPDP-relevant data shape issues before they hit real client data. Suggestion: skip until pilot has 2+ HCs, but smoke-test against production-config from day 1 (per build-plan P9).
 
@@ -19,23 +19,44 @@
 
 ## First-time setup
 
-### Cloudflare
+### Cloudflare (frontend only)
 
 1. Create Cloudflare account (Free tier sufficient for prototype scale).
-2. Create Worker via `pywrangler init` in the `backend/` directory.
-3. **DECIDE**: which Cloudflare account / zone owns the Worker. If using a custom domain, configure DNS at the registrar.
-4. **FILL IN**: Worker name (suggestion: `healthcoach-prod`).
-5. Set all production secrets per `secrets-management.md` (one `pywrangler secret put` per secret).
-6. Configure Pages project for frontend: connect to GitHub repo, build command `npm run build`, build output `out/` (or as ADR-0001 specifies).
-7. Per `decisions/0002-runtime-topology.md`: enable rate limiting, WAF, basic cache rules at Cloudflare dashboard. **FILL IN**: actual rate limit thresholds (suggestion: 100 req/min per IP for unauthenticated paths, 600 req/min per authenticated user).
+2. Configure Pages project for frontend: connect to GitHub repo, build command `npm run build`, build output `.next/` (or `out/` for static export — confirm with ADR-0001 frontend stack).
+3. **DECIDE**: which Cloudflare account / zone owns the Pages project. If using a custom domain, configure DNS at the registrar.
+4. Enable rate limiting, WAF, basic cache rules at Cloudflare dashboard (for the Pages/frontend layer). **FILL IN**: actual rate limit thresholds (suggestion: 100 req/min per IP for unauthenticated paths).
 
-### AWS
+### GCP Cloud Run (backend)
 
-1. **DECIDE**: AWS account ownership (personal account at MVP, organization later).
-2. Provision RDS Postgres in `ap-south-1` (Mumbai). **FILL IN**: instance class (suggestion: `db.t4g.micro` for MVP, ~$15-20/mo).
-3. Provision S3 bucket in `ap-south-1`. **FILL IN**: bucket name (suggestion: `healthcoach-prod-content`).
-4. **DECIDE**: VPC configuration. RDS Mumbai is reached over the Internet from Cloudflare Workers — Mumbai-region access is via public endpoint with security group restricting source IPs. **FILL IN**: which IP ranges are allowed (Cloudflare Workers source IPs are wide; alternatives include AWS PrivateLink which adds cost and complexity). Suggestion at MVP: open to public IPs but require strong DB password + connection-pool-side defense.
-5. Create IAM user/role for backend's S3 access. **DECIDE**: per `secrets-management.md`, IAM role assumption preferred over long-lived keys.
+1. Create a GCP project. **FILL IN**: project ID (suggestion: `parivarthan-prod`).
+2. Enable Cloud Run API and Artifact Registry API.
+3. Build and push the Docker image:
+   ```bash
+   cd backend
+   gcloud builds submit --tag gcr.io/<PROJECT_ID>/parivarthan-backend:latest
+   ```
+4. Deploy to Cloud Run in `asia-south1`:
+   ```bash
+   gcloud run deploy parivarthan-backend \
+     --image gcr.io/<PROJECT_ID>/parivarthan-backend:latest \
+     --region asia-south1 \
+     --platform managed \
+     --allow-unauthenticated \
+     --port 8080
+   ```
+5. Set all production secrets as Cloud Run environment variables or via Secret Manager. **FILL IN**: variable list per `secrets-management.md`.
+6. **DECIDE**: `min-instances` setting. Default `0` (scale to zero, free). Set `1` if cold-start p95 becomes user-visible (adds ~$10/month).
+
+### Supabase (database)
+
+1. Create Supabase account (free).
+2. Create new project — **select `ap-south-1` (Mumbai)** as the region. This is the DPDP-compliant choice.
+3. Copy the connection string (use the **pooler** URL on port 6543, not direct port 5432) into `DATABASE_URL` env var.
+4. Copy the `SUPABASE_URL` and `SUPABASE_ANON_KEY` into repo secrets for the keep-alive workflow (`.github/workflows/supabase-keepalive.yml`).
+5. Run migrations against Supabase:
+   ```bash
+   DATABASE_URL=<supabase_pooler_url> uv run alembic upgrade head
+   ```
 
 ### OpenRouter
 
@@ -61,16 +82,21 @@
 ```bash
 cd backend
 # Verify local boots first
-uv run pywrangler dev
+uvicorn src.main:app --reload
 # Run tests
 uv run pytest
-# Deploy
-uv run pywrangler deploy
+# Build Docker image
+docker build -t parivarthan-backend:latest .
+# Deploy to Cloud Run (requires gcloud auth)
+gcloud run deploy parivarthan-backend \
+  --image gcr.io/<PROJECT_ID>/parivarthan-backend:latest \
+  --region asia-south1 \
+  --platform managed
 ```
 
 After deploy:
-1. Hit `/health` on production URL → expect 200.
-2. Check Cloudflare Workers dashboard → bundle size logged. **FILL IN**: target bundle size threshold to alert on (per ADR-0001 trigger evaluation; current Free tier limit is 3 MiB compressed).
+1. Hit `/healthz` on the Cloud Run service URL → expect `{"status":"ok"}`.
+2. Check GCP Cloud Logging → JSON log lines should appear.
 3. Smoke test: hit one auth endpoint, verify JWT issued.
 
 ### Frontend
@@ -80,7 +106,7 @@ cd frontend
 npm run build
 ```
 
-Cloudflare Pages auto-deploys on push to `main` (if configured). Otherwise: `npx wrangler pages deploy ./out`.
+Cloudflare Pages auto-deploys on push to `main` (if configured). Otherwise: `npx wrangler pages deploy ./.next`.
 
 ### Database migrations
 
@@ -96,7 +122,7 @@ uv run alembic upgrade head
 DATABASE_URL=<prod_url> uv run alembic upgrade head
 ```
 
-> **DECIDE**: how migrations apply to production. Options: (a) manually from a maintainer's laptop (current default), (b) a one-shot Worker endpoint that runs migrations on POST with admin token, (c) a CI step. At MVP, (a) is fine; revisit when team > 1.
+> **DECIDE**: how migrations apply to production. Options: (a) manually from a maintainer's laptop (current default), (b) a one-shot Cloud Run endpoint that runs migrations on POST with admin token, (c) a CI step. At MVP, (a) is fine; revisit when team > 1.
 
 ---
 
@@ -105,11 +131,15 @@ DATABASE_URL=<prod_url> uv run alembic upgrade head
 ### Backend
 
 ```bash
-uv run pywrangler deployments list
-uv run pywrangler rollback <deployment_id>
+# List recent Cloud Run revisions
+gcloud run revisions list --service parivarthan-backend --region asia-south1
+# Route 100% traffic back to a prior revision
+gcloud run services update-traffic parivarthan-backend \
+  --region asia-south1 \
+  --to-revisions <REVISION_NAME>=100
 ```
 
-Cloudflare Workers retain prior deployments (10 most recent on Free, 100 on Paid).
+GCP Cloud Run retains all prior revisions; traffic split is instant.
 
 ### Frontend
 
@@ -130,11 +160,11 @@ Migration rollback is dangerous. **Default policy**: forward-only fixes. If a mi
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `pywrangler deploy` fails with `bundle too large` | Bundle past 3 MiB Free / 10 MiB Paid | Trim deps; check ADR-0002 trigger; consider Paid tier upgrade or runtime split |
-| `pywrangler deploy` fails with `module not found` for a Pyodide-incompatible package | ADR-0001 trigger #3 | Per ADR-0002, this routes to DO Bangalore migration |
-| Worker deploys but `/health` returns 500 | Likely missing secret or DB connection issue | Check Cloudflare Workers Logs; verify all secrets per `secrets-management.md` |
-| Worker deploys but cold start > 3s | Approaching ADR-0001 trigger #1 | Investigate via Cloudflare metrics; consult ADR-0002 if sustained |
-| Migration fails partway through | Default Alembic behavior: stops, partial state | Manually inspect DB; either complete the migration's intent in SQL or rollback the partial change; never leave partial state |
+| `gcloud run deploy` fails with image not found | Docker image not pushed to Artifact Registry | Run `gcloud builds submit` first; verify image tag matches deploy command |
+| Cloud Run service deploys but `/healthz` returns 500 | Missing env var or DB connection issue | Check GCP Cloud Logging; verify all env vars/secrets per `secrets-management.md` |
+| Cloud Run cold start p95 > 3s (sustained) | Scale-to-zero cold path too slow | Set `min-instances: 1` on the Cloud Run service (~$10/month); monitor after |
+| Supabase connection refused | Free-tier project paused (inactive >1 week) | Log in to Supabase dashboard → unpause project. Data is intact. Check keep-alive workflow is running. |
+| Migration fails partway through | Default Alembic behaviour: stops, partial state | Manually inspect DB via Supabase SQL editor; complete the migration intent in SQL or rollback the partial change; never leave partial state |
 
 ---
 
@@ -142,12 +172,13 @@ Migration rollback is dangerous. **Default policy**: forward-only fixes. If a mi
 
 > Per `build-plan.md` Phase 9. **FILL IN** the actual values when each is verified.
 
-- [ ] Production Worker deployed; `/health` returns 200
-- [ ] Production Pages deployed; HC can sign in
-- [ ] All secrets configured (count: 8 — verify against `secrets-management.md`)
-- [ ] DB migrations applied; `\dt` in psql shows all tables
-- [ ] Cloudflare rate limit, WAF, cache rules enabled (screenshot recorded — **FILL IN**: where the screenshot lives)
-- [ ] Smoke test (`scripts/smoke-test.py`) passes against production-config
+- [ ] Cloud Run service deployed (`asia-south1`); `/healthz` returns 200
+- [ ] Production Pages deployed (Cloudflare); HC can sign in
+- [ ] All secrets/env vars configured — verify against `secrets-management.md`
+- [ ] DB migrations applied to Supabase; Supabase SQL editor `\dt` shows all tables
+- [ ] Cloudflare rate limit, WAF, cache rules enabled for Pages layer (screenshot recorded — **FILL IN**: where the screenshot lives)
+- [ ] GitHub Actions `supabase-keepalive.yml` workflow enabled and last run successful
+- [ ] Smoke test (`scripts/smoke-test.py`) passes against production Cloud Run service
 - [ ] DNS resolves correctly: **FILL IN** actual hostname
 - [ ] HTTPS active and certificate valid
 - [ ] Sentry receiving events (verified by triggering a deliberate test error)
@@ -157,7 +188,7 @@ Migration rollback is dangerous. **Default policy**: forward-only fixes. If a mi
 
 ## Things to revisit
 
-- **CD pipeline** when manual deploys become a bottleneck. GitHub Actions → `pywrangler deploy` is the natural next step.
+- **CD pipeline** when manual deploys become a bottleneck. GitHub Actions → `gcloud run deploy` (or Cloud Build trigger) is the natural next step.
 - **Blue/green or canary deploy** when production traffic is high enough that bad deploys affect real users.
 - **Database migration automation** when manual is too risky.
 
@@ -167,4 +198,5 @@ Migration rollback is dangerous. **Default policy**: forward-only fixes. If a mi
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-06-19 | Backend changed from Cloudflare Workers (`pywrangler`) to GCP Cloud Run (`gcloud run deploy`). DB changed from AWS RDS to Supabase. First-time setup, deploy procedure, rollback, failure modes all updated. Supabase keep-alive step added to pre-pilot checklist. | Stack migration per ADR-0001 changelog 2026-06-19. |
 | 2026-04-28 | Initial template. | Deploy procedure needs to exist before first deploy. |

@@ -91,3 +91,4 @@ async def healthz(request: Request) -> dict[str, str]:
     logger = get_logger(request_id=getattr(request.state, "request_id", ""))
     logger.info("health_check")
     return {"status": "ok", "version": get_settings().app_version}
+

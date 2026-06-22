@@ -20,7 +20,7 @@ P6 (frontend) must be Complete and Verified before P7 begins.
 
 P7 adds the ability for a daily external job (GitHub Actions cron) to hit a backend endpoint and run periodic maintenance tasks. The only task at MVP is **snippet retirement**: any `hc_style_snippets` row that has not been used in 180+ days gets `retired_at` stamped, removing it from future LLM prompt assembly.
 
-The Cloudflare Workers Python runtime does not support APScheduler (no background threads per ADR-0001 open risk #4). The solution is an external caller — GitHub Actions or EasyCron — that sends an authenticated HTTP request to the Worker endpoint daily.
+Cloud Run containers run standard CPython and could support APScheduler, but an external scheduler keeps background-job concerns outside the web process and is simpler to monitor. The solution is an external caller — GitHub Actions — that sends an authenticated HTTP request to the Cloud Run endpoint daily.
 
 **Not in scope**: adding new task types beyond snippet retirement, EasyCron as an alternative (GitHub Actions is sufficient at pilot scale and keeps the config in-repo), auto-un-retirement, per-HC cron schedules.
 
@@ -43,7 +43,7 @@ The Cloudflare Workers Python runtime does not support APScheduler (no backgroun
 
 All decisions pre-decided in ADRs listed in the header.
 
-**Runtime constraint (ADR-0001 risk #4)**: Cron Triggers are broken on Python Workers (`workers-py` #27, open since Sep 2025). External scheduler is the mandated workaround. This decision is already locked — do not revisit unless #27 closes.
+**Architecture decision (ADR-0001 background jobs row)**: External scheduler keeps background-job concerns outside the web process. GitHub Actions is sufficient at pilot scale and keeps the config in-repo. This decision is already locked.
 
 **Retirement heuristic**: 180 days of non-use. `COALESCE(last_used_at, created_at)` is the reference: snippets never injected into a prompt are judged by their creation date. This was noted in the build-plan P7 section. It is the MVP heuristic and may be tuned later without an ADR.
 
@@ -85,7 +85,7 @@ None recorded. (Fill in after build.)
 
 - `backend/src/api/scheduler.py` establishes the authenticated internal endpoint pattern. P8/P9 may add more tasks (e.g. a once-daily LLM cost digest) by appending to the same endpoint's task list — do not create a second scheduler endpoint.
 - `scheduler_secret` in `Settings` is the P9 production secret to rotate. Note it in the smoke-gate checklist.
-- The `.github/workflows/` directory and the `API_BASE_URL` / `SCHEDULER_SECRET` GitHub secrets are the two infrastructure items P9 must confirm work against the production Worker URL.
+- The `.github/workflows/` directory and the `API_BASE_URL` / `SCHEDULER_SECRET` GitHub secrets are the two infrastructure items P9 must confirm work against the production Cloud Run service URL.
 
 ---
 
@@ -484,8 +484,8 @@ None recorded. (Fill in after build.)
 - [ ] **Step 4.3 — Document required GitHub secrets**
 
   The workflow needs two secrets set in the GitHub repo:
-  - `API_BASE_URL` — the production Worker URL (e.g. `https://parivarthan-api.your-subdomain.workers.dev`)
-  - `SCHEDULER_SECRET` — matches `SCHEDULER_SECRET` in the production `.dev.vars` / environment
+  - `API_BASE_URL` — the production Cloud Run service URL (e.g. `https://parivarthan-backend-xyz.asia-south1.run.app`)
+  - `SCHEDULER_SECRET` — matches `SCHEDULER_SECRET` set in Cloud Run environment variables
 
   These are set in GitHub → repo → Settings → Secrets and variables → Actions. This is a P9 (smoke gate) task; the workflow file can be committed now and the secrets added during P9.
 

@@ -53,20 +53,20 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 
 - Folder layout matching `ADR-0004` exactly (backend/, frontend/, prompts/, docs/, scripts/, archive/, .claude/)
 - `backend/pyproject.toml` with FastAPI, SQLAlchemy 2.0, Alembic, Pydantic v2, httpx, asyncpg
-- `backend/wrangler.toml` configured for Python Workers
-- `backend/.wranglerignore` excluding `.venv` (workers-py #92 workaround)
+- `backend/Dockerfile` — production image (`python:3.12-slim`, `uvicorn` entrypoint on port 8080)
 - `frontend/package.json` with Next.js 15, Tailwind, shadcn/ui
 - `.env.example` documenting every env var (no secrets)
-- `.gitignore` standard + `.env`, `.dev.vars`, `node_modules`, `.venv`
-- `docker-compose.yml` for local Postgres
+- `.gitignore` standard + `.env`, `node_modules`, `.venv`
+- `docker-compose.yml` for local Postgres (dev only)
+- `.github/workflows/supabase-keepalive.yml` — pings Supabase REST API every 4 days (prevents free-tier pause)
 - Empty `backend/src/main.py` with one health-check route returning `{"status":"ok"}`
 
 **Acceptance criteria** (you verify):
 
 - [ ] `tree -L 3` matches ADR-0004 layout (no extra dirs, no missing dirs)
 - [ ] `cd backend && uv sync` succeeds
-- [ ] `cd backend && uv run pywrangler dev` boots Worker on `localhost:8787`
-- [ ] `curl localhost:8787/health` returns `{"status":"ok"}`
+- [ ] `cd backend && uvicorn src.main:app --reload` boots FastAPI on `localhost:8000`
+- [ ] `curl localhost:8000/healthz` returns `{"status":"ok"}`
 - [ ] `cd frontend && npm install && npm run dev` boots Next.js on `localhost:3000`
 - [ ] `docker compose up -d postgres` brings Postgres up; `psql` connection works
 - [ ] `git status` shows no committed secrets; `.env.example` has placeholders only
@@ -113,7 +113,7 @@ Each phase below has the same shape: **Goal**, **Deliverables**, **Acceptance cr
 **Deliverables**:
 
 - `backend/src/auth/` module with: Google OAuth handler, JWT issuer/verifier, refresh token rotation, revocation
-- HTTP client factory enforcing `User-Agent` header (workers-py #68 workaround)
+- HTTP client factory enforcing `User-Agent` header (good practice; implemented via `make_http_client()` factory)
 - FastAPI dependency `require_role(role)` for protected endpoints
 - Endpoints: `/api/auth/google/start`, `/api/auth/google/callback`, `/api/auth/refresh`, `/api/auth/logout`, `/api/auth/sessions` (list active)
 - JWT claims exactly per `ADR-0005` (`sub`, `role`, `hc_id`, `iat`, `exp`, `iss`)
@@ -248,7 +248,7 @@ Verification has two subsections (Part A and Part B). Each is tickable independe
 
 **Deliverables (Part B)**:
 
-- Storage layout: `client_session_library/CP<NNNN>_<Sanitized_FirstName>_<Sanitized_LastName>/<YYYY-MM-DD>_session-<NN>/` on AWS S3 Mumbai (per `ADR-0001`)
+- Storage layout: `client_session_library/CP<NNNN>_<Sanitized_FirstName>_<Sanitized_LastName>/<YYYY-MM-DD>_session-<NN>/` on Cloudflare R2 (per `ADR-0001` changelog 2026-05-05)
   - Per-HC tenant isolation: each HC has their own top-level prefix (S3 prefix per HC, or per-HC bucket — implementation choice in PHASE-05 plan)
   - Per-client subfolder uses the existing `clients.code` (`CP0001`, `CP0002`, ...) plus sanitized name (`[A-Za-z0-9_.-]`, max 40 chars)
   - Per-session subfolder uses session date (IST) + zero-padded session number for that client
@@ -321,13 +321,13 @@ Verification has two subsections (Part A and Part B). Each is tickable independe
 
 **Phase plan**: `Unit_001_HcCoreCycle/PHASE-07-external-scheduler.md` *(write before P7 build sprint begins)*
 
-**Goal**: Periodic background tasks run via external scheduler hitting Worker endpoints. APScheduler is *not* used (per `ADR-0001` — incompatible with Workers no-threading).
+**Goal**: Periodic background tasks run via external scheduler hitting Cloud Run endpoints. APScheduler is *not* used — external scheduler keeps background-job concerns outside the web process.
 
 **Deliverables**:
 
-- Worker endpoint(s) for scheduled tasks, authenticated by shared secret in header (`X-Scheduler-Token`)
+- Cloud Run endpoint(s) for scheduled tasks, authenticated by shared secret in header (`X-Scheduler-Token`)
 - At minimum: snippet-retirement sweep (soft-retire snippets > 180 days unreinforced — manual heuristic at MVP)
-- GitHub Actions cron OR EasyCron config committed to repo
+- GitHub Actions cron config committed to repo (`.github/workflows/scheduled-tasks.yml`); GCP Cloud Scheduler as alternative if finer-grained timing needed
 - All scheduled tasks idempotent (safe to run twice)
 - Endpoint logs structured event (`event=scheduled_task_run`)
 
@@ -351,9 +351,9 @@ Verification has two subsections (Part A and Part B). Each is tickable independe
 
 **Deliverables**:
 
-- Sentry SDK initialized at app startup (verify Pyodide-compat first; fall back to thin HTTP reporter if SDK fails)
+- Sentry SDK initialized at app startup (standard Python SDK — no Pyodide constraints on Cloud Run)
 - PII scrubbing per `ADR-0006`: emails, phone, names, health content never reach Sentry
-- Structured JSON logging on every request (start + end-of-request, with all standard fields per `ADR-0006`)
+- Structured JSON logging on every request (start + end-of-request, with all standard fields per `ADR-0006`); logs visible in GCP Cloud Logging for the Cloud Run service
 - Five SQL dashboard queries documented in `docs/standards/` or inline in `ADR-0006`:
   1. Validation failure rate, rolling 7 days (trigger #8 monitor)
   2. Fallback rate by chain position
@@ -365,7 +365,7 @@ Verification has two subsections (Part A and Part B). Each is tickable independe
 **Acceptance criteria**:
 
 - [ ] Force a deliberate exception in dev → appears in Sentry within 30s, no PII visible
-- [ ] Cloudflare Workers Logs dashboard shows JSON-formatted lines with all standard fields
+- [ ] GCP Cloud Logging for the Cloud Run service shows JSON-formatted lines with all standard fields
 - [ ] Run all 5 dashboard SQL queries against pilot data → results sensible (not empty, not absurd)
 - [ ] Snippet content does NOT appear in any log line (grep test)
 - [ ] Email/phone do NOT appear in any Sentry breadcrumb (test by signing in and triggering an error)
@@ -383,15 +383,15 @@ Verification has two subsections (Part A and Part B). Each is tickable independe
 
 **Deliverables**:
 
-- `scripts/smoke-test.py`: end-to-end script that (1) queries production RDS Mumbai, (2) makes one OpenRouter call against primary model with a sample snippet payload, (3) reads one S3 Mumbai object — all from a deployed Worker, not local
-- Cloudflare dashboard configured: rate limiting rules, WAF basic, cache rules where applicable, DDoS protection (per `ADR-0002` "Cloudflare platform features ≠ Workers code")
+- `scripts/smoke-test.py`: end-to-end script that (1) queries production Supabase (Mumbai), (2) makes one OpenRouter call against primary model with a sample snippet payload, (3) reads one Cloudflare R2 object — all from the deployed Cloud Run service, not local
+- Cloudflare dashboard configured for frontend (Cloudflare Pages): rate limiting rules, WAF basic, cache rules where applicable, DDoS protection. Backend (Cloud Run) edge protection via GCP: Cloud Armor basic rules or application-level rate limiting.
 - Pilot HC onboarding flow run: HC reviews 3–5 sample AI drafts and edits them; resulting `hc_style_snippets` rows populated
 - `compliance-india.md` reviewed against current implementation: consent table populated, India-region DB confirmed, real deletion path tested
 - `SESSION_LOG.md` updated with pilot launch entry
 
 **Acceptance criteria**:
 
-- [ ] `scripts/smoke-test.py` exits 0 against production-config Worker
+- [ ] `scripts/smoke-test.py` exits 0 against the deployed Cloud Run service (production config)
 - [ ] Cloudflare dashboard shows rate limiting + WAF + cache rules enabled (screenshot recorded)
 - [ ] Pilot HC has ≥ 5 snippets in `hc_style_snippets` after onboarding
 - [ ] Consent UX: HC's first client gives signed-PDF consent; row in `consents` table

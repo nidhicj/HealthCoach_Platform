@@ -15,52 +15,57 @@
                                    │ HTTPS
                                    ▼
 ┌───────────────────────────────────────────────────────────────────────┐
-│                    CLOUDFLARE EDGE (global PoPs)                      │
+│               CLOUDFLARE EDGE (frontend only — global PoPs)           │
 │                                                                       │
 │  ┌─ Cloudflare platform features (dashboard-configured) ───────────┐  │
 │  │   Rate limit · WAF · Cache rules · DDoS protection             │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 │                                                                       │
-│  ┌─ Cloudflare Python Workers (open beta) ──────────────────────────┐ │
-│  │   FastAPI app (Pyodide runtime, all async def)                  │ │
-│  │   · /auth/*  · /api/coaches  · /api/clients  · /api/sessions    │ │
-│  │   · /api/llm-jobs (called by external scheduler)                │ │
-│  └────────┬─────────────────┬───────────────────┬───────────────────┘ │
-└───────────┼─────────────────┼───────────────────┼─────────────────────┘
-            │                 │                   │
-            │ DB queries      │ S3 read/write     │ HTTPS (httpx async)
-            ▼                 ▼                   ▼
-   ┌────────────────┐  ┌────────────────┐  ┌──────────────────────────┐
-   │ AWS RDS        │  │ AWS S3         │  │  OpenRouter (gateway)    │
-   │ Postgres       │  │ Mumbai         │  │  ↓                       │
-   │ Mumbai         │  │ ap-south-1     │  │  Llama 3.3 → Gemma 3 →   │
-   │ ap-south-1     │  │                │  │  GPT-OSS → Nemotron      │
-   │                │  │ Transcripts,   │  │  (pinned chain, free)    │
-   │ users,         │  │ MOM exports,   │  │                          │
-   │ clients,       │  │ content lib    │  │  DeepSeek R1 (escape     │
-   │ sessions,      │  │ assets,        │  │  hatch, app-invoked)     │
-   │ moms, briefs,  │  │ consent PDFs   │  │                          │
-   │ snippets,      │  │                │  │                          │
-   │ llm_calls,     │  │                │  │                          │
-   │ consents...    │  │                │  │                          │
-   └────────────────┘  └────────────────┘  └──────────────────────────┘
+│  ┌─ Cloudflare Pages ───────────────────────────────────────────────┐ │
+│  │   Next.js 15 static/SSR build                                   │ │
+│  └────────────────────────────┬──────────────────────────────────────┘ │
+└───────────────────────────────┼───────────────────────────────────────┘
+                                │ HTTPS API calls
+                                ▼
+┌───────────────────────────────────────────────────────────────────────┐
+│               GCP Cloud Run — asia-south1 (Mumbai)                    │
+│                                                                       │
+│  FastAPI app (Python 3.12, standard CPython — no Pyodide)             │
+│  · /auth/*  · /api/clients  · /api/sessions  · /api/jobs/*           │
+│  Scales to zero; free tier at MVP; same Docker image as local dev     │
+└────────┬──────────────────────┬───────────────────┬───────────────────┘
+         │                      │                   │
+         │ DB queries            │ R2 read/write     │ HTTPS (httpx async)
+         ▼                      ▼                   ▼
+┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐
+│ Supabase         │  │ Cloudflare R2    │  │  OpenRouter (gateway)    │
+│ Postgres         │  │ (global CDN,     │  │  ↓                       │
+│ ap-south-1       │  │ zero egress)     │  │  Llama 3.3 → Gemma 3 →   │
+│ Mumbai (free)    │  │                  │  │  GPT-OSS → Nemotron      │
+│                  │  │ Session notes,   │  │  (pinned chain, free)    │
+│ users, clients,  │  │ MOM exports,     │  │                          │
+│ sessions, moms,  │  │ client file lib, │  │  DeepSeek R1 (escape     │
+│ briefs, snippets,│  │ consent PDFs     │  │  hatch, app-invoked)     │
+│ llm_calls,       │  │                  │  │                          │
+│ consents...      │  │                  │  │                          │
+└──────────────────┘  └──────────────────┘  └──────────────────────────┘
 
-EXTERNAL SCHEDULER (GitHub Actions cron OR EasyCron)
+EXTERNAL SCHEDULER (GitHub Actions cron — every 4 days: Supabase keep-alive)
+                     (GitHub Actions cron — daily: snippet retirement, scheduled tasks)
    │
-   └─→ HTTPS POST → Cloudflare Worker /jobs/* endpoints
-       (workaround for workers-py #27 Cron Triggers broken)
+   └─→ HTTPS POST → Cloud Run /api/jobs/* endpoints (X-Scheduler-Token auth)
 
 OBSERVABILITY
    Sentry (errors) ← FastAPI + frontend
-   Structured logs → Cloudflare Logs (200k/day free)
-   llm_calls table → SQL-queryable cost & quality dashboard
+   GCP Cloud Logging → structured JSON logs from Cloud Run
+   llm_calls table → SQL-queryable cost & quality dashboard (Supabase SQL editor)
 
 ZOOM (HC's existing tool, unchanged)
    Zoom hosts session
    ↓
    Zoom AI Companion generates summary
    ↓
-   Webhook → Worker /webhooks/zoom → store transcript ref in S3, summary in sessions table
+   HC uploads summary file via client file library → stored in R2, fed to LLM
 ```
 
 ---
@@ -70,15 +75,15 @@ ZOOM (HC's existing tool, unchanged)
 | Component | Tech | Where | Notes |
 |---|---|---|---|
 | Frontend | Next.js 15 App Router, TypeScript, Tailwind, shadcn/ui | Cloudflare Pages | Global edge distribution |
-| Backend | FastAPI (Python 3.12), SQLAlchemy 2.0, Pydantic v2 | Cloudflare Python Workers (primary) | All deps async; bundle size monitored |
-| Backend fallback | Same FastAPI in Docker | DigitalOcean Bangalore Droplet | Activated on ADR-0001 hosting trigger via ADR-0002 decision tree |
-| Database | Postgres | AWS RDS Mumbai (ap-south-1) | Connection pooling decision deferred (Hyperdrive / PgBouncer / Supavisor) |
-| Object storage | S3 | AWS S3 Mumbai | Transcripts, MOM PDFs, content library assets, consent PDFs |
-| LLM gateway | OpenRouter (HTTP, OpenAI-compatible) | Cloudflare Worker → Singapore (OpenRouter) → upstream providers | Pinned free-model chain via `models` array |
-| Scheduler | External: GitHub Actions cron OR EasyCron | External | Hits Worker `/jobs/*` endpoints; works around `workers-py` #27 |
-| Auth | Backend-issued JWT, Google OAuth | Cloudflare Worker | Owned implementation; explicit User-Agent on httpx (#68) |
-| Observability | Sentry + Cloudflare Logs + `llm_calls` table | Mixed | Sentry for errors, CF Logs for structured app logs, RDS for LLM telemetry |
-| Edge protection | Cloudflare platform features | Cloudflare dashboard | Rate limit, WAF, cache rules, DDoS — no code |
+| Backend | FastAPI (Python 3.12), SQLAlchemy 2.0, Pydantic v2 | GCP Cloud Run `asia-south1` (Mumbai) — primary | Containerised Docker; scales to zero; full Python ecosystem |
+| Backend fallback | Same FastAPI Docker image | DigitalOcean Bangalore Droplet | Activated on ADR-0001 Cloud Run hosting triggers |
+| Database | Postgres (managed) | Supabase free tier, `ap-south-1` (Mumbai) | 500 MB free; keep-alive via GH Actions cron; upgrade path: Supabase Pro $25/mo |
+| Object storage | S3-compatible | Cloudflare R2 (global, zero egress) | Session notes mirror, client file library, consent PDFs. No India-region pin at MVP. |
+| LLM gateway | OpenRouter (HTTP, OpenAI-compatible) | Cloud Run → OpenRouter → upstream providers | Pinned free-model chain via `models` array |
+| Scheduler | GitHub Actions cron | External | Hits Cloud Run `/api/jobs/*` endpoints; also runs Supabase keep-alive |
+| Auth | Backend-issued JWT, Google OAuth | Cloud Run | Owned implementation; standard httpx (no platform-specific workarounds needed) |
+| Observability | Sentry + GCP Cloud Logging + `llm_calls` table | Mixed | Sentry for errors, Cloud Logging for structured app logs, Supabase for LLM telemetry |
+| Edge protection (frontend) | Cloudflare platform features | Cloudflare dashboard | Rate limit, WAF, cache rules, DDoS — for Cloudflare Pages layer |
 
 ---
 
@@ -116,14 +121,12 @@ ZOOM (HC's existing tool, unchanged)
 
 | Trigger fires | Response |
 |---|---|
-| Cold start regression on edge endpoints | Try runtime split (JS Worker + Python service) |
-| Cold start regression on AI endpoints | Migrate to DO Bangalore |
-| Beta outages > 2/30d | Migrate to DO Bangalore |
-| Pyodide-incompatible package | Workaround if possible; else DO Bangalore |
-| Subrequest/wall-time limits | Diagnose; split or DO |
-| Cost > $20/mo (edge-flavored) | Runtime split |
-| Cost > $20/mo (AI-flavored) | DO Bangalore |
-| `workers-py` blocker matures | DO Bangalore (Linux cron available there) |
+| Cloud Run cold start p95 > 3s (sustained) | Add `min-instances: 1` on Cloud Run (~$10/mo extra) |
+| Cloud Run monthly cost > $25 | Migrate backend to DO Bangalore flat-rate droplet |
+| GCP Cloud Run outages > 2/30d | Migrate backend to DO Bangalore |
+| Supabase DB approaching 450 MB | Upgrade to Supabase Pro ($25/mo) |
+| Supabase MAU approaching 45 K | Upgrade to Supabase Pro ($25/mo) |
+| Free-model LLM quality fails (per ADR-0001 triggers 7–10) | Switch model IDs to paid Claude via OpenRouter |
 
 ---
 
@@ -131,9 +134,11 @@ ZOOM (HC's existing tool, unchanged)
 
 - **n8n**: removed. All automation is Python in the FastAPI app.
 - **Anthropic SDK direct**: replaced with OpenRouter HTTP integration.
-- **APScheduler**: incompatible with Workers (no threading). External scheduler instead.
+- **APScheduler**: not used. External scheduler (GitHub Actions) keeps background-job concerns outside the web process.
 - **Vercel**: replaced with Cloudflare Pages for provider consistency.
-- **Supabase**: not used. AWS RDS Mumbai chosen for DPDP defensibility.
+- **Cloudflare Python Workers**: eliminated Jun 2026 — FastAPI not supported. Replaced by Cloud Run.
+- **AWS RDS Mumbai**: replaced by Supabase free tier (same India region, zero provisioning cost at MVP).
+- **AWS S3 Mumbai**: replaced by Cloudflare R2 (zero egress cost) — see ADR-0001 changelog 2026-05-05.
 - **Redis at MVP**: no, not needed. Added when Celery introduced at scale.
 - **In-app client login**: deferred (clients don't directly use the platform at MVP).
 
@@ -154,4 +159,5 @@ ZOOM (HC's existing tool, unchanged)
 
 | Date | Change |
 |---|---|
+| 2026-06-19 | Hosting updated: CF Python Workers → GCP Cloud Run `asia-south1`. DB updated: AWS RDS Mumbai → Supabase free tier (Mumbai). Object storage was already R2 (May 2026). Migration paths table rewritten for Cloud Run triggers. Component table updated. "What's NOT here" updated. ASCII diagram redrawn. |
 | 2026-04-28 | Fresh description aligned with current ADRs. MERGE-REQUIRED — old repo version had n8n. |

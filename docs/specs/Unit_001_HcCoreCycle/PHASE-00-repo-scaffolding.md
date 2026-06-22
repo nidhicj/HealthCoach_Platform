@@ -6,6 +6,8 @@
 **Implements**: Pre-condition for all SPEC-0001 phases — scaffolding establishes the repo, dev environment, and conventions every subsequent phase depends on
 **ADRs implemented**: ADR-0001 (stack selection), ADR-0004 (repo structure), ADR-0006 (observability scaffolding posture)
 
+> **Historical note (2026-06-19)**: ADR-0001 was updated to replace Cloudflare Python Workers with GCP Cloud Run (`asia-south1`). The `workers-py` #68 and #92 constraints documented below were real at scaffold time and drove real decisions. They are now historical context only. The artifacts they produced — `make_http_client()` factory, `.gitignore` entries — remain in use. The `.wranglerignore` file and `wrangler.toml` scaffolding entries are no longer active.
+
 ---
 
 ## 1. Scope

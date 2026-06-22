@@ -1,11 +1,13 @@
 # ADR-0002: Runtime Topology — Diagnostic-Driven Fallback Playbook
 
-**Status**: Accepted
+**Status**: Partially superseded (2026-06-19)
 **Date**: 2026-04-28
 **Decision driver**: SoJo (solo founder)
 **Supersedes**: n/a
 **Relates to**: ADR-0001 (Stack Selection) — this ADR refines, does not replace
 **Triggered by**: External architect input proposing JS Worker + Python service runtime split (2026-04-27)
+
+> **⚠️ PARTIAL SUPERSEDE — 2026-06-19**: ADR-0001 was updated to replace Cloudflare Python Workers with **GCP Cloud Run (`asia-south1`)** as the primary backend host. The entire diagnostic decision tree below was written against Cloudflare Python Workers triggers (beta outages, Pyodide package incompatibility, subrequest limits, `workers-py` blockers) — none of those trigger conditions exist for Cloud Run. The **hosting layer triggers** in the decision tree are now superseded; the new triggers live in ADR-0001's updated "Hosting layer" migration section. What remains valid from this ADR: (1) the principle that a runtime split is an intermediate option rather than always going straight to DO Bangalore, (2) the auth boundary sketch in the Appendix (still applicable if Cloud Run is ever split into two services), (3) the Cloudflare platform features posture (rate limit, WAF, cache rules at the dashboard — still applies for the Cloudflare Pages frontend layer).
 
 ---
 
@@ -160,4 +162,5 @@ This is a sketch. Full design happens in the migration ADR if/when needed.
 
 | Date       | Change                        | Reason                                                                                                                     |
 | ---------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 2026-06-19 | Status changed to "Partially superseded." Added warning block at top. Hosting-layer decision tree superseded by ADR-0001 updated triggers. Auth boundary sketch and CF platform features posture remain valid. | ADR-0001 hosting changed from CF Python Workers to GCP Cloud Run; Workers-specific triggers no longer applicable. |
 | 2026-04-28 | Initial draft and Acceptance. | External architect input proposed runtime split; this ADR encodes when it's the right response vs. ADR-0001's DO fallback. |

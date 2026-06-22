@@ -20,8 +20,8 @@ P7 (External Scheduler) must be Complete and Verified before P8 begins.
 
 P8 closes the gap between observability *code being in place* and observability *actually working*. Most of the machinery was built incrementally across P0–P7 (Sentry init, PII scrubber, structured logger, X-Request-ID). What is missing:
 
-1. **Request lifecycle log lines** — every HTTP request logs a `request.start` event (method, path, ip, ua) and a `request.end` event (status code, duration_ms). These are the "behavior" signal in ADR-0006 §2 and are what you read in the Cloudflare Workers Logs dashboard to understand what the app is doing.
-2. **Sentry `request_id` tag** — the middleware that stamps `request_id` on every request must also set `sentry_sdk.set_tag("request_id", ...)` so that a Sentry error can be cross-referenced with its Cloudflare log lines using a single UUID.
+1. **Request lifecycle log lines** — every HTTP request logs a `request.start` event (method, path, ip, ua) and a `request.end` event (status code, duration_ms). These are the "behavior" signal in ADR-0006 §2 and are what you read in GCP Cloud Logging to understand what the app is doing.
+2. **Sentry `request_id` tag** — the middleware that stamps `request_id` on every request must also set `sentry_sdk.set_tag("request_id", ...)` so that a Sentry error can be cross-referenced with its GCP Cloud Logging log lines using a single UUID.
 3. **Sentry alert rules** — three rules specified in ADR-0006 §7; currently not documented in `docs/ops/incident-response.md` with actionable setup steps.
 4. **Live verification** — confirm errors reach Sentry, PII stays out, and the 5 SQL queries in ADR-0006 §8 produce sensible results against the local dev DB.
 

@@ -4,13 +4,13 @@
 **Status**: Draft
 **Verification date**: TBD — see `docs/VERIFICATION.md` § P5 Part A and § P5 Part B
 **Implements**: `SPEC-0001-hc-core-cycle.md` §Stage 2 (M000 session), §Stage 3 (between sessions), §Stage 4 (M00N session), §Stage 5 (triage flags), §Stage 6 (coach-reviewed gate) — Part A; §Stage 1 (file uploads as session context) — Part B
-**ADRs implemented**: ADR-0001 (S3 Mumbai for storage), ADR-0003 (LLM strategy — snippet capture exclusion, prompt assembly), ADR-0005 (auth — tenant scoping for all new endpoints), ADR-0006 (observability — PII redaction continues for all new prompt content)
+**ADRs implemented**: ADR-0001 (Cloudflare R2 for storage), ADR-0003 (LLM strategy — snippet capture exclusion, prompt assembly), ADR-0005 (auth — tenant scoping for all new endpoints), ADR-0006 (observability — PII redaction continues for all new prompt content)
 
 ---
 
 ## 1. Scope
 
-P5 completes the HC Core Cycle product loop. **Part A** adds persistent `session_notes` (the textarea the HC types into during/after a session), extends the pre-session brief to include the full AST (open action items, status summary, trend tags) plus triage flags (missed items, no check-in >14 days, manual sentiment flags), builds the M000 first-session edge case (template prep view — no LLM, no prior data), adds a standalone `GET /clients/{id}/ast` endpoint, and wires the action item `missed` state into the triage computation. **Part B** adds the Client File Library: per-session file uploads to AWS S3 Mumbai, file metadata in a new `client_files` table, `session_notes.txt` mirroring to S3, file content injection into MOM and brief prompt assembly, and Zoom-summary file tagging to exclude those files from HC style-snippet learning.
+P5 completes the HC Core Cycle product loop. **Part A** adds persistent `session_notes` (the textarea the HC types into during/after a session), extends the pre-session brief to include the full AST (open action items, status summary, trend tags) plus triage flags (missed items, no check-in >14 days, manual sentiment flags), builds the M000 first-session edge case (template prep view — no LLM, no prior data), adds a standalone `GET /clients/{id}/ast` endpoint, and wires the action item `missed` state into the triage computation. **Part B** adds the Client File Library: per-session file uploads to Cloudflare R2, file metadata in a new `client_files` table, `session_notes.txt` mirroring to R2, file content injection into MOM and brief prompt assembly, and Zoom-summary file tagging to exclude those files from HC style-snippet learning.
 
 Both parts ship in this phase and share this PHASE file. They have independent verification gates: SoJo verifies Part A completely before Part B implementation begins.
 
@@ -349,8 +349,8 @@ async def extract_text(content: bytes, mime_type: str) -> str:
 ```
 
 Libraries:
-- `pypdf` ≥ 4.x — pure Python, actively maintained, Pyodide-compatible
-- `python-docx` — check Pyodide compat at runtime; if it fails on Workers, route docx extraction to DO Bangalore via a flag or return empty string with a warning log
+- `pypdf` ≥ 4.x — pure Python, actively maintained, no platform constraints on Cloud Run
+- `python-docx` — works on Cloud Run (standard CPython); if import fails at runtime, return empty string with a warning log
 
 Add to `backend/pyproject.toml` dependencies.
 
@@ -440,9 +440,9 @@ async def s3_get(key: str) -> bytes:
 
 #### B11. `domain/glossary.md` additions
 
-- **`session_notes`** — HC's typed observations during/after a session; persisted to `sessions.session_notes` column; feeds LLM prompts; mirrored read-only to S3 as `session_notes.txt`; DB column is canonical
-- **`session_notes.txt` (S3 mirror)** — read-only copy of `session_notes`, written to S3 on every PATCH to `sessions.session_notes`; HC may view it for reference; if edited on disk, the next platform save overwrites; never read back by the system
-- **`client_files`** — per-session uploaded files (Zoom AI summaries, PDFs, handwritten notes); metadata in `client_files` table; file content in AWS S3 Mumbai at the documented path pattern
+- **`session_notes`** — HC's typed observations during/after a session; persisted to `sessions.session_notes` column; feeds LLM prompts; mirrored read-only to R2 as `session_notes.txt`; DB column is canonical
+- **`session_notes.txt` (R2 mirror)** — read-only copy of `session_notes`, written to R2 on every PATCH to `sessions.session_notes`; HC may view it for reference; if edited on disk, the next platform save overwrites; never read back by the system
+- **`client_files`** — per-session uploaded files (Zoom AI summaries, PDFs, handwritten notes); metadata in `client_files` table; file content in Cloudflare R2 at the documented path pattern
 - **`is_zoom_summary` flag** — marks a file as originating from Zoom AI Companion; such files' content reaches the LLM for context but does not contribute to HC style snippets
 
 #### B12. Integration tests (Part B)
@@ -488,19 +488,19 @@ Target: ~20 new tests
 
 **Decision B — `session_notes` is a new column distinct from `notes_internal`**: The existing `sessions.notes_internal` field (present since P1) is for HC private admin notes, not fed to the LLM. The new `sessions.session_notes` column is specifically the HC's typed observations that feed MOM draft and brief generation. They are intentionally separate: HCs may use `notes_internal` for administrative context and `session_notes` for AI-input content.
 
-**Decision C — S3 operations via httpx + AWS Signature V4 (no boto3)**: boto3 and aioboto3 rely on threading and are not Pyodide-compatible. All S3 operations (PUT, GET, DELETE, HEAD) are performed using `make_http_client()` with AWS Signature V4 signing implemented in pure Python stdlib (`hmac`, `hashlib`, `datetime`, `urllib.parse`). This keeps all file-related endpoints Pyodide-compatible on Cloudflare Workers. No DO Bangalore routing is needed for S3 in this phase.
+**Decision C — R2 operations via httpx + AWS Signature V4 (no boto3)**: Cloudflare R2 exposes an S3-compatible API; boto3 would work on Cloud Run, but httpx + Sig V4 was already implemented and keeps the R2 client dependency-light (no 10 MB boto3 package). All R2 operations (PUT, GET, DELETE, HEAD) are performed using `make_http_client()` with AWS Signature V4 signing in pure Python stdlib (`hmac`, `hashlib`, `datetime`, `urllib.parse`).
 
-**Decision D — Per-HC S3 prefix (not per-HC bucket)**: Single bucket (`S3_BUCKET_NAME` env var); tenant isolation via path prefix `hc-{hc_user_id}/`. Per-bucket would require dynamic bucket provisioning (complex for 1–2 HCs at MVP). Prefix isolation is enforced by `build_session_file_key()`; cross-HC access is prevented at the API layer per ADR-0005.
+**Decision D — Per-HC R2 prefix (not per-HC bucket)**: Single bucket (`R2_BUCKET_NAME` env var); tenant isolation via path prefix `hc-{hc_user_id}/`. Per-bucket would require dynamic bucket provisioning (complex for 1–2 HCs at MVP). Prefix isolation is enforced by `build_session_file_key()`; cross-HC access is prevented at the API layer per ADR-0005.
 
 **Decision E — Snippet capture exclusion: session-level Zoom suppression**: When ANY file in the session has `is_zoom_summary=True`, snippet capture for all drafts from that session is suppressed. The conservative approach: the Zoom AI's voice is definitively excluded from style learning. A more nuanced diff-based approach (suppress only if the edit overlaps Zoom content) is deferred. This is documented as a known limitation.
 
-**Decision F — S3 cascade delete is synchronous at MVP**: On client deletion/consent revocation, S3 objects are deleted synchronously (query all `client_files` → delete each S3 object → proceed with DB delete/cascade). At MVP file counts (tens of files per client), latency is acceptable. An async sweep job for orphaned S3 objects is deferred to P7 and documented as a TODO in this file.
+**Decision F — R2 cascade delete is synchronous at MVP**: On client deletion/consent revocation, R2 objects are deleted synchronously (query all `client_files` → delete each R2 object → proceed with DB delete/cascade). At MVP file counts (tens of files per client), latency is acceptable. An async sweep job for orphaned R2 objects is deferred to P7 and documented as a TODO in this file.
 
-**Decision G — File content fetched from S3 at prompt-assembly time**: File content is not stored in the DB. At prompt-assembly time, `generate_mom_draft()` and `generate_brief()` fetch each file's bytes from S3 via a new `s3_get()` function. This adds network latency per file but keeps the DB free of large binary content. At MVP file counts (2–5 files per session), this is acceptable.
+**Decision G — File content fetched from R2 at prompt-assembly time**: File content is not stored in the DB. At prompt-assembly time, `generate_mom_draft()` and `generate_brief()` fetch each file's bytes from R2 via `r2_get()` (R2 uses the S3-compatible API; Sig V4 signed). This adds network latency per file but keeps the DB free of large binary content. At MVP file counts (2–5 files per session), this is acceptable.
 
 **Decision H — Triage thresholds**: `CHECKIN_TRIAGE_DAYS = 14` (no check-in in >14 days triggers `no_recent_checkin` triage flag), `SENTIMENT_LOOKBACK_DAYS = 30` (manual sentiment flag in last 30 days triggers `manual_sentiment_flag`). Both are module-level constants in `llm_service/__init__.py` for easy tuning.
 
-**Decision I — `python-docx` Pyodide compatibility**: If `python-docx` proves incompatible with Pyodide at runtime, `.docx` extraction returns an empty string and logs a warning. The prompt still includes the section header with the filename but no content. This is acceptable at MVP — most HC uploads are PDFs or plain text. Document as a known limitation and revisit if HC reports are docx-heavy.
+**Decision I — `python-docx` fallback**: `python-docx` works on Cloud Run (standard CPython). If the import fails at runtime for any reason, `.docx` extraction returns an empty string and logs a warning. The prompt still includes the section header with the filename but no content. This is acceptable at MVP — most HC uploads are PDFs or plain text.
 
 ---
 
@@ -517,7 +517,7 @@ None recorded — phase not yet started.
 - `docs/domain/actors.md` — coach-reviewed gate; who reads `briefs` (HC only); tenant scoping
 - `docs/decisions/0003-llm-strategy.md` — `llm_calls` schema, snippet capture exclusion, retention rules; §4 and §7 amendments 2026-05-04
 - `docs/decisions/0006-observability.md` — PII redaction (prompt/completion encryption continues); §5 amendment 2026-05-04
-- `docs/decisions/0001-stack-selection.md` — S3 Mumbai (ap-south-1) for object storage
+- `docs/decisions/0001-stack-selection.md` — Cloudflare R2 for object storage (replaced S3 Mumbai, May 2026)
 - `docs/decisions/0005-auth-strategy.md` — tenant scoping pattern (`hc_id` from JWT) applied to all new endpoints; cross-tenant → 404
 - `docs/specs/Unit_001_HcCoreCycle/PHASE-04-llm-service.md` — P4 carry-over: `generate_mom_draft()` / `generate_brief()` interfaces, `make_http_client()` pattern, `write_llm_call()` pattern, `clients.code` pseudonym substitution in prompts
 - `docs/diagrams/0002-data-model.md` — schema reference; note: diagram predates P3/P4 additions (stale — use migration files as authoritative)
@@ -559,19 +559,19 @@ None recorded — phase not yet started.
 
 ## 7. Lessons learned
 
-Phase in progress — to be recorded on completion. Will include observations on AWS Sig V4 signing complexity, pypdf Pyodide compatibility findings, and any triage flag edge cases discovered during testing.
+Phase in progress — to be recorded on completion. Will include observations on R2 Sig V4 signing complexity and any triage flag edge cases discovered during testing.
 
 ---
 
 ## 8. Carry-over to subsequent phases
 
-- `backend/src/lib/s3.py` — S3 Sig V4 client; P6 frontend will need presigned read URLs for file display; add `s3_presign_get()` to this module in P6
+- `backend/src/lib/r2.py` — R2 Sig V4 client (S3-compatible API); P6 frontend will need presigned read URLs for file display; add `r2_presign_get()` to this module in P6
 - `backend/src/api/files.py` — file CRUD; P6 frontend integrates upload/list/delete into session UI
 - `backend/src/lib/file_extraction.py` — text extraction; reusable for future document types (audio transcripts, etc.)
 - `backend/src/llm_service/__init__.py` — `generate_mom_draft()` and `generate_brief()` now accept file context via `_assemble_file_content_section()`; all future LLM generation follows this assembly pattern
 - `backend/src/db/models/files.py` — `ClientFile` model; P9 consent-revocation smoke test must verify S3 cleanup
-- Convention: `build_session_file_key()` is the single source of truth for S3 paths; never construct paths ad-hoc elsewhere
-- Convention: `session_notes.txt` is always a mirror, never a source of truth; never read back from S3 by the system
+- Convention: `build_session_file_key()` is the single source of truth for R2 paths; never construct paths ad-hoc elsewhere
+- Convention: `session_notes.txt` is always a mirror, never a source of truth; never read back from R2 by the system
 - Convention: Zoom-tagged files suppress snippet capture at the session level; this granularity is intentional and documented in glossary
 - Convention: S3 cascade delete must be coded explicitly in every client-deletion path (DB cascade removes `client_files` rows; S3 deletion is application code responsibility)
 - TODO (deferred to P7): async S3 cleanup sweep for orphaned objects (objects in S3 whose `client_files` DB row is missing, e.g., due to failed upload cleanup)
