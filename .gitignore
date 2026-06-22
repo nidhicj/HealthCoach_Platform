@@ -55,3 +55,6 @@ frontend/dev
 template_diet_charts
 competitor-landscape.html
 trascipt.txt
+flyio-pricing.xlsx
+.gitignore
+audit_gcp_proj.sh
