@@ -1,0 +1,33 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: Build
+    args:
+      - build
+      - -t
+      - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform:$COMMIT_SHA
+      - ./backend
+
+  - name: gcr.io/cloud-builders/docker
+    id: Push
+    args:
+      - push
+      - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform:$COMMIT_SHA
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update
+      - hc-platform
+      - --platform=managed
+      - --image=asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform:$COMMIT_SHA
+      - --region=asia-south1
+      - --quiet
+
+images:
+  - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform:$COMMIT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY
