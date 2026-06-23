@@ -15,6 +15,7 @@
 | v1.0 | pre-2026-06-23 | SoJo + Claude | Original plan drafted — Part A assumed GitHub Actions CI/CD |
 | v1.1 | 2026-06-23 | SoJo + Claude | Part A rewritten to reflect as-built: Cloud Build trigger (not GitHub Actions). Service name corrected to `hc-platform`. `/healthz` → `/health` throughout. Part A marked complete. GitHub Actions references superseded — see §Part A As-Built. |
 | v1.2 | 2026-06-23 | SoJo + Claude | Part B added: Infrastructure Setup design (Cloud SQL replaces Supabase, Cloud Run for frontend replaces Cloudflare Pages, CI/CD refactored to per-service triggers, backend renamed to `hc-platform-backend`). Existing smoke gate tasks moved to Part C. |
+| v1.3 | 2026-06-23 | SoJo + Claude | Part B implementation plan added: 7 tasks (3 code, 4 GCP ops). Covers `backend/cloudbuild.yaml`, `frontend/Dockerfile` (standalone, repo-root context), `frontend/cloudbuild.yaml` (NEXT_PUBLIC_API_URL via availableSecrets build arg), Cloud SQL provisioning, migration run, frontend deploy, secret wiring. |
 
 ---
 
@@ -692,6 +693,510 @@ Zero changes to Next.js code. The Cloud Run service is not retired; Firebase pro
 - [ ] `hc-platform-frontend` Cloud Run service live at its `*.run.app` URL
 - [ ] `NEXT_PUBLIC_API_URL` secret set; `FRONTEND_URL` secret updated to frontend URL
 - [ ] End-to-end sign-in flow works in browser against production services
+
+---
+
+## Part B — Implementation plan
+
+> **For agentic workers:** Tasks 1–3 are code changes (Claude). Tasks 4–7 are GCP ops (SoJo — requires `gcloud` CLI and GCP Console). Complete Tasks 1–3 and push before starting Task 4.
+
+**Goal:** Rename backend service, provision Cloud SQL, deploy frontend Cloud Run service, wire all secrets.
+
+**GCP project:** `t-replica-361407` — `asia-south1` throughout.
+
+**Global constraints:**
+- All `gcloud` commands target `--region=asia-south1` and `--project=t-replica-361407`
+- Cloud SQL instance connection name: `t-replica-361407:asia-south1:parivarthan-db`
+- Backend image repo: `asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-backend`
+- Frontend image repo: `asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-frontend`
+- No secrets in code; all values via Secret Manager
+
+---
+
+### Task 1: Write `backend/cloudbuild.yaml`
+
+**Files:**
+- Create: `backend/cloudbuild.yaml`
+- Delete (after Task 5 confirms backend deploys): `cloudbuild.yaml` (repo root)
+
+- [ ] **Step 1.1 — Create `backend/cloudbuild.yaml`**
+
+```yaml
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: Build
+    args:
+      - build
+      - -t
+      - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-backend:$COMMIT_SHA
+      - ./backend
+
+  - name: gcr.io/cloud-builders/docker
+    id: Push
+    args:
+      - push
+      - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-backend:$COMMIT_SHA
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - hc-platform-backend
+      - --platform=managed
+      - --image=asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-backend:$COMMIT_SHA
+      - --region=asia-south1
+      - --allow-unauthenticated
+      - --add-cloudsql-instances=t-replica-361407:asia-south1:parivarthan-db
+      - --update-secrets=DATABASE_URL=DATABASE_URL:latest
+      - --update-secrets=JWT_PRIVATE_KEY=JWT_PRIVATE_KEY:latest
+      - --update-secrets=JWT_PUBLIC_KEY=JWT_PUBLIC_KEY:latest
+      - --update-secrets=GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest
+      - --update-secrets=GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
+      - --update-secrets=OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest
+      - --update-secrets=LLM_CALL_ENCRYPTION_KEY=LLM_CALL_ENCRYPTION_KEY:latest
+      - --update-secrets=R2_ACCOUNT_ID=R2_ACCOUNT_ID:latest
+      - --update-secrets=R2_ACCESS_KEY_ID=R2_ACCESS_KEY_ID:latest
+      - --update-secrets=R2_SECRET_ACCESS_KEY=R2_SECRET_ACCESS_KEY:latest
+      - --update-secrets=R2_BUCKET_NAME=R2_BUCKET_NAME:latest
+      - --update-secrets=SENTRY_DSN=SENTRY_DSN:latest
+      - --update-secrets=SCHEDULER_SECRET=SCHEDULER_SECRET:latest
+      - --update-secrets=FRONTEND_URL=FRONTEND_URL:latest
+      - --update-secrets=API_BASE_URL=API_BASE_URL:latest
+      - --quiet
+
+images:
+  - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-backend:$COMMIT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+```
+
+> Note: `gcloud run deploy` (not `services update`) creates the service if absent, updates if present. This handles the rename cleanly.
+> `--add-cloudsql-instances` mounts the Cloud SQL unix socket at `/cloudsql/t-replica-361407:asia-south1:parivarthan-db` inside the container — required for the DATABASE_URL format in Task 6.
+
+- [ ] **Step 1.2 — Commit**
+
+```bash
+git add backend/cloudbuild.yaml
+git commit -m "ci(backend): add backend/cloudbuild.yaml for hc-platform-backend service"
+```
+
+---
+
+### Task 2: Add `output: 'standalone'` to `next.config.ts`
+
+Standalone mode bundles only what `next start` needs — image drops from ~1.5 GB to ~300 MB.
+
+**Files:**
+- Modify: `frontend/next.config.ts`
+
+- [ ] **Step 2.1 — Update `frontend/next.config.ts`**
+
+```typescript
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  output: "standalone",
+  trailingSlash: true,
+  ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
+};
+
+export default nextConfig;
+```
+
+- [ ] **Step 2.2 — Verify build still works locally**
+
+```bash
+cd frontend && npm run build
+```
+
+Expected: `.next/standalone/` directory created with `server.js` inside.
+
+- [ ] **Step 2.3 — Commit**
+
+```bash
+git add frontend/next.config.ts
+git commit -m "feat(frontend): enable standalone output for Docker"
+```
+
+---
+
+### Task 3: Write `frontend/Dockerfile` and `frontend/cloudbuild.yaml`
+
+Docker build context is **repo root** (not `./frontend`) so `scripts/build-theme.mjs` is accessible during `npm run build`.
+
+**Files:**
+- Create: `frontend/Dockerfile`
+- Create: `frontend/.dockerignore`
+- Create: `frontend/cloudbuild.yaml`
+
+- [ ] **Step 3.1 — Create `frontend/Dockerfile`**
+
+```dockerfile
+# Build context: repo root (docker build -f frontend/Dockerfile .)
+FROM node:22-alpine AS builder
+WORKDIR /repo
+
+# scripts/ must be present before npm run build (prebuild calls build-theme.mjs)
+COPY scripts/ ./scripts/
+
+COPY frontend/package.json frontend/package-lock.json ./frontend/
+WORKDIR /repo/frontend
+RUN npm ci
+
+COPY frontend/ .
+
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
+RUN npm run build
+
+FROM node:22-alpine AS runner
+ENV NODE_ENV=production
+WORKDIR /app
+
+COPY --from=builder /repo/frontend/.next/standalone ./
+COPY --from=builder /repo/frontend/.next/static ./.next/static
+COPY --from=builder /repo/frontend/public ./public
+
+ENV PORT=8080
+EXPOSE 8080
+CMD ["node", "server.js"]
+```
+
+- [ ] **Step 3.2 — Create `frontend/.dockerignore`**
+
+```
+node_modules/
+.next/
+out/
+.env
+.env.*
+*.md
+tests/
+playwright-report/
+test-results/
+dev/
+.git/
+```
+
+- [ ] **Step 3.3 — Smoke-test the Docker build locally**
+
+Requires the `NEXT_PUBLIC_API_URL` build arg. Use the existing backend URL for the test:
+
+```bash
+cd /path/to/parivarthan_platform   # repo root
+docker build \
+  -f frontend/Dockerfile \
+  --build-arg NEXT_PUBLIC_API_URL=https://hc-platform-296472807958.asia-south1.run.app \
+  -t hc-platform-frontend:local \
+  .
+```
+
+Expected: build completes, no errors. Image created.
+
+- [ ] **Step 3.4 — Verify container starts**
+
+```bash
+docker run --rm -p 8080:8080 hc-platform-frontend:local
+# In another terminal:
+curl http://localhost:8080
+```
+
+Expected: HTTP 200 (sign-in page HTML).
+
+- [ ] **Step 3.5 — Create `frontend/cloudbuild.yaml`**
+
+`NEXT_PUBLIC_API_URL` is baked into the JS bundle at build time (Next.js inlines `NEXT_PUBLIC_*` vars). It must be passed as a `--build-arg`, not a Cloud Run runtime env var. Cloud Build's `availableSecrets` block reads it from Secret Manager.
+
+```yaml
+availableSecrets:
+  secretManager:
+    - versionName: projects/t-replica-361407/secrets/NEXT_PUBLIC_API_URL/versions/latest
+      env: NEXT_PUBLIC_API_URL
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: Build
+    secretEnv:
+      - NEXT_PUBLIC_API_URL
+    args:
+      - build
+      - -f
+      - frontend/Dockerfile
+      - --build-arg
+      - NEXT_PUBLIC_API_URL=$$NEXT_PUBLIC_API_URL
+      - -t
+      - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-frontend:$COMMIT_SHA
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: Push
+    args:
+      - push
+      - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-frontend:$COMMIT_SHA
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - hc-platform-frontend
+      - --platform=managed
+      - --image=asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-frontend:$COMMIT_SHA
+      - --region=asia-south1
+      - --allow-unauthenticated
+      - --quiet
+
+images:
+  - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-frontend:$COMMIT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+```
+
+- [ ] **Step 3.6 — Commit**
+
+```bash
+git add frontend/Dockerfile frontend/.dockerignore frontend/cloudbuild.yaml
+git commit -m "ci(frontend): add Dockerfile (standalone, scripts/ context) and cloudbuild.yaml"
+```
+
+- [ ] **Step 3.7 — Push all three tasks to main**
+
+```bash
+git push origin main
+```
+
+Cloud Build will fire the existing backend trigger (it still points at root `cloudbuild.yaml` at this point — that's fine; it re-deploys `hc-platform` one last time, which is harmless). After Task 5, the trigger is updated.
+
+---
+
+### Task 4: Create `NEXT_PUBLIC_API_URL` secret (SoJo — GCP Console / gcloud)
+
+The frontend `cloudbuild.yaml` reads this secret at build time. Must exist before Task 5's trigger fires.
+
+- [ ] **Step 4.1 — Create the secret**
+
+```bash
+echo -n "https://hc-platform-backend-296472807958.asia-south1.run.app" \
+  | gcloud secrets create NEXT_PUBLIC_API_URL \
+    --data-file=- \
+    --project=t-replica-361407
+```
+
+> Use the **new** backend URL (`hc-platform-backend-*`), not the current one. The backend rename in Task 5 will make this URL live.
+
+- [ ] **Step 4.2 — Verify**
+
+```bash
+gcloud secrets versions access latest --secret=NEXT_PUBLIC_API_URL --project=t-replica-361407
+```
+
+Expected: prints the backend URL.
+
+---
+
+### Task 5: Rename backend service + update Cloud Build trigger (SoJo — gcloud)
+
+- [ ] **Step 5.1 — Update the existing Cloud Build trigger to use `backend/cloudbuild.yaml`**
+
+GCP Console → Cloud Build → Triggers → find the existing trigger (`rmgpgab-hc-platform-*`) → Edit:
+- **Build configuration**: change from Cloud Build configuration file `cloudbuild.yaml` → `backend/cloudbuild.yaml`
+- **Included files filter**: add `backend/**`
+- Save
+
+- [ ] **Step 5.2 — Trigger a manual build to create `hc-platform-backend`**
+
+```bash
+gcloud builds submit \
+  --no-source \
+  --config=backend/cloudbuild.yaml \
+  --project=t-replica-361407 \
+  --substitutions=COMMIT_SHA=manual-rename
+```
+
+> This runs `backend/cloudbuild.yaml` which calls `gcloud run deploy hc-platform-backend` — creates the new service.
+>
+> **Wait:** Cloud SQL (`parivarthan-db`) must exist before this deploy lands, because `--add-cloudsql-instances` references it. If Cloud SQL isn't provisioned yet, remove `--add-cloudsql-instances` from `backend/cloudbuild.yaml` temporarily, deploy, then add it back after Task 6.
+
+- [ ] **Step 5.3 — Verify new backend is live**
+
+```bash
+NEW_URL=$(gcloud run services describe hc-platform-backend \
+  --region=asia-south1 --project=t-replica-361407 \
+  --format="value(status.url)")
+curl "$NEW_URL/health"
+```
+
+Expected: `{"status": "ok"}`
+
+- [ ] **Step 5.4 — Delete old `hc-platform` service**
+
+```bash
+gcloud run services delete hc-platform \
+  --region=asia-south1 \
+  --project=t-replica-361407 \
+  --quiet
+```
+
+- [ ] **Step 5.5 — Delete root `cloudbuild.yaml`**
+
+```bash
+git rm cloudbuild.yaml
+git commit -m "ci: retire root cloudbuild.yaml — each service now owns its own"
+git push origin main
+```
+
+---
+
+### Task 6: Provision Cloud SQL + run migrations (SoJo — gcloud)
+
+- [ ] **Step 6.1 — Create the Cloud SQL instance**
+
+```bash
+gcloud sql instances create parivarthan-db \
+  --database-version=POSTGRES_16 \
+  --tier=db-f1-micro \
+  --region=asia-south1 \
+  --project=t-replica-361407 \
+  --deletion-protection \
+  --no-backup
+```
+
+Expected: takes 3–5 minutes. Instance status becomes `RUNNABLE`.
+
+- [ ] **Step 6.2 — Create database and user**
+
+```bash
+gcloud sql databases create parivarthan \
+  --instance=parivarthan-db \
+  --project=t-replica-361407
+
+# Generate a strong password — store it, you'll need it for the URL
+DB_PASS=$(openssl rand -base64 32 | tr -d /=+ | cut -c1-24)
+echo "DB password: $DB_PASS"   # copy this somewhere safe
+
+gcloud sql users create hc_app \
+  --instance=parivarthan-db \
+  --password="$DB_PASS" \
+  --project=t-replica-361407
+```
+
+- [ ] **Step 6.3 — Update `DATABASE_URL` secret**
+
+Cloud SQL unix socket URL format (works with `--add-cloudsql-instances` on Cloud Run):
+
+```bash
+DB_URL="postgresql+asyncpg://hc_app:${DB_PASS}@/parivarthan?host=/cloudsql/t-replica-361407:asia-south1:parivarthan-db"
+
+echo -n "$DB_URL" | gcloud secrets versions add DATABASE_URL \
+  --data-file=- \
+  --project=t-replica-361407
+```
+
+- [ ] **Step 6.4 — Run migrations via Cloud SQL Auth Proxy**
+
+Install `cloud-sql-proxy` if not already installed:
+```bash
+curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.1/cloud-sql-proxy.linux.amd64
+chmod +x cloud-sql-proxy
+```
+
+Start the proxy in one terminal:
+```bash
+./cloud-sql-proxy t-replica-361407:asia-south1:parivarthan-db --port=5432
+```
+
+In another terminal, run migrations:
+```bash
+cd /path/to/parivarthan_platform
+source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+DATABASE_URL="postgresql+asyncpg://hc_app:${DB_PASS}@localhost/parivarthan" \
+  alembic -c backend/alembic.ini upgrade head
+```
+
+Expected: `Running upgrade ... -> <revision>, OK` for each migration. No errors.
+
+- [ ] **Step 6.5 — Redeploy backend to pick up new DATABASE_URL**
+
+```bash
+git commit --allow-empty -m "chore: trigger backend redeploy for Cloud SQL DATABASE_URL"
+git push origin main
+```
+
+Wait for Cloud Build to complete, then verify:
+```bash
+NEW_URL=$(gcloud run services describe hc-platform-backend \
+  --region=asia-south1 --project=t-replica-361407 \
+  --format="value(status.url)")
+curl -H "Authorization: Bearer <any-token>" "$NEW_URL/api/clients"
+```
+
+Expected: `401 Unauthorized` (not a 500 — confirms DB is reachable).
+
+---
+
+### Task 7: Create frontend trigger + deploy + wire FRONTEND_URL (SoJo — GCP Console / gcloud)
+
+- [ ] **Step 7.1 — Create the frontend Cloud Build trigger**
+
+GCP Console → Cloud Build → Triggers → Create trigger:
+- **Name**: `frontend-deploy`
+- **Event**: Push to a branch → `^main$`
+- **Source**: same GitHub repo
+- **Included files filter**: `frontend/**,scripts/**`
+- **Build configuration**: Cloud Build configuration file → `frontend/cloudbuild.yaml`
+- Save
+
+- [ ] **Step 7.2 — Trigger first frontend deploy**
+
+```bash
+git commit --allow-empty -m "ci: trigger first frontend deploy"
+git push origin main
+```
+
+Wait for Cloud Build to complete (both backend and frontend triggers will fire; backend trigger has `backend/**` filter and won't match — only frontend trigger fires).
+
+- [ ] **Step 7.3 — Get frontend URL + verify**
+
+```bash
+FE_URL=$(gcloud run services describe hc-platform-frontend \
+  --region=asia-south1 --project=t-replica-361407 \
+  --format="value(status.url)")
+echo "$FE_URL"
+curl -L "$FE_URL"
+```
+
+Expected: HTTP 200, sign-in page HTML returned.
+
+- [ ] **Step 7.4 — Update `FRONTEND_URL` secret to new frontend URL**
+
+```bash
+echo -n "$FE_URL" | gcloud secrets versions add FRONTEND_URL \
+  --data-file=- \
+  --project=t-replica-361407
+```
+
+- [ ] **Step 7.5 — Redeploy backend to pick up new FRONTEND_URL (CORS)**
+
+```bash
+git commit --allow-empty -m "chore: trigger backend redeploy for updated FRONTEND_URL"
+git push origin main
+```
+
+- [ ] **Step 7.6 — End-to-end smoke test**
+
+Open `$FE_URL` in a browser:
+1. Sign-in page loads ✓
+2. Click "Continue with Google" → Google OAuth page ✓
+3. Sign in → redirected back to `/auth/callback` → redirected to `/dashboard` ✓
+4. Dashboard loads with no network errors in DevTools console ✓
+
+If Step 3 fails: check backend logs in GCP Console → Cloud Logging → filter `resource.labels.service_name="hc-platform-backend"` for auth errors.
 
 ---
 
