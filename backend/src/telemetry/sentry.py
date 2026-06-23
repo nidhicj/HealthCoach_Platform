@@ -21,17 +21,20 @@ try:
         dsn = os.getenv("SENTRY_DSN", "")
         if not dsn:
             return
-        sentry_sdk.init(
-            dsn=dsn,
-            environment=os.getenv("APP_ENV", "dev"),
-            release=os.getenv("APP_VERSION", "0.1.0"),
-            traces_sample_rate=0.0,
-            profiles_sample_rate=0.0,
-            send_default_pii=False,
-            before_send=_before_send,
-            before_breadcrumb=_before_breadcrumb,
-            integrations=[StarletteIntegration(), FastApiIntegration()],
-        )
+        try:
+            sentry_sdk.init(
+                dsn=dsn,
+                environment=os.getenv("APP_ENV", "dev"),
+                release=os.getenv("APP_VERSION", "0.1.0"),
+                traces_sample_rate=0.0,
+                profiles_sample_rate=0.0,
+                send_default_pii=False,
+                before_send=_before_send,
+                before_breadcrumb=_before_breadcrumb,
+                integrations=[StarletteIntegration(), FastApiIntegration()],
+            )
+        except Exception:
+            pass
 
 except ImportError:
     def init_sentry() -> None:  # type: ignore[misc]
