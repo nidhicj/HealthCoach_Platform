@@ -1,10 +1,20 @@
 # PHASE-09: Pre-Pilot Smoke Gate
 
 **Unit**: Unit_001_HcCoreCycle
-**Status**: Draft
+**Status**: Part A — Complete (as-built). Part B — Infrastructure Setup (design complete, implementation pending). Part C — Blocked pending Part B.
 **Verification date**: TBD — see `docs/VERIFICATION.md` § P9
 **Implements**: `build-plan.md §Phase 9` acceptance criteria
 **ADRs implemented**: ADR-0001 (stack — smoke gate + open follow-ups), ADR-0002 (runtime topology — Cloudflare platform features one-time setup), `domain/compliance-india.md` (DPDP hooks walkthrough)
+
+---
+
+## Changelog
+
+| Version | Date | Author | What changed |
+|---|---|---|---|
+| v1.0 | pre-2026-06-23 | SoJo + Claude | Original plan drafted — Part A assumed GitHub Actions CI/CD |
+| v1.1 | 2026-06-23 | SoJo + Claude | Part A rewritten to reflect as-built: Cloud Build trigger (not GitHub Actions). Service name corrected to `hc-platform`. `/healthz` → `/health` throughout. Part A marked complete. GitHub Actions references superseded — see §Part A As-Built. |
+| v1.2 | 2026-06-23 | SoJo + Claude | Part B added: Infrastructure Setup design (Cloud SQL replaces Supabase, Cloud Run for frontend replaces Cloudflare Pages, CI/CD refactored to per-service triggers, backend renamed to `hc-platform-backend`). Existing smoke gate tasks moved to Part C. |
 
 ---
 
@@ -63,7 +73,12 @@ P9 is the go/no-go gate before the pilot HC goes live. It proves that all the pi
 
 ## 4. Bugs fixed mid-phase
 
-(Fill in after build.)
+| Bug | Root cause | Fix |
+|---|---|---|
+| `/healthz` returns Google HTML 404 | GFE intercepts `/healthz` (Kubernetes reserved path) before request reaches container | Renamed route to `/health` in `main.py` |
+| Cloud Build trigger deployed placeholder image | Auto-created trigger used buildpacks (`pack`) which can't build Python/uv project | Added `cloudbuild.yaml` with Docker steps; updated trigger to use it |
+| Sentry `BadDsn` crashes container startup | `SENTRY_DSN` secret contained placeholder value `XXXXXXX`; Sentry SDK validates DSN format on init | Wrapped `sentry_sdk.init()` in `try/except Exception: pass` in `sentry.py` |
+| `gcloud run services logs read` crashes CLI | Bug in gcloud SDK (`TypeError: sequence item 1: expected str instance, NoneType found`) | Workaround: use `gcloud logging read` directly |
 
 ---
 
@@ -90,7 +105,12 @@ P9 is the go/no-go gate before the pilot HC goes live. It proves that all the pi
 
 ## 7. Lessons learned
 
-(Fill in after build.)
+- **`/healthz` is a reserved path on Cloud Run (GFE).** GFE absorbs `/healthz`, `/readyz`, `/livez` before they reach the container — Kubernetes internals. Use `/health` or `/api/health`. Test your health endpoint on the same running instance simultaneously with a known-good path — if one returns JSON and the other returns Google HTML 404, it's being intercepted.
+- **Cloud Build trigger region is always "global".** The trigger shows "global" in Cloud Build history regardless of the Cloud Run service region. This is normal — trigger region ≠ deployment region. Outputs (image, service) land in the correct region per `cloudbuild.yaml`.
+- **Buildpacks cannot build Python/uv projects.** The GCP "Connect to repo" auto-trigger uses buildpacks which expect `requirements.txt`. Any uv-managed project needs a `cloudbuild.yaml` with explicit Docker steps.
+- **Secrets in Secret Manager are NOT automatically available to Cloud Run.** They must be explicitly mounted via `--update-secrets` flags on the service, and on every deploy command. The `cloudbuild.yaml` deploy step must include all `--update-secrets` flags.
+- **Placeholder values in secrets crash the app on startup.** `SENTRY_DSN=XXXXXXX` passed the `if not dsn` guard but failed Sentry SDK's DSN parser. Always wrap third-party SDK init calls in `try/except` when the config may be a placeholder. Or set secrets to truly empty string.
+- **GitHub Actions CI/CD was never the deployed approach.** `.github/workflows/deploy.yml` deploys to `parivarthan-api` which was deleted. The actual CI/CD path is Cloud Build trigger → `cloudbuild.yaml` → Cloud Run. The Actions workflow is dead code.
 
 ---
 
@@ -111,9 +131,47 @@ P9 is the go/no-go gate before the pilot HC goes live. It proves that all the pi
 
 ---
 
-## Part A — Cloud Run Migration
+## Part A — Cloud Run Migration (AS-BUILT — supersedes Tasks A1–A5)
 
-### Task A1 — GCP project setup (SoJo — GCP console + gcloud CLI)
+> **v1.1 note**: Tasks A1–A5 below were the original plan and assumed GitHub Actions CI/CD via Workload Identity Federation. The actual execution took a different path. The as-built record is documented here. The original task steps are preserved below for reference but are superseded.
+
+### Part A — As-Built Record (2026-06-23)
+
+**What was done** (in execution order):
+
+**A-actual-1: GCP APIs and secrets** — APIs already enabled (`run.googleapis.com`, `cloudbuild.googleapis.com`, `secretmanager.googleapis.com`, `artifactregistry.googleapis.com`). All 15 secrets created in Secret Manager via `gcloud secrets create`. Confirmed with `gcloud secrets list`.
+
+**A-actual-2: Cloud Run service created via GCP Console "Connect to repo"** — Used the Cloud Run Console UI to create the service and connect it directly to GitHub repo `nidhicj/HealthCoach_Platform`. This automatically created a Cloud Build trigger (`rmgpgab-hc-platform-asia-south1-nidhicj-HealthCoach-Platformrvi`). Service name: `hc-platform` (not `parivarthan-backend` as planned). Region: `asia-south1`.
+
+**A-actual-3: Trigger used buildpacks — failed** — The auto-created trigger used `gcr.io/k8s-skaffold/pack` (buildpacks) which cannot build a Python/uv project (expects `requirements.txt`). First CI deploy at 12:36 UTC produced `gcr.io/cloudrun/placeholder` image. Service was unreachable.
+
+**A-actual-4: Dockerfile and `.dockerignore` created** — `backend/Dockerfile` (python:3.12-slim + uv, CMD uvicorn on port 8080) and `backend/.dockerignore` created as planned in original Task A3.
+
+**A-actual-5: `cloudbuild.yaml` added to repo root** — Instead of updating the GitHub Actions workflow (original Task A4), a `cloudbuild.yaml` was added at repo root. Steps: (1) docker build from `./backend`, (2) push to Artifact Registry, (3) `gcloud run services update hc-platform` with all 15 `--update-secrets` flags. The trigger was updated via GCP Console to use this file instead of its inline buildpack steps.
+
+**A-actual-6: `/healthz` → `/health` rename** — Discovered that `/healthz` is intercepted at the GFE (Google Frontend) layer before reaching the container — inherited Kubernetes reserved path. Renamed route to `/health` in `backend/src/main.py`.
+
+**A-actual-7: Secrets mounted on running service** — `gcloud run services update hc-platform --update-secrets=...` run with all 15 secrets. Verified via `gcloud run services describe`.
+
+**A-actual-8: Sentry crash fixed** — With real secrets mounted, the `SENTRY_DSN` secret contained a placeholder value (`XXXXXXX`). Sentry SDK's DSN parser threw `BadDsn` during app startup lifespan, crashing the container. Fixed by wrapping `sentry_sdk.init()` in `try/except Exception: pass` in `backend/src/telemetry/sentry.py`. App now starts even with a bad/placeholder DSN.
+
+**A-actual-9: CI/CD verified end-to-end** — Push to `main` → Cloud Build trigger fires → `cloudbuild.yaml` runs → Docker build → Artifact Registry push → Cloud Run revision created → traffic shifts. Confirmed with revision `hc-platform-00007-78m` (healthy, serving 100% traffic).
+
+**Final service state**:
+- URL: `https://hc-platform-296472807958.asia-south1.run.app`
+- Live revision: `hc-platform-00007-78m`
+- All 15 secrets mounted as env vars
+- `/health` endpoint returning `{"status": "ok"}`
+- CI/CD: push to `main` auto-deploys
+
+**What was NOT done in Part A** (superseded by actual approach):
+- GitHub Actions Workload Identity Federation (Task A1.3, A1.4) — not needed; Cloud Build trigger uses compute service account directly
+- `github-actions-deployer` service account — not created; Cloud Build uses `296472807958-compute@developer.gserviceaccount.com` which already has `roles/secretmanager.secretAccessor`
+- `.github/workflows/deploy.yml` update (Task A4) — the existing workflow deploys to deleted service `parivarthan-api`. It is now dead code. Leave in place but do not rely on it.
+
+---
+
+### Task A1 — GCP project setup (SoJo — GCP console + gcloud CLI) [SUPERSEDED — see As-Built above]
 
 These are one-time human steps in the GCP console and terminal. Complete before Task A2.
 
@@ -505,7 +563,7 @@ gcloud run services describe parivarthan-backend \
   --format="value(status.url)"
 
 # Hit healthz (no auth needed for this endpoint)
-curl https://YOUR_CLOUD_RUN_URL/healthz
+curl https://YOUR_CLOUD_RUN_URL/health
 ```
 Expected: `{"status": "ok"}`
 
@@ -518,7 +576,126 @@ Once the service is confirmed live, check off item 1.1 in Part B Task 1:
 
 ---
 
-## Part B — P9 Smoke Gate
+## Part B — Infrastructure Setup
+
+> **Design approved**: 2026-06-23. Implementation plan to follow via `writing-plans` skill before any code is written.
+> **Why this Part exists**: Part A landed the backend on Cloud Run but left two blocking gaps — no real database and no frontend hosting. Part B resolves both before the smoke gate (Part C) can run.
+
+### B.1 What changed from the original plan
+
+| Original plan | Actual decision | Reason |
+|---|---|---|
+| Supabase (AWS ap-south-1) for Postgres | **Cloud SQL** (GCP asia-south1) | Auth already handled by FastAPI backend (Google OAuth). Supabase's main advantages (Auth, Studio) are irrelevant. Cloud SQL gives private GCP-internal connectivity, unified billing, and Cloud SQL Insights for troubleshooting. Cost at pilot: ~$10–13/month (db-f1-micro) vs Supabase Pro $25/month. |
+| Cloudflare Pages for frontend | **Cloud Run** (`hc-platform-frontend`, asia-south1) | Next.js 16 uses App Router with dynamic routes (`[clientId]`, `[sessionId]`) — cannot statically export. Must run a Node server. Cloud Run is the natural fit given existing backend infrastructure. Firebase Hosting deferred to custom-domain stage. |
+| Single Cloud Build trigger (any file → backend deploy) | **Two independent triggers** | One trigger per service, each scoped to its source folder. A docs-only commit does not redeploy either service. |
+| Backend service named `hc-platform` | **`hc-platform-backend`** | Symmetry with `hc-platform-frontend`. Rename happens before the frontend is wired up (no live references to break). |
+
+---
+
+### B.2 Target architecture
+
+```
+                     ┌─────────────────────────────────────────────┐
+                     │             GCP asia-south1                  │
+                     │                                              │
+Browser ──HTTPS──▶  Cloud Run: hc-platform-frontend (Next.js 16)  │
+                     │         │ NEXT_PUBLIC_API_URL (Secret Mgr)  │
+                     │         ▼                                    │
+                   Cloud Run: hc-platform-backend (FastAPI)         │
+                     │         │ Cloud SQL connector (private)      │
+                     │         ▼                                    │
+                   Cloud SQL: parivarthan-db (Postgres 16)          │
+                     │                                              │
+                   Secret Manager · Artifact Registry · Cloud Build │
+                     └─────────────────────────────────────────────┘
+```
+
+All services in project `t-replica-361407`, region `asia-south1`. No public internet between Cloud Run and Cloud SQL.
+
+---
+
+### B.3 Cloud SQL
+
+- **Instance name**: `parivarthan-db`
+- **Engine**: Postgres 16
+- **Tier**: `db-f1-micro` (shared vCPU, 614 MB RAM) — sufficient for pilot; upgrade is zero-downtime
+- **Region**: `asia-south1` (Mumbai) — satisfies DPDP data residency
+- **Connectivity from Cloud Run**: Cloud SQL connector via instance connection name. No VPC connector required; the Python driver (`asyncpg`) handles auth + TLS automatically with the connection string format: `postgresql+asyncpg://user:pass@/dbname?host=/cloudsql/PROJECT:REGION:INSTANCE`
+- **Local dev / migrations**: `cloud-sql-proxy` binary opens `localhost:5432`; Alembic runs against it normally. One-time tool install per developer machine.
+- **Deletion protection**: enabled at instance creation — prevents `gcloud sql instances delete` accidents
+- **Secret to update**: `DATABASE_URL` in Secret Manager → Cloud SQL connector URL format
+- **First migration**: `alembic upgrade head` run locally via proxy before any Part C task starts
+
+---
+
+### B.4 Frontend Cloud Run service
+
+- **Service name**: `hc-platform-frontend`
+- **Region**: `asia-south1`
+- **Runtime**: `next start -p 8080` (Cloud Run expects port 8080)
+- **Dockerfile**: `frontend/Dockerfile` — multi-stage, `node:22-alpine` builder → slim runner
+- **Secrets / env vars via Secret Manager**:
+  - `NEXT_PUBLIC_API_URL` → backend Cloud Run URL (new secret to create)
+- **Scaling**: `min-instances=0` for pilot (cold start ~1–2 s acceptable); raise to 1 if coaches report sluggish first load (~$5–10/month)
+- **URL**: free `*.run.app` with managed SSL — no load balancer needed
+- **Backend CORS**: `FRONTEND_URL` secret updated to the frontend `*.run.app` URL after first deploy
+
+---
+
+### B.5 CI/CD — two independent triggers
+
+| Trigger name | `includedFiles` filter | `cloudbuild.yaml` | Deploys to |
+|---|---|---|---|
+| `backend-deploy` | `backend/**` | `backend/cloudbuild.yaml` | `hc-platform-backend` |
+| `frontend-deploy` | `frontend/**`, `scripts/**` | `frontend/cloudbuild.yaml` | `hc-platform-frontend` |
+
+`scripts/**` is included in the frontend trigger because `scripts/build-theme.mjs` runs as a Next.js prebuild step — a change there must rebuild the frontend image.
+
+The existing root-level `cloudbuild.yaml` is retired; each service owns its own build file.
+
+---
+
+### B.6 Backend rename: `hc-platform` → `hc-platform-backend`
+
+Cloud Run does not support rename. Sequence:
+
+1. Update `backend/cloudbuild.yaml` with new service name → push → Cloud Build creates `hc-platform-backend` as a new service
+2. Verify `/health` on the new `*.run.app` URL
+3. Delete `hc-platform` (`gcloud run services delete hc-platform --region asia-south1`)
+4. Update Secret Manager: any secret referencing the old backend URL → new URL
+
+This must happen before the frontend is deployed (nothing is yet pointing at the old URL from a live frontend).
+
+---
+
+### B.7 Migration path to Firebase Hosting (future — custom domain stage)
+
+When a custom domain is ready:
+
+1. `firebase init hosting` — add Firebase to the project
+2. Configure `firebase.json` rewrites: static assets from Firebase CDN; SSR routes proxy to `hc-platform-frontend` Cloud Run service
+3. Update `FRONTEND_URL` secret → Firebase custom domain (CORS updates on next backend deploy)
+4. `hc-platform-frontend` Cloud Run service continues running — Firebase adds the CDN layer in front
+
+Zero changes to Next.js code. The Cloud Run service is not retired; Firebase proxies to it.
+
+---
+
+### B.8 Definition of done for Part B
+
+- [ ] `hc-platform-backend` Cloud Run service live; `/health` returns `{"status": "ok"}`; old `hc-platform` service deleted
+- [ ] `backend/cloudbuild.yaml` and `frontend/cloudbuild.yaml` both in repo; root `cloudbuild.yaml` retired
+- [ ] Two Cloud Build triggers created and scoped (`backend/**` / `frontend/**` + `scripts/**`)
+- [ ] Cloud SQL `parivarthan-db` instance live in asia-south1; deletion protection on
+- [ ] `DATABASE_URL` secret updated to Cloud SQL connector format; `alembic upgrade head` run successfully
+- [ ] `frontend/Dockerfile` builds and passes local smoke (`curl localhost:3000` returns 200)
+- [ ] `hc-platform-frontend` Cloud Run service live at its `*.run.app` URL
+- [ ] `NEXT_PUBLIC_API_URL` secret set; `FRONTEND_URL` secret updated to frontend URL
+- [ ] End-to-end sign-in flow works in browser against production services
+
+---
+
+## Part C — P9 Smoke Gate
 
 ---
 
@@ -528,17 +705,16 @@ These are human actions in external consoles. They must be complete before the s
 
 **Checklist** (SoJo walks this, not Claude Code):
 
-- [ ] **1.1** GCP Cloud Run service deployed to `asia-south1`. Note the service URL: `_____________`
-- [ ] **1.2** Supabase project provisioned (`ap-south-1`, Mumbai). Pooler connection string (port 6543) set as Cloud Run env var `DATABASE_URL`.
-- [ ] **1.3** `alembic upgrade head` run against production DB from local machine with prod `DATABASE_URL`. Output: `Running upgrade ... -> <revision>, OK`.
-- [ ] **1.4** Cloudflare R2 bucket created. R2 API credentials set as Cloud Run env vars `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`.
-- [ ] **1.5** All Cloud Run environment variables configured (`DATABASE_URL`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `OPENROUTER_API_KEY`, `JWT_SECRET_KEY`, `SENTRY_DSN`, `SCHEDULER_SECRET`).
+- [x] **1.1** GCP Cloud Run service deployed to `asia-south1`. URL: `https://hc-platform-296472807958.asia-south1.run.app` — live revision `hc-platform-00007-78m` ✅ 2026-06-23
+- [ ] **1.2** Supabase project provisioned (`ap-south-1`, Mumbai). Pooler connection string (port 6543) set as `DATABASE_URL` secret in Secret Manager. `alembic upgrade head` run against prod DB. **BLOCKED — next stage.**
+- [ ] **1.3** `alembic upgrade head` run against production DB from local machine with prod `DATABASE_URL`. Output: `Running upgrade ... -> <revision>, OK`. **BLOCKED pending 1.2.**
+- [x] **1.4** Cloudflare R2 bucket created. R2 credentials set in Secret Manager (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_ACCOUNT_ID`) and mounted on Cloud Run service. ✅ 2026-06-23
+- [x] **1.5** All 15 Cloud Run secrets configured in Secret Manager and mounted as env vars on `hc-platform` service. Verified via `gcloud run services describe`. ✅ 2026-06-23
   ```bash
-  # Verify env vars are set (lists names):
-  gcloud run services describe parivarthan-backend --region asia-south1 \
+  gcloud run services describe hc-platform --region asia-south1 \
     --format='value(spec.template.spec.containers[0].env[].name)'
   ```
-- [ ] **1.6** Production `SENTRY_DSN` created in Sentry UI and set as env var above.
+- [ ] **1.6** Production `SENTRY_DSN` created in Sentry UI and secret updated. **BLOCKED — next stage.** (Current placeholder causes silent error suppression — app does not crash since v1.1 fix, but errors are invisible.)
 - [ ] **1.7** Pilot HC identified. Their Google account email noted: `_____________`
 
 ---
@@ -627,8 +803,8 @@ def post(path: str, headers: dict, body: dict | None = None) -> tuple[int, dict]
 print(f"\nSmoke test → {BASE}\n")
 
 # 1. Cloud Run service is up
-status, body = get("/healthz")
-check("Cloud Run up (/healthz)", status == 200 and body.get("status") == "ok")
+status, body = get("/health")
+check("Cloud Run up (/health)", status == 200 and body.get("status") == "ok")
 
 # 2. Supabase connectivity — authenticated read
 status, body = get("/api/me", token=TOKEN)
