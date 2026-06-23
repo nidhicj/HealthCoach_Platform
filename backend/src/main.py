@@ -86,7 +86,7 @@ app.include_router(diet_charts_router)
 app.include_router(scheduler_router)
 
 
-@app.get("/healthz", include_in_schema=False)
+@app.get("/health", include_in_schema=False)
 async def healthz(request: Request) -> dict[str, str]:
     logger = get_logger(request_id=getattr(request.state, "request_id", ""))
     logger.info("health_check")
