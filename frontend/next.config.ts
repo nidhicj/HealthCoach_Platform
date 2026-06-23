@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   trailingSlash: true,
   // Allow the dev script to redirect Turbopack's output to a faster filesystem
   // (e.g. /dev/shm on Linux) so the build cache is not on a slow FUSE mount.

@@ -1,0 +1,11 @@
+node_modules/
+.next/
+out/
+dev/
+.env
+.env.*
+*.md
+tests/
+playwright-report/
+test-results/
+.git/

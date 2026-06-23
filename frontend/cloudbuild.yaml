@@ -1,0 +1,44 @@
+availableSecrets:
+  secretManager:
+    - versionName: projects/t-replica-361407/secrets/NEXT_PUBLIC_API_URL/versions/latest
+      env: NEXT_PUBLIC_API_URL
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: Build
+    secretEnv:
+      - NEXT_PUBLIC_API_URL
+    args:
+      - build
+      - -f
+      - frontend/Dockerfile
+      - --build-arg
+      - NEXT_PUBLIC_API_URL=$$NEXT_PUBLIC_API_URL
+      - -t
+      - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-frontend:$COMMIT_SHA
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: Push
+    args:
+      - push
+      - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-frontend:$COMMIT_SHA
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: Deploy
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - hc-platform-frontend
+      - --platform=managed
+      - --image=asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-frontend:$COMMIT_SHA
+      - --region=asia-south1
+      - --allow-unauthenticated
+      - --quiet
+
+images:
+  - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-frontend:$COMMIT_SHA
+
+options:
+  logging: CLOUD_LOGGING_ONLY
