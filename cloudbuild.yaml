@@ -24,6 +24,21 @@ steps:
       - --platform=managed
       - --image=asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform:$COMMIT_SHA
       - --region=asia-south1
+      - --update-secrets=DATABASE_URL=DATABASE_URL:latest
+      - --update-secrets=JWT_PRIVATE_KEY=JWT_PRIVATE_KEY:latest
+      - --update-secrets=JWT_PUBLIC_KEY=JWT_PUBLIC_KEY:latest
+      - --update-secrets=GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest
+      - --update-secrets=GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest
+      - --update-secrets=OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest
+      - --update-secrets=LLM_CALL_ENCRYPTION_KEY=LLM_CALL_ENCRYPTION_KEY:latest
+      - --update-secrets=R2_ACCOUNT_ID=R2_ACCOUNT_ID:latest
+      - --update-secrets=R2_ACCESS_KEY_ID=R2_ACCESS_KEY_ID:latest
+      - --update-secrets=R2_SECRET_ACCESS_KEY=R2_SECRET_ACCESS_KEY:latest
+      - --update-secrets=R2_BUCKET_NAME=R2_BUCKET_NAME:latest
+      - --update-secrets=SENTRY_DSN=SENTRY_DSN:latest
+      - --update-secrets=SCHEDULER_SECRET=SCHEDULER_SECRET:latest
+      - --update-secrets=FRONTEND_URL=FRONTEND_URL:latest
+      - --update-secrets=API_BASE_URL=API_BASE_URL:latest
       - --quiet
 
 images:
