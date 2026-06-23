@@ -58,3 +58,5 @@ trascipt.txt
 flyio-pricing.xlsx
 .gitignore
 audit_gcp_proj.sh
+
+cloudRunLogs/
