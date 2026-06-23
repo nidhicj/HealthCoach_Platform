@@ -25,13 +25,25 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build Docker image via Cloud Build
+        run: |
+          IMAGE="asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/parivarthan-api:${{ github.sha }}"
+          gcloud builds submit ./backend \
+            --tag="$IMAGE" \
+            --region=asia-south1 \
+            --quiet
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
       - id: deploy
         name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: parivarthan-api
           region: asia-south1
-          source: ./backend
+          image: ${{ env.IMAGE }}
           wait: true
           flags: >-
             --port=8080
@@ -61,4 +73,4 @@ jobs:
             API_BASE_URL=API_BASE_URL:latest
 
       - name: Print deployed URL
-        run: echo "Deployed to ${{ steps.deploy.outputs.url }}"
+        run: echo "Deployed to https://parivarthan-api-296472807958.asia-south1.run.app"
