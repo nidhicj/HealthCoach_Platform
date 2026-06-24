@@ -13,7 +13,7 @@ steps:
       - -f
       - frontend/Dockerfile
       - --build-arg
-      - NEXT_PUBLIC_API_URL=$$NEXT_PUBLIC_API_URL
+      - NEXT_PUBLIC_API_URL
       - -t
       - asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-frontend:$COMMIT_SHA
       - .
