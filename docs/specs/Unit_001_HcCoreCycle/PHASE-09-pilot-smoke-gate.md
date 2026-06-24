@@ -16,6 +16,7 @@
 | v1.1 | 2026-06-23 | SoJo + Claude | Part A rewritten to reflect as-built: Cloud Build trigger (not GitHub Actions). Service name corrected to `hc-platform`. `/healthz` → `/health` throughout. Part A marked complete. GitHub Actions references superseded — see §Part A As-Built. |
 | v1.2 | 2026-06-23 | SoJo + Claude | Part B added: Infrastructure Setup design (Cloud SQL replaces Supabase, Cloud Run for frontend replaces Cloudflare Pages, CI/CD refactored to per-service triggers, backend renamed to `hc-platform-backend`). Existing smoke gate tasks moved to Part C. |
 | v1.3 | 2026-06-23 | SoJo + Claude | Part B implementation plan added: 7 tasks (3 code, 4 GCP ops). Covers `backend/cloudbuild.yaml`, `frontend/Dockerfile` (standalone, repo-root context), `frontend/cloudbuild.yaml` (NEXT_PUBLIC_API_URL via availableSecrets build arg), Cloud SQL provisioning, migration run, frontend deploy, secret wiring. |
+| v1.4 | 2026-06-23 | SoJo + Claude | DB decision revised: Cloud SQL dropped in favour of Supabase free tier (ap-south-1, Mumbai). Reason: `db-f1-micro` requires `--edition=ENTERPRISE` flag (GCP now defaults to Enterprise Plus); at pilot scale Supabase free ($0) beats Cloud SQL Enterprise (~$10/month). Keep-alive: P7 scheduler cron hits DB at least weekly — Supabase never sees inactivity. `--add-cloudsql-instances` removed from `backend/cloudbuild.yaml`. Part B §B.3 and Task 6 updated accordingly. |
 
 ---
 
@@ -586,7 +587,7 @@ Once the service is confirmed live, check off item 1.1 in Part B Task 1:
 
 | Original plan | Actual decision | Reason |
 |---|---|---|
-| Supabase (AWS ap-south-1) for Postgres | **Cloud SQL** (GCP asia-south1) | Auth already handled by FastAPI backend (Google OAuth). Supabase's main advantages (Auth, Studio) are irrelevant. Cloud SQL gives private GCP-internal connectivity, unified billing, and Cloud SQL Insights for troubleshooting. Cost at pilot: ~$10–13/month (db-f1-micro) vs Supabase Pro $25/month. |
+| Supabase (AWS ap-south-1) for Postgres | **Supabase free tier** (ap-south-1, Mumbai) | Cloud SQL was chosen initially for private GCP connectivity and unified billing (~$10/month db-f1-micro). GCP now defaults to Enterprise Plus; db-f1-micro requires `--edition=ENTERPRISE` flag and still costs ~$10/month. At pilot scale Supabase free ($0) is the better call. Keep-alive: P7 scheduler cron hits DB weekly — Supabase never sees inactivity. Revisit Cloud SQL at scale. |
 | Cloudflare Pages for frontend | **Cloud Run** (`hc-platform-frontend`, asia-south1) | Next.js 16 uses App Router with dynamic routes (`[clientId]`, `[sessionId]`) — cannot statically export. Must run a Node server. Cloud Run is the natural fit given existing backend infrastructure. Firebase Hosting deferred to custom-domain stage. |
 | Single Cloud Build trigger (any file → backend deploy) | **Two independent triggers** | One trigger per service, each scoped to its source folder. A docs-only commit does not redeploy either service. |
 | Backend service named `hc-platform` | **`hc-platform-backend`** | Symmetry with `hc-platform-frontend`. Rename happens before the frontend is wired up (no live references to break). |
@@ -603,29 +604,29 @@ Browser ──HTTPS──▶  Cloud Run: hc-platform-frontend (Next.js 16)  │
                      │         │ NEXT_PUBLIC_API_URL (Secret Mgr)  │
                      │         ▼                                    │
                    Cloud Run: hc-platform-backend (FastAPI)         │
-                     │         │ Cloud SQL connector (private)      │
-                     │         ▼                                    │
-                   Cloud SQL: parivarthan-db (Postgres 16)          │
-                     │                                              │
-                   Secret Manager · Artifact Registry · Cloud Build │
-                     └─────────────────────────────────────────────┘
+                     │                                              │      ┌──────────────────────────┐
+                   Secret Manager · Artifact Registry · Cloud Build │      │  Supabase ap-south-1     │
+                     └──────────────────────┬──────────────────────┘      │  (Mumbai, free tier)     │
+                                            │ DATABASE_URL (TLS)           │  Postgres                │
+                                            └────────────────────────────▶│                          │
+                                                                           └──────────────────────────┘
 ```
 
-All services in project `t-replica-361407`, region `asia-south1`. No public internet between Cloud Run and Cloud SQL.
+Cloud Run → Supabase connects over public internet with TLS (standard Postgres + SSL). All GCP services remain in `asia-south1`.
 
 ---
 
-### B.3 Cloud SQL
+### B.3 Database — Supabase free tier
 
-- **Instance name**: `parivarthan-db`
-- **Engine**: Postgres 16
-- **Tier**: `db-f1-micro` (shared vCPU, 614 MB RAM) — sufficient for pilot; upgrade is zero-downtime
-- **Region**: `asia-south1` (Mumbai) — satisfies DPDP data residency
-- **Connectivity from Cloud Run**: Cloud SQL connector via instance connection name. No VPC connector required; the Python driver (`asyncpg`) handles auth + TLS automatically with the connection string format: `postgresql+asyncpg://user:pass@/dbname?host=/cloudsql/PROJECT:REGION:INSTANCE`
-- **Local dev / migrations**: `cloud-sql-proxy` binary opens `localhost:5432`; Alembic runs against it normally. One-time tool install per developer machine.
-- **Deletion protection**: enabled at instance creation — prevents `gcloud sql instances delete` accidents
-- **Secret to update**: `DATABASE_URL` in Secret Manager → Cloud SQL connector URL format
-- **First migration**: `alembic upgrade head` run locally via proxy before any Part C task starts
+- **Provider**: Supabase (`supabase.com`), free tier
+- **Engine**: Postgres (managed, latest stable)
+- **Region**: `ap-south-1` (Mumbai, AWS) — satisfies DPDP data residency; same city as Cloud Run
+- **Cost**: $0 for MVP. Supabase free projects pause after 7 days of inactivity — **mitigated by P7 scheduler cron** which hits the DB at least weekly. No manual keep-alive needed.
+- **Connectivity from Cloud Run**: standard Postgres TCP over public internet with TLS. No proxy, no VPC connector, no code changes.
+- **Local dev / migrations**: connect directly using the Supabase connection string (port 5432). Alembic runs against it without any proxy tool.
+- **Secret to update**: `DATABASE_URL` in Secret Manager → Supabase direct connection URI (Project Settings → Database → URI, port 5432 — **not** the pooler port 6543)
+- **First migration**: `alembic upgrade head` run locally against the Supabase DB before any Part C task starts
+- **Upgrade path**: Supabase Pro ($25/month) when pausing risk is unacceptable or storage exceeds 500 MB; Cloud SQL revisit if all-GCP becomes a hard requirement
 
 ---
 
@@ -687,8 +688,8 @@ Zero changes to Next.js code. The Cloud Run service is not retired; Firebase pro
 - [ ] `hc-platform-backend` Cloud Run service live; `/health` returns `{"status": "ok"}`; old `hc-platform` service deleted
 - [ ] `backend/cloudbuild.yaml` and `frontend/cloudbuild.yaml` both in repo; root `cloudbuild.yaml` retired
 - [ ] Two Cloud Build triggers created and scoped (`backend/**` / `frontend/**` + `scripts/**`)
-- [ ] Cloud SQL `parivarthan-db` instance live in asia-south1; deletion protection on
-- [ ] `DATABASE_URL` secret updated to Cloud SQL connector format; `alembic upgrade head` run successfully
+- [ ] Supabase project live in ap-south-1 (Mumbai); `DATABASE_URL` secret updated to Supabase direct URI (port 5432)
+- [ ] `alembic upgrade head` run successfully against Supabase DB; all tables created
 - [ ] `frontend/Dockerfile` builds and passes local smoke (`curl localhost:3000` returns 200)
 - [ ] `hc-platform-frontend` Cloud Run service live at its `*.run.app` URL
 - [ ] `NEXT_PUBLIC_API_URL` secret set; `FRONTEND_URL` secret updated to frontend URL
@@ -700,13 +701,13 @@ Zero changes to Next.js code. The Cloud Run service is not retired; Firebase pro
 
 > **For agentic workers:** Tasks 1–3 are code changes (Claude). Tasks 4–7 are GCP ops (SoJo — requires `gcloud` CLI and GCP Console). Complete Tasks 1–3 and push before starting Task 4.
 
-**Goal:** Rename backend service, provision Cloud SQL, deploy frontend Cloud Run service, wire all secrets.
+**Goal:** Rename backend service, provision Supabase DB, deploy frontend Cloud Run service, wire all secrets.
 
 **GCP project:** `t-replica-361407` — `asia-south1` throughout.
 
 **Global constraints:**
 - All `gcloud` commands target `--region=asia-south1` and `--project=t-replica-361407`
-- Cloud SQL instance connection name: `t-replica-361407:asia-south1:parivarthan-db`
+- Database: Supabase free tier, ap-south-1 (Mumbai) — standard Postgres connection string, no proxy
 - Backend image repo: `asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-backend`
 - Frontend image repo: `asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-frontend`
 - No secrets in code; all values via Secret Manager
@@ -773,8 +774,7 @@ options:
   logging: CLOUD_LOGGING_ONLY
 ```
 
-> Note: `gcloud run deploy` (not `services update`) creates the service if absent, updates if present. This handles the rename cleanly.
-> `--add-cloudsql-instances` mounts the Cloud SQL unix socket at `/cloudsql/t-replica-361407:asia-south1:parivarthan-db` inside the container — required for the DATABASE_URL format in Task 6.
+> Note: `gcloud run deploy` (not `services update`) creates the service if absent, updates if present. This handles the rename cleanly. DB is Supabase — standard TCP, no Cloud SQL flags needed.
 
 - [ ] **Step 1.2 — Commit**
 
@@ -1053,80 +1053,54 @@ git push origin main
 
 ---
 
-### Task 6: Provision Cloud SQL + run migrations (SoJo — gcloud)
+### Task 6: Provision Supabase + run migrations (SoJo — Supabase dashboard + terminal)
 
-- [ ] **Step 6.1 — Create the Cloud SQL instance**
+- [ ] **Step 6.1 — Create Supabase project**
 
-```bash
-gcloud sql instances create parivarthan-db \
-  --database-version=POSTGRES_16 \
-  --tier=db-f1-micro \
-  --region=asia-south1 \
-  --project=t-replica-361407 \
-  --deletion-protection \
-  --no-backup
-```
+  1. Go to `supabase.com` → New project
+  2. **Region: ap-south-1 (Mumbai)** — required for DPDP residency
+  3. Set a strong DB password — save it in your password manager
+  4. Wait ~2 minutes for the project to spin up
 
-Expected: takes 3–5 minutes. Instance status becomes `RUNNABLE`.
+- [ ] **Step 6.2 — Copy the connection string**
 
-- [ ] **Step 6.2 — Create database and user**
+  Supabase dashboard → Project Settings → Database → **Connection string → URI tab**
 
-```bash
-gcloud sql databases create parivarthan \
-  --instance=parivarthan-db \
-  --project=t-replica-361407
-
-# Generate a strong password — store it, you'll need it for the URL
-DB_PASS=$(openssl rand -base64 32 | tr -d /=+ | cut -c1-24)
-echo "DB password: $DB_PASS"   # copy this somewhere safe
-
-gcloud sql users create hc_app \
-  --instance=parivarthan-db \
-  --password="$DB_PASS" \
-  --project=t-replica-361407
-```
+  Use port **5432** (direct connection) — not port 6543 (pooler). It looks like:
+  ```
+  postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres
+  ```
 
 - [ ] **Step 6.3 — Update `DATABASE_URL` secret**
 
-Cloud SQL unix socket URL format (works with `--add-cloudsql-instances` on Cloud Run):
+  The backend's `session.py` auto-converts `postgresql://` → `postgresql+asyncpg://`, so paste the URI as-is:
 
-```bash
-DB_URL="postgresql+asyncpg://hc_app:${DB_PASS}@/parivarthan?host=/cloudsql/t-replica-361407:asia-south1:parivarthan-db"
+  ```bash
+  echo -n "postgresql://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres" \
+    | gcloud secrets versions add DATABASE_URL \
+      --data-file=- \
+      --project=t-replica-361407
+  ```
 
-echo -n "$DB_URL" | gcloud secrets versions add DATABASE_URL \
-  --data-file=- \
-  --project=t-replica-361407
-```
+- [ ] **Step 6.4 — Run migrations**
 
-- [ ] **Step 6.4 — Run migrations via Cloud SQL Auth Proxy**
+  No proxy needed — connect directly from your local machine:
 
-Install `cloud-sql-proxy` if not already installed:
-```bash
-curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.1/cloud-sql-proxy.linux.amd64
-chmod +x cloud-sql-proxy
-```
+  ```bash
+  cd /mnt/hdd/yourProjects/OnGoing/Poshini/parivarthan_platform
+  source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
+  DATABASE_URL="postgresql+asyncpg://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres" \
+    alembic -c backend/alembic.ini upgrade head
+  ```
 
-Start the proxy in one terminal:
-```bash
-./cloud-sql-proxy t-replica-361407:asia-south1:parivarthan-db --port=5432
-```
-
-In another terminal, run migrations:
-```bash
-cd /path/to/parivarthan_platform
-source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
-DATABASE_URL="postgresql+asyncpg://hc_app:${DB_PASS}@localhost/parivarthan" \
-  alembic -c backend/alembic.ini upgrade head
-```
-
-Expected: `Running upgrade ... -> <revision>, OK` for each migration. No errors.
+  Expected: `Running upgrade ... -> <revision>, OK` for each migration. No errors.
 
 - [ ] **Step 6.5 — Redeploy backend to pick up new DATABASE_URL**
 
-```bash
-git commit --allow-empty -m "chore: trigger backend redeploy for Cloud SQL DATABASE_URL"
-git push origin main
-```
+  ```bash
+  git commit --allow-empty -m "chore: trigger backend redeploy for Supabase DATABASE_URL"
+  git push origin main
+  ```
 
 Wait for Cloud Build to complete, then verify:
 ```bash
