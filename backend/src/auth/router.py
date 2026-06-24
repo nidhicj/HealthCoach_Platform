@@ -37,7 +37,7 @@ def _set_refresh_cookie(response: Response, raw_token: str) -> None:
         value=raw_token,
         httponly=True,
         secure=settings.app_env != "dev",
-        samesite="lax",
+        samesite="none" if settings.app_env != "dev" else "lax",
         path="/api/auth",
         max_age=30 * 24 * 3600,
     )
