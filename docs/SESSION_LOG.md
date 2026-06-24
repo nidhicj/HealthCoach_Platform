@@ -4,6 +4,45 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-06-23 — P9 Part A: Cloud Run deployment, CI/CD, secrets, infra debugging
+
+**Done**:
+
+- **Cloud Run deployment** — Service `hc-platform` live at `https://hc-platform-296472807958.asia-south1.run.app`, region `asia-south1`, project `t-replica-361407`. Ingress: all users. App handles its own auth (no Cloud Run IAM gate).
+
+- **CI/CD via Cloud Build** — Auto-created trigger (from GCP "Connect to repo") originally used buildpacks which cannot build Python/uv projects. Fixed by adding `cloudbuild.yaml` at repo root with three steps: `docker build ./backend`, push to Artifact Registry, `gcloud run services update hc-platform` with all 15 `--update-secrets` flags. Trigger updated to use this file. Push to `main` now auto-deploys. GitHub Actions is NOT in use — `.github/workflows/deploy.yml` deploys to deleted service `parivarthan-api` and is dead code.
+
+- **`/healthz` → `/health` rename** — Discovered `/healthz` is intercepted by GFE (Google Frontend) layer at the infrastructure level (Kubernetes reserved path) and never reaches the container. Renamed route to `/health` in `backend/src/main.py`. Confirmed: `/` and `/health` reach FastAPI; `/healthz` returns Google HTML 404 from GFE.
+
+- **All 15 secrets mounted** — Secrets created in Secret Manager earlier; were not mounted on the service. Fixed via `gcloud run services update --update-secrets=...`. Also added all `--update-secrets` flags to `cloudbuild.yaml` deploy step so future CI deploys keep them.
+
+- **Sentry startup crash fixed** — With real secrets mounted, `SENTRY_DSN` placeholder value (`XXXXXXX`) passed the `if not dsn: return` guard but failed Sentry SDK's `Dsn` parser (`BadDsn: Invalid project in DSN`), crashing the container lifespan. Fixed by wrapping `sentry_sdk.init()` in `try/except Exception: pass` in `backend/src/telemetry/sentry.py`. App now starts regardless of DSN value. **Sentry is still not reporting errors** — DSN needs a real value (see open items).
+
+- **Technical rundown created** — `docs/technical-rundown.html` — dark-themed reference doc covering full tech stack, all API routes, auth flows, 6 HC usage scenarios, known infra traps, open items.
+
+- **PHASE-09 updated to v1.1** — Part A as-built record documented, GitHub Actions approach superseded, bugs-fixed table filled in, lessons learned written, Task 1 checklist updated with done/blocked status.
+
+**Infra traps discovered** (logged in PHASE-09 §7 and `docs/technical-rundown.html`):
+- `/healthz` is GFE-reserved; `/health` is the correct path
+- Cloud Build trigger region is always "global" (not a problem — outputs still go to asia-south1)
+- `gcloud run services logs read` crashes the CLI (bug); workaround: `gcloud logging read`
+- Buildpacks cannot build Python/uv projects — always need `cloudbuild.yaml` with Docker
+
+**Current live state**:
+- Revision: `hc-platform-00007-78m` (healthy, 100% traffic)
+- Secrets: all 15 mounted
+- CI/CD: working
+
+**Open items before Part B (smoke gate) can run**:
+1. **DB** — `DATABASE_URL` secret must point to a real Supabase instance; `alembic upgrade head` must be run
+2. **Sentry** — need a real project DSN; update `SENTRY_DSN` secret
+3. **`FRONTEND_URL`** — update once frontend is hosted
+4. **`SENTRY_DSN`** — currently silently swallowed; errors invisible in prod
+
+**Next**: DB provisioning (Supabase ap-south-1), then frontend hosting, then return to P9 Part B smoke gate.
+
+---
+
 ## 2026-06-16 — P7 + P8: External Scheduler + Observability Live
 
 **Done**:
