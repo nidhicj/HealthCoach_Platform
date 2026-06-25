@@ -4,6 +4,44 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-06-24/25 — P9 Part B: Cross-browser auth fix + production verification + mock data migration
+
+**Done**:
+
+- **Root cause: sign-in loop in Firefox and Safari** — `run.app` is in the Public Suffix List. Frontend (`hc-platform-frontend-*.run.app`) and backend (`hc-platform-backend-*.run.app`) are cross-site, not same-site. Firefox Total Cookie Protection (dFPI) and Safari ITP block third-party cookies. ADR-0005 §5 assumed same-eTLD+1 — assumption was silently violated when deployment moved from Cloudflare Pages+Workers to GCP Cloud Run.
+
+- **Fix: BFF proxy** — `frontend/src/app/api/[...path]/route.ts` — Next.js 16 catch-all Route Handler proxies all `/api/*` browser requests server-to-server to the FastAPI backend. For OAuth callback (`302 + Set-Cookie`): intercepts the redirect, re-emits `Set-Cookie` on the frontend domain. All browser requests are now same-origin. Cookie is first-party in all browsers.
+
+- **Supporting config changes**:
+  - `frontend/src/lib/config.ts`: `API_URL = ""` — all browser fetches are relative (no cross-origin calls)
+  - Secret Manager `API_BASE_URL` → frontend URL — backend now sends Google's `redirect_uri` to the frontend BFF, not directly to itself
+  - Google OAuth Console: frontend URL added as authorized redirect URI
+  - Backend redeployed to pick up new `API_BASE_URL`
+
+- **Second bug: `new URL()` silent failure** — When `API_URL = ""`, `new URL("/api/sessions")` throws `TypeError: Invalid URL` (requires absolute URL). All four list-with-filters functions were silently failing: `listSessions`, `listClients`, `listActionItems`, `listClientCheckIns`. Error was swallowed by error boundaries → empty data. Fixed in all four files by replacing `new URL()` with `URLSearchParams` + string concat. Bug only visible in browser Console tab, not Cloud Run logs.
+
+- **Mock data migration** — Local dev Postgres (Docker) had 3 clients, 17 sessions, 17 MOMs, 17 briefs, 28 action items, 10 diet charts, 16 HC style snippets, 4 content assignments, 1 client file. Supabase was schema-only. Migrated via `pg_dump --data-only --inserts`, UUID substitution (local HC `26e57b28` → Supabase HC `38ff56d2`), `SET session_replication_role = replica` for FK bypass, `psql` restore. All 150 rows landed cleanly.
+
+- **Documentation updated**: `docs/decisions/0005-auth-strategy.md` (Amendment 2026-06-24 section), `docs/diagrams/0001-system-architecture.md` (BFF proxy layer, new request flow examples), `PHASE-09` §4 bugs + §7 lessons (v1.5 and v1.6).
+
+**Current production state**:
+- Frontend: `hc-platform-frontend-00006-h65` — BFF proxy live, all list endpoints fixed
+- Backend: `hc-platform-backend-00007-sdb` — using frontend URL for `redirect_uri`
+- Auth: working in Chrome; Firefox and Safari unverified in browser (logs confirm sign-in and dashboard load)
+- Data: mock HC data (3 clients, 17 sessions, diet charts, etc.) live in Supabase
+- Pending push: `fix(frontend): replace new URL() with URLSearchParams` — committed locally, not yet pushed (HTTPS remote requires credentials)
+
+**Open items**:
+- Verify sign-in in Firefox and Safari explicitly (browser test, not just logs)
+- Push the `new URL` fix commit to trigger Cloud Build frontend redeploy
+- `PKCE state store` (`_state_store: dict` in `router.py`) is in-memory — multi-instance unsafe on Cloud Run scale-to-zero. Low risk at pilot scale.
+- `SameSite=None` → `SameSite=Lax` cleanup in backend cookie (all requests are now same-site via proxy; `Lax` is more secure — safe to change once Firefox/Safari confirmed)
+- CSRF double-submit cookie (ADR-0005 §6) — still not implemented
+
+**Next**: Feature building — begin P10 or new unit. Product focus: trust and robustness.
+
+---
+
 ## 2026-06-23 — P9 Part A: Cloud Run deployment, CI/CD, secrets, infra debugging
 
 **Done**:
