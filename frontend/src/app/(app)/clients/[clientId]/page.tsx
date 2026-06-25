@@ -13,6 +13,13 @@ import { getClient, getClientAst, type ClientDetailOut, type AstOut } from "@/li
 import { listSessions, type SessionOut } from "@/lib/api/sessions";
 import { listActionItems, patchActionItem, type ActionItemOut } from "@/lib/api/actionItems";
 import { getClientDietChart, type DietChartOut } from "@/lib/api/dietCharts";
+import {
+  listSupplements,
+  createSupplement,
+  patchSupplement,
+  deleteSupplement,
+  type SupplementOut,
+} from "@/lib/api/supplements";
 
 function isOverdue(dateStr: string | null): boolean {
   if (!dateStr) return false;
@@ -33,6 +40,13 @@ const FLAG_LABEL: Record<string, string> = {
   manual_sentiment_flag: "Sentiment flag",
 };
 
+const SUPPLEMENT_CATALOG = [
+  "Vitamin D3", "Vitamin B12", "Vitamin C", "Omega-3 / Fish Oil",
+  "Magnesium", "Iron", "Zinc", "Calcium", "Ashwagandha",
+  "Curcumin / Turmeric", "Probiotics", "Whey Protein", "Plant Protein",
+  "Multivitamin", "Collagen", "Biotin", "CoQ10", "Melatonin",
+];
+
 export default function ClientDetailPage() {
   const { clientId } = useParams<{ clientId: string }>();
   const [client, setClient] = useState<ClientDetailOut | null>(null);
@@ -44,6 +58,19 @@ export default function ClientDetailPage() {
   const [reopenedIds, setReopenedIds] = useState<Set<string>>(new Set());
   const [showClosed, setShowClosed] = useState(false);
   const [dietChart, setDietChart] = useState<DietChartOut | null | undefined>(undefined);
+  const [supplements, setSupplements] = useState<SupplementOut[] | null>(null);
+  const [suppLoadError, setSuppLoadError] = useState(false);
+  const [showSuppForm, setShowSuppForm] = useState(false);
+  const [editingSuppId, setEditingSuppId] = useState<string | null>(null);
+  const [suppForm, setSuppForm] = useState({
+    name: "",
+    dosage: "",
+    duration_days: "",
+    recommended_at: new Date().toISOString().slice(0, 10),
+    notes: "",
+  });
+  const [suppSaving, setSuppSaving] = useState(false);
+  const [suppFormError, setSuppFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!clientId) return;
@@ -53,15 +80,20 @@ export default function ClientDetailPage() {
       listSessions({ client_id: clientId, limit: 20 }),
       listActionItems({ client_id: clientId, status: "completed", limit: 50 }),
       getClientDietChart(clientId),
+      listSupplements(clientId),
     ])
-      .then(([c, a, s, closed, dc]) => {
+      .then(([c, a, s, closed, dc, supps]) => {
         setClient(c);
         setAst(a);
         setSessions(s.items);
         setClosedItems(closed.items);
         setDietChart(dc);
+        setSupplements(supps);
       })
-      .catch(() => setLoadError(true));
+      .catch(() => {
+        setLoadError(true);
+        setSuppLoadError(true);
+      });
   }, [clientId]);
 
   async function toggleItem(id: string, markComplete: boolean) {
@@ -81,6 +113,83 @@ export default function ClientDetailPage() {
       } catch {
         setReopenedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
       }
+    }
+  }
+
+  function openAddForm() {
+    setEditingSuppId(null);
+    setSuppForm({
+      name: "",
+      dosage: "",
+      duration_days: "",
+      recommended_at: new Date().toISOString().slice(0, 10),
+      notes: "",
+    });
+    setSuppFormError(null);
+    setShowSuppForm(true);
+  }
+
+  function openEditForm(s: SupplementOut) {
+    setEditingSuppId(s.id);
+    setSuppForm({
+      name: s.name,
+      dosage: s.dosage ?? "",
+      duration_days: s.duration_days?.toString() ?? "",
+      recommended_at: s.recommended_at.slice(0, 10),
+      notes: s.notes ?? "",
+    });
+    setSuppFormError(null);
+    setShowSuppForm(true);
+  }
+
+  function closeSuppForm() {
+    setShowSuppForm(false);
+    setEditingSuppId(null);
+    setSuppFormError(null);
+  }
+
+  async function handleSuppSave() {
+    if (!suppForm.name.trim()) {
+      setSuppFormError("Supplement name is required.");
+      return;
+    }
+    setSuppSaving(true);
+    setSuppFormError(null);
+    const payload = {
+      name: suppForm.name.trim(),
+      dosage: suppForm.dosage.trim() || null,
+      duration_days: suppForm.duration_days ? parseInt(suppForm.duration_days, 10) : null,
+      recommended_at: suppForm.recommended_at
+        ? new Date(suppForm.recommended_at).toISOString()
+        : undefined,
+      notes: suppForm.notes.trim() || null,
+    };
+    try {
+      if (editingSuppId) {
+        const updated = await patchSupplement(clientId, editingSuppId, payload);
+        setSupplements((prev) =>
+          prev ? prev.map((s) => (s.id === editingSuppId ? updated : s)) : prev
+        );
+      } else {
+        const created = await createSupplement(clientId, payload);
+        setSupplements((prev) => (prev ? [created, ...prev] : [created]));
+      }
+      closeSuppForm();
+    } catch {
+      setSuppFormError("Could not save. Please try again.");
+    } finally {
+      setSuppSaving(false);
+    }
+  }
+
+  async function handleSuppDelete(id: string) {
+    if (!confirm("Remove this supplement entry?")) return;
+    try {
+      await deleteSupplement(clientId, id);
+      setSupplements((prev) => (prev ? prev.filter((s) => s.id !== id) : prev));
+      closeSuppForm();
+    } catch {
+      setSuppFormError("Could not remove. Please try again.");
     }
   }
 
@@ -272,6 +381,174 @@ export default function ClientDetailPage() {
                       </ul>
                     )}
                   </>
+                )}
+              </section>
+
+              {/* Supplement recommendations */}
+              <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+                    Supplement recommendations
+                  </h2>
+                  {!showSuppForm && (
+                    <button
+                      type="button"
+                      onClick={openAddForm}
+                      className="font-sans text-xs text-primary underline-offset-4 hover:underline"
+                    >
+                      + Add
+                    </button>
+                  )}
+                </div>
+                <Separator />
+
+                {/* Inline form */}
+                {showSuppForm && (
+                  <div className="space-y-3 rounded-xl border border-border bg-background p-4">
+                    <div className="space-y-1">
+                      <label className="font-sans text-xs text-muted-foreground">
+                        Name <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        list="supplement-catalog"
+                        value={suppForm.name}
+                        onChange={(e) => setSuppForm((f) => ({ ...f, name: e.target.value }))}
+                        placeholder="Type or select a supplement"
+                        className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <datalist id="supplement-catalog">
+                        {SUPPLEMENT_CATALOG.map((s) => (
+                          <option key={s} value={s} />
+                        ))}
+                      </datalist>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="font-sans text-xs text-muted-foreground">Dosage</label>
+                        <input
+                          value={suppForm.dosage}
+                          onChange={(e) => setSuppForm((f) => ({ ...f, dosage: e.target.value }))}
+                          placeholder="e.g. 2000 IU daily"
+                          className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="font-sans text-xs text-muted-foreground">Duration (days)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={suppForm.duration_days}
+                          onChange={(e) => setSuppForm((f) => ({ ...f, duration_days: e.target.value }))}
+                          placeholder="e.g. 30"
+                          className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-sans text-xs text-muted-foreground">Date recommended</label>
+                      <input
+                        type="date"
+                        value={suppForm.recommended_at}
+                        onChange={(e) => setSuppForm((f) => ({ ...f, recommended_at: e.target.value }))}
+                        className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-sans text-xs text-muted-foreground">Notes (optional)</label>
+                      <textarea
+                        value={suppForm.notes}
+                        onChange={(e) => setSuppForm((f) => ({ ...f, notes: e.target.value }))}
+                        placeholder="Reason or context"
+                        rows={2}
+                        className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+
+                    {suppFormError && (
+                      <p className="font-sans text-xs text-destructive">{suppFormError}</p>
+                    )}
+
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSuppSave}
+                          disabled={suppSaving}
+                          className="rounded-md bg-primary px-3 py-1.5 font-sans text-xs font-bold text-primary-foreground disabled:opacity-50"
+                        >
+                          {suppSaving ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={closeSuppForm}
+                          className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      {editingSuppId && (
+                        <button
+                          type="button"
+                          onClick={() => handleSuppDelete(editingSuppId)}
+                          className="font-sans text-xs text-destructive underline-offset-4 hover:underline"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* List */}
+                {supplements === null ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-10 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </div>
+                ) : suppLoadError ? (
+                  <p className="font-sans text-sm text-destructive">Could not load supplements.</p>
+                ) : supplements.length === 0 && !showSuppForm ? (
+                  <p className="font-sans text-sm italic text-muted-foreground">
+                    No supplements logged yet.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-border">
+                    {supplements.map((s) => (
+                      <li key={s.id} className="py-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-0.5">
+                            <p className="font-sans text-sm text-foreground">{s.name}</p>
+                            <p className="font-sans text-xs text-muted-foreground">
+                              {[
+                                s.dosage,
+                                s.duration_days ? `${s.duration_days} days` : null,
+                                new Date(s.recommended_at).toLocaleDateString("en-IN", {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "numeric",
+                                }),
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                            {s.notes && (
+                              <p className="font-sans text-xs italic text-muted-foreground">{s.notes}</p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openEditForm(s)}
+                            className="shrink-0 font-sans text-xs text-primary underline-offset-4 hover:underline"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </section>
 
