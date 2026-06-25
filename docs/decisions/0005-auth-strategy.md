@@ -16,11 +16,11 @@ The platform has three current/future actor types per `domain/actors.md`: **HC**
 
 Constraints already locked:
 
-- Cloudflare Python Workers runtime (`workers-py` open beta) → must work within Web Crypto API, no native crypto modules
-- `workers-py` #68 (httpx missing User-Agent) → every outbound HTTP call sets UA explicitly
+- Cloudflare Python Workers runtime (`workers-py` open beta) → must work within Web Crypto API, no native crypto modules *(superseded by Cloud Run — see §Amendment 2026-06-24)*
+- `workers-py` #68 (httpx missing User-Agent) → every outbound HTTP call sets UA explicitly *(no longer applicable on Cloud Run — see §Amendment 2026-06-24)*
 - DPDP Act 2023 → real deletion (not soft delete), India-region for personal data, explicit revocable consent
 - Google OAuth as the only IdP at MVP (no email/password, no other social providers)
-- Frontend is Next.js 15 on Cloudflare Pages; backend is FastAPI on Workers; same eTLD+1 → cookies are first-party
+- ~~Frontend is Next.js 15 on Cloudflare Pages; backend is FastAPI on Workers; same eTLD+1 → cookies are first-party~~ **VIOLATED** — deployment moved to GCP Cloud Run; `run.app` is in the Public Suffix List; frontend and backend are cross-site. See §Amendment 2026-06-24 for the resolution.
 
 What's at stake if this is done wrong: account takeover (catastrophic for a health-data product), tenant boundary violation (one HC seeing another HC's data — DPDP breach), refresh-token replay (silent persistent compromise), inability to revoke (cannot honor DPDP deletion rights).
 
@@ -72,7 +72,7 @@ The strategy below specifies every choice that "owned implementation" leaves ope
 
 Standard Google OAuth 2.0 Authorization Code grant. PKCE (RFC 7636) added on the frontend even though the backend exchanges the code — PKCE costs nothing to add, prevents authorization-code interception attacks if anything leaks via referer/logs/etc., and is current best practice for any client where an attacker might observe the redirect URL. State parameter (anti-CSRF) is mandatory.
 
-Redirect URI: `${API_BASE_URL}/api/auth/google/callback`. Whitelisted in Google Cloud Console.
+Redirect URI: `${API_BASE_URL}/api/auth/google/callback`. Whitelisted in Google Cloud Console. **After §Amendment 2026-06-24**: `API_BASE_URL` is the *frontend* Cloud Run URL — Google redirects the browser to the Next.js BFF, which proxies the callback to the backend.
 
 Scopes requested: `openid email profile` only. No Drive, no Calendar — those are future integrations, ask separately when needed.
 
@@ -131,7 +131,17 @@ Claim mapping note: the build-plan uses `hc_id` in JWT (matches above). The DB c
 
 **Storage**: SHA256 hash of the token in `auth_refresh_tokens.token_hash`. Plaintext token returned to the client once at issuance and never stored. SHA256 (not bcrypt) because (a) refresh tokens are already 256 bits of randomness — there's nothing to brute-force, hashing is just defense-in-depth against DB read; (b) bcrypt would force a slow path on every refresh, unnecessary.
 
-**Cookie**: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/api/auth`, `Domain=<your domain>`, `Max-Age=2592000` (30 days). `SameSite=Lax` (not `Strict`) because OAuth callback redirects need cookies to flow on top-level navigation. `Path=/api/auth` so the refresh cookie is not sent on every API request — only on auth endpoints.
+**Cookie**: `HttpOnly`, `Secure`, `SameSite=None`, `Path=/api/auth`, `Max-Age=2592000` (30 days). `Path=/api/auth` so the refresh cookie is not sent on every API request — only on auth endpoints.
+
+**Amendment 2026-06-24 — cookie domain and SameSite**:
+
+The original spec said `SameSite=Lax` and `Domain=<your domain>`, assuming same-eTLD+1 deployment. Both assumptions are now invalid:
+
+- `run.app` is in the Public Suffix List. Frontend (`hc-platform-frontend-*.run.app`) and backend (`hc-platform-backend-*.run.app`) are **different registrable domains** — cross-site. `SameSite=Lax` blocks cross-site cookies; Firefox Total Cookie Protection (dFPI) and Safari ITP block them even with `SameSite=None; Secure`.
+- Resolution: **BFF proxy pattern**. The Next.js frontend (`app/api/[...path]/route.ts`) proxies all `/api/*` requests server-to-server. The OAuth callback redirect + `Set-Cookie` is re-emitted by the Route Handler with the cookie attributed to the frontend domain. All browser requests are now same-origin. The cookie is first-party in all browsers.
+- Current code sets `SameSite=None; Secure` when `APP_ENV != "dev"` (correct for a cross-origin flow that used to exist; harmless in the same-origin proxy setup). A follow-up can tighten this to `SameSite=Lax` once the proxy is confirmed stable. No `Domain` attribute is set — the browser infers the frontend hostname as the cookie domain.
+
+See `diagrams/0001-system-architecture.md §Amendment 2026-06-24` for the updated request flow.
 
 **Access token delivery**: returned in the JSON response body of `/api/auth/google/callback` and `/api/auth/refresh`. Frontend holds it in memory (React state / a small auth context). Not in `localStorage` (XSS-readable). Not in a cookie (would need to be readable, which means not HttpOnly, which means XSS-readable anyway).
 
@@ -162,11 +172,9 @@ Email-mismatch behavior: reject with a clear error message. Do not auto-link a d
 
 Invite tokens stored as SHA256 hash, 7-day TTL, single-use.
 
-### 9. HTTP client User-Agent (workers-py #68 workaround)
+### 9. HTTP client User-Agent ~~(workers-py #68 workaround)~~ [superseded]
 
-Per ADR-0001 risk #5: every `httpx` call must include an explicit `User-Agent` header or it breaks on Workers. Auth module is the worst offender (Google OAuth token endpoint, JWKS fetch if we add other IdPs later).
-
-Implementation: a single factory function `make_http_client()` in `backend/src/lib/http.py` that returns a configured `httpx.AsyncClient` with `User-Agent: parivarthan-backend/0.1` set. **Every** httpx instantiation goes through this factory. Linting: a custom check or grep-based pre-commit hook flags raw `httpx.AsyncClient(` usage outside this factory.
+**Amendment 2026-06-24**: This section was written for Cloudflare Python Workers, which had a known bug (`workers-py` #68) requiring explicit `User-Agent` on every `httpx` call. Deployment moved to GCP Cloud Run (standard CPython), where this bug does not apply. The factory `make_http_client()` in `backend/src/lib/http.py` is retained as good practice (consistent User-Agent across all outbound calls) but is no longer a correctness requirement.
 
 ### 10. Schema: `auth_refresh_tokens`
 
@@ -271,8 +279,31 @@ Cascade-on-delete from `users` is correct: DPDP deletion of a user wipes all the
 
 ---
 
+---
+
+## Amendment: 2026-06-24 — BFF proxy replaces cross-origin cookie strategy
+
+**What changed**: Deployment moved to GCP Cloud Run. `run.app` is in the Public Suffix List — frontend (`hc-platform-frontend-*.run.app`) and backend (`hc-platform-backend-*.run.app`) are cross-site. The original cookie strategy (`SameSite=Lax`, same-eTLD+1) was incompatible with Firefox Total Cookie Protection and Safari ITP.
+
+**Resolution**: Next.js Backend-for-Frontend (BFF) proxy.
+
+- New file: `frontend/src/app/api/[...path]/route.ts` — catch-all Route Handler that proxies all `/api/*` requests server-to-server to the FastAPI backend. For the OAuth callback (which returns `302 + Set-Cookie`), the handler intercepts the redirect, copies the `Set-Cookie` header, and re-emits it so the browser attributes the cookie to the frontend domain.
+- `frontend/src/lib/config.ts`: `API_URL = ""` — all browser fetch calls are same-origin.
+- `API_BASE_URL` Secret Manager value: changed to the frontend Cloud Run URL so the OAuth `redirect_uri` sent to Google points to the frontend BFF, not the backend.
+- Google Cloud Console: frontend URL added to authorized redirect URIs.
+
+**Sections updated in this ADR**: §Context (crossed-out same-eTLD+1 assumption), §1 (redirect URI note), §5 (cookie SameSite and domain), §9 (workers-py workaround superseded).
+
+**Known follow-ups** (not blocking):
+- `SameSite=None` → `SameSite=Lax` cleanup in backend cookie: all requests are now same-site via the proxy; `Lax` is more secure. Deferred until proxy is confirmed stable across all browsers.
+- PKCE state store (`_state_store: dict` in `router.py`): in-memory, multi-instance unsafe on Cloud Run. Fix: Cloud Memorystore (Redis) or a DB-backed state. Low risk at pilot scale.
+- CSRF double-submit cookie (§6): spec'd but not yet implemented. Still needed on `/api/auth/refresh` and `/api/auth/logout`.
+
+---
+
 ## Changelog
 
 | Date       | Change         | Reason                                            |
 | ---------- | -------------- | ------------------------------------------------- |
+| 2026-06-24 | Amendment: BFF proxy pattern replaces cross-origin cookie strategy. Sections updated: §Context, §1, §5, §9. New §Amendment block added. | `run.app` in PSL → cross-site deployment → Firefox/Safari block third-party cookies. |
 | 2026-04-29 | Initial draft. | Required by build-plan P2; defines auth strategy. |
