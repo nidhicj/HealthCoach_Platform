@@ -73,12 +73,12 @@ export async function listSessions(params?: {
   limit?: number;
   cursor?: string;
 }): Promise<{ items: SessionOut[]; next_cursor: string | null }> {
-  const url = new URL(`${API_URL}/api/sessions`);
-  if (params?.client_id) url.searchParams.set("client_id", params.client_id);
-  if (params?.limit) url.searchParams.set("limit", String(params.limit));
-  if (params?.cursor) url.searchParams.set("cursor", params.cursor);
+  const qs = new URLSearchParams();
+  if (params?.client_id) qs.set("client_id", params.client_id);
+  if (params?.limit) qs.set("limit", String(params.limit));
+  if (params?.cursor) qs.set("cursor", params.cursor);
 
-  const res = await fetchWithAuth(url.toString());
+  const res = await fetchWithAuth(`${API_URL}/api/sessions${qs.toString() ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`List sessions failed: ${res.status}`);
   return PaginatedSessionsSchema.parse(await res.json());
 }

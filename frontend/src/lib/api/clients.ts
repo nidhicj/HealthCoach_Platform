@@ -86,12 +86,12 @@ export async function listClients(params?: {
   cursor?: string;
   journey_stage?: string;
 }): Promise<{ items: ClientOut[]; next_cursor: string | null }> {
-  const url = new URL(`${API_URL}/api/clients`);
-  if (params?.limit) url.searchParams.set("limit", String(params.limit));
-  if (params?.cursor) url.searchParams.set("cursor", params.cursor);
-  if (params?.journey_stage) url.searchParams.set("journey_stage", params.journey_stage);
+  const qs = new URLSearchParams();
+  if (params?.limit) qs.set("limit", String(params.limit));
+  if (params?.cursor) qs.set("cursor", params.cursor);
+  if (params?.journey_stage) qs.set("journey_stage", params.journey_stage);
 
-  const res = await fetchWithAuth(url.toString());
+  const res = await fetchWithAuth(`${API_URL}/api/clients${qs.toString() ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`List clients failed: ${res.status}`);
   return PaginatedClientsSchema.parse(await res.json());
 }

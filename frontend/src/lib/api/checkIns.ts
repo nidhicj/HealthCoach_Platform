@@ -26,11 +26,11 @@ export async function listClientCheckIns(
   clientId: string,
   params?: { limit?: number; cursor?: string },
 ): Promise<{ items: CheckInOut[]; next_cursor: string | null }> {
-  const url = new URL(`${API_URL}/api/clients/${clientId}/check-ins`);
-  if (params?.limit) url.searchParams.set("limit", String(params.limit));
-  if (params?.cursor) url.searchParams.set("cursor", params.cursor);
+  const qs = new URLSearchParams();
+  if (params?.limit) qs.set("limit", String(params.limit));
+  if (params?.cursor) qs.set("cursor", params.cursor);
 
-  const res = await fetchWithAuth(url.toString());
+  const res = await fetchWithAuth(`${API_URL}/api/clients/${clientId}/check-ins${qs.toString() ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error(`List check-ins failed: ${res.status}`);
   return PaginatedCheckInsSchema.parse(await res.json());
 }
