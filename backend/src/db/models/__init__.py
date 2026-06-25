@@ -7,6 +7,7 @@ from src.db.models.content import ContentAssignment, DietChart, DietChartRecipe,
 from src.db.models.files import ClientFile
 from src.db.models.llm import LlmCall
 from src.db.models.sessions import Session
+from src.db.models.supplements import SupplementRecommendation
 from src.db.models.users import User
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "Consent", "AuditLog", "AuthRefreshToken", "ClientInviteToken",
     "DietChart", "PrepRecipe", "DietChartRecipe", "ContentAssignment",
     "ClientFile",
+    "SupplementRecommendation",
 ]
