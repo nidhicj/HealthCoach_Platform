@@ -1,6 +1,5 @@
 """Integration tests for /api/clients/{client_id}/supplements. SPEC-0001 acceptance criteria."""
 import uuid
-from datetime import datetime, timezone
 
 import pytest
 
@@ -170,6 +169,19 @@ async def test_patch_supplement_cross_tenant_returns_404(http_client, hc_headers
         json={"dosage": "new"},
     )
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_patch_supplement_can_clear_optional_field(http_client, hc_headers):
+    client = await _make_client(http_client, hc_headers)
+    s = await _make_supplement(http_client, hc_headers, client["id"], dosage="2000 IU daily")
+    r = await http_client.patch(
+        f"/api/clients/{client['id']}/supplements/{s['id']}",
+        headers=hc_headers,
+        json={"dosage": None},
+    )
+    assert r.status_code == 200
+    assert r.json()["dosage"] is None
 
 
 # ── DELETE ─────────────────────────────────────────────────────────────────────

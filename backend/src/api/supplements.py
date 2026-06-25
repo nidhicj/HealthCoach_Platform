@@ -146,15 +146,15 @@ async def patch_supplement(
     db: DbDep,
 ) -> SupplementOut:
     rec = await _get_owned_supplement(db, client_id, supplement_id, hc_id)
-    if body.name is not None:
+    if "name" in body.model_fields_set and body.name is not None:
         rec.name = body.name
-    if body.dosage is not None:
+    if "dosage" in body.model_fields_set:
         rec.dosage = body.dosage
-    if body.duration_days is not None:
+    if "duration_days" in body.model_fields_set:
         rec.duration_days = body.duration_days
-    if body.recommended_at is not None:
+    if "recommended_at" in body.model_fields_set and body.recommended_at is not None:
         rec.recommended_at = body.recommended_at
-    if body.notes is not None:
+    if "notes" in body.model_fields_set:
         rec.notes = body.notes
     await db.flush()
     await db.commit()
