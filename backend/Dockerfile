@@ -21,4 +21,4 @@ COPY alembic.ini alembic.ini
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["uv", "run", "--no-dev", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["sh", "-c", "uv run alembic upgrade head && uv run --no-dev uvicorn src.main:app --host 0.0.0.0 --port 8080"]
