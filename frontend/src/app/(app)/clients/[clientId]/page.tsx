@@ -80,20 +80,19 @@ export default function ClientDetailPage() {
       listSessions({ client_id: clientId, limit: 20 }),
       listActionItems({ client_id: clientId, status: "completed", limit: 50 }),
       getClientDietChart(clientId),
-      listSupplements(clientId),
     ])
-      .then(([c, a, s, closed, dc, supps]) => {
+      .then(([c, a, s, closed, dc]) => {
         setClient(c);
         setAst(a);
         setSessions(s.items);
         setClosedItems(closed.items);
         setDietChart(dc);
-        setSupplements(supps);
       })
-      .catch(() => {
-        setLoadError(true);
-        setSuppLoadError(true);
-      });
+      .catch(() => setLoadError(true));
+
+    listSupplements(clientId)
+      .then(setSupplements)
+      .catch(() => setSuppLoadError(true));
   }, [clientId]);
 
   async function toggleItem(id: string, markComplete: boolean) {

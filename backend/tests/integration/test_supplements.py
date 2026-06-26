@@ -223,3 +223,29 @@ async def test_delete_supplement_cross_tenant_returns_404(http_client, hc_header
         f"/api/clients/{client['id']}/supplements/{s['id']}", headers=hc2_headers
     )
     assert r.status_code == 404
+
+
+# ── validation: empty / null name ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_create_supplement_empty_name_returns_422(http_client, hc_headers):
+    client = await _make_client(http_client, hc_headers)
+    r = await http_client.post(
+        f"/api/clients/{client['id']}/supplements",
+        headers=hc_headers,
+        json={"name": ""},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_supplement_explicit_null_name_returns_422(http_client, hc_headers):
+    client = await _make_client(http_client, hc_headers)
+    s = await _make_supplement(http_client, hc_headers, client["id"])
+    r = await http_client.patch(
+        f"/api/clients/{client['id']}/supplements/{s['id']}",
+        headers=hc_headers,
+        json={"name": None},
+    )
+    assert r.status_code == 422

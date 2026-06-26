@@ -3,7 +3,9 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, field_validator
+from typing import Annotated
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 
 from src.api.deps import DbDep, HcClaimsDep, TenantDep
@@ -17,7 +19,7 @@ router = APIRouter(tags=["supplements"])
 
 
 class SupplementCreate(BaseModel):
-    name: str
+    name: Annotated[str, Field(min_length=1)]   # rejects "" and null
     dosage: str | None = None
     duration_days: int | None = None
     recommended_at: datetime | None = None
@@ -32,7 +34,7 @@ class SupplementCreate(BaseModel):
 
 
 class SupplementPatch(BaseModel):
-    name: str | None = None
+    name: Annotated[str, Field(min_length=1)] | None = None   # rejects "" when provided
     dosage: str | None = None
     duration_days: int | None = None
     recommended_at: datetime | None = None
@@ -44,6 +46,12 @@ class SupplementPatch(BaseModel):
         if v is not None and v < 1:
             raise ValueError("duration_days must be at least 1")
         return v
+
+    @model_validator(mode="after")
+    def _reject_explicit_null_name(self) -> "SupplementPatch":
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name cannot be set to null")
+        return self
 
 
 class SupplementOut(BaseModel):
