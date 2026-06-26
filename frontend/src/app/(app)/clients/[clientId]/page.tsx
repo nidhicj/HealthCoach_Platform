@@ -503,13 +503,13 @@ export default function ClientDetailPage() {
                 )}
 
                 {/* List */}
-                {supplements === null ? (
+                {suppLoadError ? (
+                  <p className="font-sans text-sm text-destructive">Could not load supplements.</p>
+                ) : supplements === null ? (
                   <div className="space-y-2">
                     <Skeleton className="h-10 w-full" />
                     <Skeleton className="h-10 w-full" />
                   </div>
-                ) : suppLoadError ? (
-                  <p className="font-sans text-sm text-destructive">Could not load supplements.</p>
                 ) : supplements.length === 0 && !showSuppForm ? (
                   <p className="font-sans text-sm italic text-muted-foreground">
                     No supplements logged yet.
