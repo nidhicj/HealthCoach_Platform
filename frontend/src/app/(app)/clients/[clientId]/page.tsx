@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getClient, type ClientDetailOut } from "@/lib/api/clients";
+import { getClient, patchClient, type ClientDetailOut } from "@/lib/api/clients";
 import { listSessions, type SessionOut } from "@/lib/api/sessions";
 import { listActionItems, patchActionItem, type ActionItemOut } from "@/lib/api/actionItems";
 import {
@@ -34,7 +34,7 @@ const JOURNEY_STAGE_LABEL: Record<string, string> = {
   onboarding: "Onboarding",
   active: "Active",
   plateau: "Plateau",
-  off_track: "Off track",
+  off_track: "Off Track",
   completed: "Completed",
 };
 
@@ -66,6 +66,7 @@ export default function ClientDetailPage() {
     recommended_at: new Date().toISOString().slice(0, 10),
     notes: "",
   });
+  const [stageSaving, setStageSaving] = useState(false);
   const [suppSaving, setSuppSaving] = useState(false);
   const [suppFormError, setSuppFormError] = useState<string | null>(null);
   const [templates, setTemplates] = useState<DietChartOut[] | null>(null);
@@ -238,9 +239,33 @@ export default function ClientDetailPage() {
             </h1>
             <div className="h-0.5 w-14 bg-accent" aria-hidden />
             <div className="flex items-center gap-3">
-              <Badge variant="secondary">
-                {JOURNEY_STAGE_LABEL[client!.journey_stage] ?? client!.journey_stage}
-              </Badge>
+              <select
+                value={client!.journey_stage}
+                disabled={stageSaving}
+                onChange={async (e) => {
+                  const newStage = e.target.value;
+                  const prevStage = client!.journey_stage;
+                  setClient((prev) => prev ? { ...prev, journey_stage: newStage } : prev);
+                  setStageSaving(true);
+                  try {
+                    const updated = await patchClient(clientId, { journey_stage: newStage });
+                    setClient((prev) => prev ? { ...prev, journey_stage: updated.journey_stage } : prev);
+                  } catch (err) {
+                    console.error(err);
+                    setClient((prev) => prev ? { ...prev, journey_stage: prevStage } : prev);
+                  } finally {
+                    setStageSaving(false);
+                  }
+                }}
+                className="rounded-full border border-border bg-muted px-3 py-1 font-sans text-sm font-medium cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {Object.entries(JOURNEY_STAGE_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              {stageSaving && (
+                <span className="font-sans text-xs text-muted-foreground">Saving…</span>
+              )}
               {client!.code && (
                 <span className="font-sans text-xs text-muted-foreground">{client!.code}</span>
               )}

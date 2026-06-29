@@ -108,6 +108,19 @@ export async function getClientAst(clientId: string): Promise<AstOut> {
   return AstOutSchema.parse(await res.json());
 }
 
+export async function patchClient(
+  clientId: string,
+  input: { journey_stage?: string },
+): Promise<ClientOut> {
+  const res = await fetchWithAuth(`${API_URL}/api/clients/${clientId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`Patch client failed: ${res.status}`);
+  return ClientOutSchema.parse(await res.json());
+}
+
 export async function createInvite(clientId: string): Promise<InviteOut> {
   const res = await fetchWithAuth(`${API_URL}/api/clients/${clientId}/invite`, {
     method: "POST",
