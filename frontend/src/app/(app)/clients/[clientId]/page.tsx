@@ -56,6 +56,8 @@ export default function ClientDetailPage() {
   const [reopenedIds, setReopenedIds] = useState<Set<string>>(new Set());
   const [dietChart, setDietChart] = useState<DietChartOut | null | undefined>(undefined);
   const [supplements, setSupplements] = useState<SupplementOut[] | null>(null);
+  const [openItemsError, setOpenItemsError] = useState(false);
+  const [pastSessionsOpen, setPastSessionsOpen] = useState(false);
   const [suppLoadError, setSuppLoadError] = useState(false);
   const [showSuppForm, setShowSuppForm] = useState(false);
   const [editingSuppId, setEditingSuppId] = useState<string | null>(null);
@@ -93,7 +95,7 @@ export default function ClientDetailPage() {
 
     listActionItems({ client_id: clientId, status: "open", limit: 50 })
       .then((r) => setOpenItems(r.items))
-      .catch(() => setLoadError(true));
+      .catch(() => setOpenItemsError(true));
 
     listSupplements(clientId)
       .then(setSupplements)
@@ -345,40 +347,45 @@ export default function ClientDetailPage() {
                     ))}
                   </ul>
                   {sessions.length > 5 && (
-                    <details className="pt-2">
-                      <summary className="flex cursor-pointer items-center gap-2 font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors duration-150 list-none">
-                        Past sessions
-                        <span>▼</span>
-                      </summary>
-                      <ul className="mt-3 divide-y divide-border">
-                        {sessions.slice(5).map((sess) => (
-                          <li key={sess.id}>
-                            <Link
-                              href={`/clients/${clientId}/sessions/${sess.id}`}
-                              className="flex items-center justify-between py-3 opacity-70 transition-colors duration-150 hover:text-primary hover:opacity-100"
-                            >
-                              <div>
-                                <span className="font-heading text-base font-bold text-foreground">
-                                  Session {sess.session_number}
-                                </span>
-                                <span className="ml-3 font-sans text-sm text-muted-foreground">
-                                  {new Date(sess.scheduled_at).toLocaleDateString("en-IN", {
-                                    day: "numeric",
-                                    month: "short",
-                                    year: "numeric",
-                                  })}
-                                </span>
-                              </div>
-                              {sess.ended_at ? (
-                                <Badge variant="secondary">Ended</Badge>
-                              ) : (
-                                <Badge variant="outline">Scheduled</Badge>
-                              )}
-                            </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
+                    <div className="pt-2">
+                      <button
+                        onClick={() => setPastSessionsOpen((prev) => !prev)}
+                        className="flex w-full items-center justify-between text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <span>Past sessions</span>
+                        <span>{pastSessionsOpen ? "▲" : "▼"}</span>
+                      </button>
+                      {pastSessionsOpen && (
+                        <ul className="mt-3 divide-y divide-border">
+                          {sessions.slice(5).map((sess) => (
+                            <li key={sess.id}>
+                              <Link
+                                href={`/clients/${clientId}/sessions/${sess.id}`}
+                                className="flex items-center justify-between py-3 opacity-70 transition-colors duration-150 hover:text-primary hover:opacity-100"
+                              >
+                                <div>
+                                  <span className="font-heading text-base font-bold text-foreground">
+                                    Session {sess.session_number}
+                                  </span>
+                                  <span className="ml-3 font-sans text-sm text-muted-foreground">
+                                    {new Date(sess.scheduled_at).toLocaleDateString("en-IN", {
+                                      day: "numeric",
+                                      month: "short",
+                                      year: "numeric",
+                                    })}
+                                  </span>
+                                </div>
+                                {sess.ended_at ? (
+                                  <Badge variant="secondary">Ended</Badge>
+                                ) : (
+                                  <Badge variant="outline">Scheduled</Badge>
+                                )}
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   )}
                 </>
               )}
@@ -705,7 +712,9 @@ export default function ClientDetailPage() {
                 Open action items
               </h2>
               <Separator />
-              {openItems === null ? (
+              {openItemsError ? (
+                <p className="text-sm text-destructive">Could not load action items.</p>
+              ) : openItems === null ? (
                 <div className="space-y-2">
                   <Skeleton className="h-10 w-full" />
                   <Skeleton className="h-10 w-full" />
@@ -801,12 +810,6 @@ export default function ClientDetailPage() {
                         day: "numeric", month: "short", year: "numeric",
                       })}
                     </dd>
-                  </>
-                )}
-                {client!.course_goal && (
-                  <>
-                    <dt className="text-muted-foreground">Goal</dt>
-                    <dd className="text-foreground">{client!.course_goal}</dd>
                   </>
                 )}
               </dl>

@@ -1,7 +1,7 @@
 import { API_URL } from "@/lib/config";
 import { clearToken, getToken, setToken } from "@/lib/auth/tokens";
 
-async function silentRefresh(): Promise<boolean> {
+export async function silentRefresh(): Promise<boolean> {
   try {
     const res = await fetch(`${API_URL}/api/auth/refresh`, {
       method: "POST",

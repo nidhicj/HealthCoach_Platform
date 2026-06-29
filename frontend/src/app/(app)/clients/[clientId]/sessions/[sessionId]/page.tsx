@@ -342,7 +342,7 @@ function MomTab({
     setDrafting(true);
     setDraftVisible(false);
     try {
-      const result = await draftMom(session.id, session.session_notes ?? "");
+      const result = await draftMom(session.id, session.notes_internal ?? "");
       onMomChange(result);
       setSessionReviewText(result.draft_text);
       setSessionReviewFrozen(false);
