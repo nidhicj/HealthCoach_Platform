@@ -58,6 +58,17 @@ class ClientOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PatchClientInput(BaseModel):
+    journey_stage: str | None = None
+
+    @field_validator("journey_stage")
+    @classmethod
+    def validate_journey_stage(cls, v: str | None) -> str | None:
+        if v is not None and v not in _VALID_JOURNEY_STAGES:
+            raise ValueError(f"journey_stage must be one of {_VALID_JOURNEY_STAGES}")
+        return v
+
+
 class ClientDetailOut(ClientOut):
     ast: None = None  # P3 stub — full AST computation in P5
     open_action_items_count: int = 0
@@ -210,6 +221,24 @@ async def get_client(
 ) -> ClientDetailOut:
     client = await _get_owned_client(db, client_id, hc_id)
     return ClientDetailOut.model_validate(client)
+
+
+@router.patch("/{client_id}")
+async def patch_client(
+    client_id: UUID,
+    body: PatchClientInput,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> ClientOut:
+    client = await _get_owned_client(db, client_id, hc_id)
+
+    if body.journey_stage is not None:
+        client.journey_stage = body.journey_stage
+
+    await db.commit()
+    await db.refresh(client)
+    return ClientOut.model_validate(client)
 
 
 @router.get("/{client_id}/ast")
