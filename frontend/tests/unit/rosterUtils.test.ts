@@ -98,6 +98,14 @@ describe("findMilestone", () => {
     const s = baseSession({ session_number: 10, scheduled_at: new Date(Date.now() - 8 * 86400000).toISOString() });
     expect(findMilestone([s], [baseClient({})])).toBeNull();
   });
+
+  it("ignores future milestone sessions", () => {
+    const s = baseSession({
+      session_number: 10,
+      scheduled_at: new Date(Date.now() + 86400000).toISOString(),
+    });
+    expect(findMilestone([s], [baseClient({})])).toBeNull();
+  });
 });
 
 describe("formatRelativeDate", () => {
