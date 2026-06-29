@@ -4,12 +4,11 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getClient, getClientAst, type ClientDetailOut, type AstOut } from "@/lib/api/clients";
+import { getClient, type ClientDetailOut } from "@/lib/api/clients";
 import { listSessions, type SessionOut } from "@/lib/api/sessions";
 import { listActionItems, patchActionItem, type ActionItemOut } from "@/lib/api/actionItems";
 import { getClientDietChart, type DietChartOut } from "@/lib/api/dietCharts";
@@ -34,12 +33,6 @@ const JOURNEY_STAGE_LABEL: Record<string, string> = {
   completed: "Completed",
 };
 
-const FLAG_LABEL: Record<string, string> = {
-  missed_action_item: "Missed action item",
-  no_recent_checkin: "No recent check-in",
-  manual_sentiment_flag: "Sentiment flag",
-};
-
 const SUPPLEMENT_CATALOG = [
   "Vitamin D3", "Vitamin B12", "Vitamin C", "Omega-3 / Fish Oil",
   "Magnesium", "Iron", "Zinc", "Calcium", "Ashwagandha",
@@ -50,13 +43,12 @@ const SUPPLEMENT_CATALOG = [
 export default function ClientDetailPage() {
   const { clientId } = useParams<{ clientId: string }>();
   const [client, setClient] = useState<ClientDetailOut | null>(null);
-  const [ast, setAst] = useState<AstOut | null>(null);
   const [sessions, setSessions] = useState<SessionOut[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [closedItems, setClosedItems] = useState<ActionItemOut[] | null>(null);
+  const [openItems, setOpenItems] = useState<ActionItemOut[] | null>(null);
   const [reopenedIds, setReopenedIds] = useState<Set<string>>(new Set());
-  const [showClosed, setShowClosed] = useState(false);
   const [dietChart, setDietChart] = useState<DietChartOut | null | undefined>(undefined);
   const [supplements, setSupplements] = useState<SupplementOut[] | null>(null);
   const [suppLoadError, setSuppLoadError] = useState(false);
@@ -76,18 +68,20 @@ export default function ClientDetailPage() {
     if (!clientId) return;
     Promise.all([
       getClient(clientId),
-      getClientAst(clientId),
       listSessions({ client_id: clientId, limit: 20 }),
       listActionItems({ client_id: clientId, status: "completed", limit: 50 }),
       getClientDietChart(clientId),
     ])
-      .then(([c, a, s, closed, dc]) => {
+      .then(([c, s, closed, dc]) => {
         setClient(c);
-        setAst(a);
         setSessions(s.items);
         setClosedItems(closed.items);
         setDietChart(dc);
       })
+      .catch(() => setLoadError(true));
+
+    listActionItems({ client_id: clientId, status: "open", limit: 50 })
+      .then((r) => setOpenItems(r.items))
       .catch(() => setLoadError(true));
 
     listSupplements(clientId)
@@ -195,13 +189,13 @@ export default function ClientDetailPage() {
   const loading = !loadError && client === null;
 
   const displayOpen = [
-    ...(ast?.open_items ?? []).filter((i) => !completedIds.has(i.id)),
+    ...(openItems ?? []).filter((i) => !completedIds.has(i.id)),
     ...(closedItems ?? []).filter((i) => reopenedIds.has(i.id)),
   ];
 
   const displayClosed = [
     ...(closedItems ?? []).filter((i) => !reopenedIds.has(i.id)),
-    ...(ast?.open_items ?? []).filter((i) => completedIds.has(i.id)),
+    ...(openItems ?? []).filter((i) => completedIds.has(i.id)),
   ];
 
   return (
@@ -220,363 +214,69 @@ export default function ClientDetailPage() {
           <Skeleton className="h-5 w-32" />
         </div>
       ) : loadError ? (
-        <p className="font-sans text-sm text-destructive">
-          Could not load client.
-        </p>
+        <p className="font-sans text-sm text-destructive">Could not load client.</p>
       ) : (
         <>
-          {/* Client name header */}
+          {/* Client header */}
           <div className="space-y-2">
             <h1 className="font-heading text-4xl font-black text-foreground">
               {client!.full_name}
             </h1>
-            {/* ONE Marigold accent line — brand rule: divider beneath the headline */}
             <div className="h-0.5 w-14 bg-accent" aria-hidden />
             <div className="flex items-center gap-3">
               <Badge variant="secondary">
                 {JOURNEY_STAGE_LABEL[client!.journey_stage] ?? client!.journey_stage}
               </Badge>
               {client!.code && (
-                <span className="font-sans text-xs text-muted-foreground">
-                  {client!.code}
-                </span>
+                <span className="font-sans text-xs text-muted-foreground">{client!.code}</span>
               )}
             </div>
           </div>
 
-          {/* Two-column layout */}
-          <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
-            {/* Left: meta + session history */}
-            <div className="space-y-8">
-              {/* Client meta */}
-              <section className="space-y-3 rounded-2xl border border-border bg-muted p-6">
-                <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-                  Details
-                </h2>
-                <Separator />
-                <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 font-sans text-sm">
-                  {client!.email && (
-                    <>
-                      <dt className="text-muted-foreground">Email</dt>
-                      <dd className="text-foreground">{client!.email}</dd>
-                    </>
-                  )}
-                  {client!.phone && (
-                    <>
-                      <dt className="text-muted-foreground">Phone</dt>
-                      <dd className="text-foreground">{client!.phone}</dd>
-                    </>
-                  )}
-                  {client!.course_goal && (
-                    <>
-                      <dt className="text-muted-foreground">Goal</dt>
-                      <dd className="text-foreground">{client!.course_goal}</dd>
-                    </>
-                  )}
-                </dl>
-              </section>
+          {/* ── GOAL — bg-A full width ── */}
+          <section className="rounded-2xl border border-border bg-muted p-6">
+            <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary mb-3">
+              Goal
+            </h2>
+            <Separator />
+            <p className="mt-3 font-heading text-lg font-bold text-foreground">
+              {client!.course_goal ?? (
+                <span className="font-sans text-sm font-normal italic text-muted-foreground">
+                  Add a goal for this client
+                </span>
+              )}
+            </p>
+          </section>
 
-              {/* Open action items */}
-              <section className="space-y-4 rounded-2xl border border-border bg-section-fill-02 p-6">
+          {/* ── SESSIONS (60%) + SUPPLEMENTS (40%) — bg-B / bg-C ── */}
+          <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
+            {/* Sessions — bg-B */}
+            <section className="space-y-4 rounded-2xl border border-border bg-background p-6">
+              <div className="flex items-center justify-between">
                 <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-                  Open action items
+                  Sessions
                 </h2>
-                <Separator />
-                {ast === null ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-10 w-full" />
-                    <Skeleton className="h-10 w-full" />
-                  </div>
-                ) : displayOpen.length === 0 ? (
-                  <p className="py-2 font-heading text-lg font-black text-muted-foreground">
-                    All clear. <em>Nothing pending.</em>
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-border">
-                    {displayOpen.map((item) => (
-                      <li key={item.id} className="flex items-start gap-3 py-3">
-                        <input
-                          type="checkbox"
-                          checked={false}
-                          onChange={() => toggleItem(item.id, true)}
-                          className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
-                        />
-                        <div className="space-y-0.5">
-                          <p className="font-sans text-sm text-foreground">
-                            {item.description}
-                          </p>
-                          {item.due_date && (
-                            <p
-                              className={cn(
-                                "font-sans text-xs",
-                                isOverdue(item.due_date)
-                                  ? "font-bold text-destructive"
-                                  : "text-muted-foreground",
-                              )}
-                            >
-                              Due {new Date(item.due_date).toLocaleDateString("en-IN")}
-                              {isOverdue(item.due_date) && " · Overdue"}
-                            </p>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-
-              {/* Closed action items (collapsible) */}
-              <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
-                <button
-                  type="button"
-                  onClick={() => setShowClosed((v) => !v)}
-                  className="flex w-full items-center justify-between"
+                <Link
+                  href={`/clients/${clientId}/sessions/new`}
+                  className={cn(buttonVariants({ variant: "accent", size: "sm" }))}
                 >
-                  <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-                    Closed action items
-                    {displayClosed.length > 0 && (
-                      <span className="ml-2 font-normal normal-case tracking-normal text-muted-foreground">
-                        ({displayClosed.length})
-                      </span>
-                    )}
-                  </h2>
-                  <span className="font-sans text-xs text-muted-foreground">
-                    {showClosed ? "▲" : "▼"}
-                  </span>
-                </button>
-                {showClosed && (
-                  <>
-                    <Separator />
-                    {closedItems === null ? (
-                      <div className="space-y-2">
-                        <Skeleton className="h-10 w-full" />
-                      </div>
-                    ) : displayClosed.length === 0 ? (
-                      <p className="py-2 font-sans text-sm italic text-muted-foreground">
-                        No completed items yet.
-                      </p>
-                    ) : (
-                      <ul className="divide-y divide-border">
-                        {displayClosed.map((item) => (
-                          <li key={item.id} className="flex items-start gap-3 py-3 opacity-60">
-                            <input
-                              type="checkbox"
-                              checked={true}
-                              onChange={() => toggleItem(item.id, false)}
-                              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
-                            />
-                            <div className="space-y-0.5">
-                              <p className="font-sans text-sm text-foreground line-through">
-                                {item.description}
-                              </p>
-                              {item.due_date && (
-                                <p className="font-sans text-xs text-muted-foreground">
-                                  Due {new Date(item.due_date).toLocaleDateString("en-IN")}
-                                </p>
-                              )}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </>
-                )}
-              </section>
-
-              {/* Supplement recommendations */}
-              <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-                    Supplement recommendations
-                  </h2>
-                  {!showSuppForm && (
-                    <button
-                      type="button"
-                      onClick={openAddForm}
-                      className="font-sans text-xs text-primary underline-offset-4 hover:underline"
-                    >
-                      + Add
-                    </button>
-                  )}
+                  New session
+                </Link>
+              </div>
+              <Separator />
+              {sessions === null ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
                 </div>
-                <Separator />
-
-                {/* Inline form */}
-                {showSuppForm && (
-                  <div className="space-y-3 rounded-xl border border-border bg-background p-4">
-                    <div className="space-y-1">
-                      <label className="font-sans text-xs text-muted-foreground">
-                        Name <span className="text-destructive">*</span>
-                      </label>
-                      <input
-                        list="supplement-catalog"
-                        value={suppForm.name}
-                        onChange={(e) => setSuppForm((f) => ({ ...f, name: e.target.value }))}
-                        placeholder="Type or select a supplement"
-                        className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
-                      />
-                      <datalist id="supplement-catalog">
-                        {SUPPLEMENT_CATALOG.map((s) => (
-                          <option key={s} value={s} />
-                        ))}
-                      </datalist>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="font-sans text-xs text-muted-foreground">Dosage</label>
-                        <input
-                          value={suppForm.dosage}
-                          onChange={(e) => setSuppForm((f) => ({ ...f, dosage: e.target.value }))}
-                          placeholder="e.g. 2000 IU daily"
-                          className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="font-sans text-xs text-muted-foreground">Duration (days)</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={suppForm.duration_days}
-                          onChange={(e) => setSuppForm((f) => ({ ...f, duration_days: e.target.value }))}
-                          placeholder="e.g. 30"
-                          className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="font-sans text-xs text-muted-foreground">Date recommended</label>
-                      <input
-                        type="date"
-                        value={suppForm.recommended_at}
-                        onChange={(e) => setSuppForm((f) => ({ ...f, recommended_at: e.target.value }))}
-                        className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="font-sans text-xs text-muted-foreground">Notes (optional)</label>
-                      <textarea
-                        value={suppForm.notes}
-                        onChange={(e) => setSuppForm((f) => ({ ...f, notes: e.target.value }))}
-                        placeholder="Reason or context"
-                        rows={2}
-                        className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
-                      />
-                    </div>
-
-                    {suppFormError && (
-                      <p className="font-sans text-xs text-destructive">{suppFormError}</p>
-                    )}
-
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={handleSuppSave}
-                          disabled={suppSaving}
-                          className="rounded-md bg-primary px-3 py-1.5 font-sans text-xs font-bold text-primary-foreground disabled:opacity-50"
-                        >
-                          {suppSaving ? "Saving…" : "Save"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={closeSuppForm}
-                          className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                      {editingSuppId && (
-                        <button
-                          type="button"
-                          onClick={() => handleSuppDelete(editingSuppId)}
-                          className="font-sans text-xs text-destructive underline-offset-4 hover:underline"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* List */}
-                {suppLoadError ? (
-                  <p className="font-sans text-sm text-destructive">Could not load supplements.</p>
-                ) : supplements === null ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-10 w-full" />
-                    <Skeleton className="h-10 w-full" />
-                  </div>
-                ) : supplements.length === 0 && !showSuppForm ? (
-                  <p className="font-sans text-sm italic text-muted-foreground">
-                    No supplements logged yet.
-                  </p>
-                ) : (
+              ) : sessions.length === 0 ? (
+                <p className="font-heading text-lg font-black text-muted-foreground py-2">
+                  No sessions yet. <em>Start one.</em>
+                </p>
+              ) : (
+                <>
                   <ul className="divide-y divide-border">
-                    {supplements.map((s) => (
-                      <li key={s.id} className="py-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="space-y-0.5">
-                            <p className="font-sans text-sm text-foreground">{s.name}</p>
-                            <p className="font-sans text-xs text-muted-foreground">
-                              {[
-                                s.dosage,
-                                s.duration_days ? `${s.duration_days} days` : null,
-                                new Date(s.recommended_at).toLocaleDateString("en-IN", {
-                                  day: "numeric",
-                                  month: "short",
-                                  year: "numeric",
-                                }),
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </p>
-                            {s.notes && (
-                              <p className="font-sans text-xs italic text-muted-foreground">{s.notes}</p>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => openEditForm(s)}
-                            className="shrink-0 font-sans text-xs text-primary underline-offset-4 hover:underline"
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-
-              {/* Session history */}
-              <section className="space-y-4 rounded-2xl border border-border bg-section-fill-02 p-6">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-                    Sessions
-                  </h2>
-                  <Link
-                    href={`/clients/${clientId}/sessions/new`}
-                    className={cn(buttonVariants({ variant: "default", size: "sm" }))}
-                  >
-                    New session
-                  </Link>
-                </div>
-                <Separator />
-                {sessions === null ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-12 w-full" />
-                    <Skeleton className="h-12 w-full" />
-                  </div>
-                ) : sessions.length === 0 ? (
-                  <p className="font-heading text-lg font-black text-muted-foreground py-2">
-                    No sessions yet. <em>Start one.</em>
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-border">
-                    {sessions.map((sess) => (
+                    {sessions.slice(0, 5).map((sess) => (
                       <li key={sess.id}>
                         <Link
                           href={`/clients/${clientId}/sessions/${sess.id}`}
@@ -605,152 +305,396 @@ export default function ClientDetailPage() {
                       </li>
                     ))}
                   </ul>
+                  {sessions.length > 5 && (
+                    <details className="pt-2">
+                      <summary className="flex cursor-pointer items-center gap-2 font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors duration-150 list-none">
+                        Past sessions
+                        <span>▼</span>
+                      </summary>
+                      <ul className="mt-3 divide-y divide-border">
+                        {sessions.slice(5).map((sess) => (
+                          <li key={sess.id}>
+                            <Link
+                              href={`/clients/${clientId}/sessions/${sess.id}`}
+                              className="flex items-center justify-between py-3 opacity-70 transition-colors duration-150 hover:text-primary hover:opacity-100"
+                            >
+                              <div>
+                                <span className="font-heading text-base font-bold text-foreground">
+                                  Session {sess.session_number}
+                                </span>
+                                <span className="ml-3 font-sans text-sm text-muted-foreground">
+                                  {new Date(sess.scheduled_at).toLocaleDateString("en-IN", {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric",
+                                  })}
+                                </span>
+                              </div>
+                              {sess.ended_at ? (
+                                <Badge variant="secondary">Ended</Badge>
+                              ) : (
+                                <Badge variant="outline">Scheduled</Badge>
+                              )}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </>
+              )}
+            </section>
+
+            {/* Supplement Recommendations — bg-C */}
+            <section className="space-y-4 rounded-2xl border border-border bg-section-fill-02 p-6">
+              <div className="flex items-center justify-between">
+                <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+                  Supplement Recommendations
+                </h2>
+                {!showSuppForm && (
+                  <button
+                    type="button"
+                    onClick={openAddForm}
+                    className="font-sans text-xs text-primary underline-offset-4 hover:underline"
+                  >
+                    + Add
+                  </button>
                 )}
-              </section>
+              </div>
+              <Separator />
 
-            </div>
-
-            {/* Right: AST card + diet chart */}
-            <aside className="space-y-4">
-              <Card className="bg-muted">
-                <CardHeader>
-                  <CardTitle className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-                    Client status
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-5">
-                  {ast === null ? (
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-full" />
-                      <Skeleton className="h-4 w-3/4" />
-                    </div>
-                  ) : (
-                    <>
-                      {/* Triage flags */}
-                      {ast.triage_flags.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="font-sans text-xs font-bold uppercase tracking-widest text-destructive">
-                            Flags
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {ast.triage_flags.map((flag) => (
-                              <Badge key={flag} variant="destructive">
-                                {FLAG_LABEL[flag] ?? flag}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Status summary */}
-                      <div className="space-y-1.5">
-                        <p className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                          Recent check-ins
-                        </p>
-                        <p className="font-sans text-sm text-foreground whitespace-pre-line">
-                          {ast.status_summary}
-                        </p>
-                      </div>
-
-                      {/* Open action items count */}
-                      <div className="space-y-1.5">
-                        <p className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                          Open items
-                        </p>
-                        <p className="font-heading text-2xl font-black text-foreground">
-                          {ast.open_items.length}
-                        </p>
-                      </div>
-
-                      {/* Missed action items count */}
-                      {ast.missed_items.length > 0 && (
-                        <div className="space-y-1.5">
-                          <p className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                            Missed
-                          </p>
-                          <p className="font-heading text-2xl font-black text-destructive">
-                            {ast.missed_items.length}
-                          </p>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Diet chart preview */}
-              <Card className="bg-muted">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-                      Diet chart
-                    </CardTitle>
-                    <Link
-                      href={`/clients/${clientId}/diet-chart`}
-                      className="font-sans text-xs text-primary underline-offset-4 hover:underline"
-                    >
-                      {dietChart ? "Edit →" : "Generate →"}
-                    </Link>
+              {/* Supplement inline form */}
+              {showSuppForm && (
+                <div className="space-y-3 rounded-xl border border-border bg-background p-4">
+                  <div className="space-y-1">
+                    <label className="font-sans text-xs text-muted-foreground">
+                      Name <span className="text-destructive">*</span>
+                    </label>
+                    <input
+                      list="supplement-catalog"
+                      value={suppForm.name}
+                      onChange={(e) => setSuppForm((f) => ({ ...f, name: e.target.value }))}
+                      placeholder="Type or select a supplement"
+                      className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <datalist id="supplement-catalog">
+                      {SUPPLEMENT_CATALOG.map((s) => <option key={s} value={s} />)}
+                    </datalist>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  {dietChart === undefined ? (
-                    <Skeleton className="h-20 w-full" />
-                  ) : dietChart === null ? (
-                    <p className="font-sans text-sm italic text-muted-foreground">
-                      No diet chart yet.
-                    </p>
-                  ) : (
-                    (() => {
-                      const params = dietChart.parameters as Record<string, unknown>;
-                      const grid = (params?.grid ?? {}) as Record<
-                        string,
-                        Record<string, { food: string; timing: string }>
-                      >;
-                      const slots = (params?.meal_slots ?? []) as string[];
-                      return (
-                        <div className="overflow-x-auto">
-                          <table className="w-full border-collapse text-xs">
-                            <thead>
-                              <tr className="border-b border-border">
-                                <th className="py-1.5 pr-2 text-left font-sans font-bold text-muted-foreground">
-                                  Day
-                                </th>
-                                {slots.slice(0, 2).map((s) => (
-                                  <th
-                                    key={s}
-                                    className="border-l border-border px-2 py-1.5 text-left font-sans font-bold text-muted-foreground"
-                                  >
-                                    {s}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {["Monday", "Tuesday"].map((day) => (
-                                <tr key={day} className="border-b border-border last:border-0">
-                                  <td className="py-1.5 pr-2 font-heading font-bold text-foreground">
-                                    {day.slice(0, 3)}
-                                  </td>
-                                  {slots.slice(0, 2).map((s) => (
-                                    <td
-                                      key={s}
-                                      className="border-l border-border px-2 py-1.5 font-sans text-foreground"
-                                    >
-                                      {grid[day]?.[s]?.food ?? "—"}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      );
-                    })()
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="font-sans text-xs text-muted-foreground">Dosage</label>
+                      <input
+                        value={suppForm.dosage}
+                        onChange={(e) => setSuppForm((f) => ({ ...f, dosage: e.target.value }))}
+                        placeholder="e.g. 2000 IU daily"
+                        className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-sans text-xs text-muted-foreground">Duration (days)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={suppForm.duration_days}
+                        onChange={(e) => setSuppForm((f) => ({ ...f, duration_days: e.target.value }))}
+                        placeholder="e.g. 30"
+                        className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-sans text-xs text-muted-foreground">Date recommended</label>
+                    <input
+                      type="date"
+                      value={suppForm.recommended_at}
+                      onChange={(e) => setSuppForm((f) => ({ ...f, recommended_at: e.target.value }))}
+                      className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-sans text-xs text-muted-foreground">Notes (optional)</label>
+                    <textarea
+                      value={suppForm.notes}
+                      onChange={(e) => setSuppForm((f) => ({ ...f, notes: e.target.value }))}
+                      placeholder="Reason or context"
+                      rows={2}
+                      className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  {suppFormError && (
+                    <p className="font-sans text-xs text-destructive">{suppFormError}</p>
                   )}
-                </CardContent>
-              </Card>
-            </aside>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSuppSave}
+                        disabled={suppSaving}
+                        className="rounded-md bg-primary px-3 py-1.5 font-sans text-xs font-bold text-primary-foreground disabled:opacity-50"
+                      >
+                        {suppSaving ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={closeSuppForm}
+                        className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {editingSuppId && (
+                      <button
+                        type="button"
+                        onClick={() => handleSuppDelete(editingSuppId)}
+                        className="font-sans text-xs text-destructive underline-offset-4 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Supplement list */}
+              {suppLoadError ? (
+                <p className="font-sans text-sm text-destructive">Could not load supplements.</p>
+              ) : supplements === null ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : supplements.length === 0 && !showSuppForm ? (
+                <p className="font-sans text-sm italic text-muted-foreground">
+                  No supplements logged yet.
+                </p>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {supplements.map((s) => (
+                    <li key={s.id} className="py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-0.5">
+                          <p className="font-sans text-sm text-foreground">{s.name}</p>
+                          <p className="font-sans text-xs text-muted-foreground">
+                            {[
+                              s.dosage,
+                              s.duration_days ? `${s.duration_days} days` : null,
+                              new Date(s.recommended_at).toLocaleDateString("en-IN", {
+                                day: "numeric", month: "short", year: "numeric",
+                              }),
+                            ].filter(Boolean).join(" · ")}
+                          </p>
+                          {s.notes && (
+                            <p className="font-sans text-xs italic text-muted-foreground">{s.notes}</p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openEditForm(s)}
+                          className="shrink-0 font-sans text-xs text-primary underline-offset-4 hover:underline"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+
+          {/* ── DIET CHART — bg-A full width ── */}
+          <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
+            <div className="flex items-center justify-between">
+              <h2 className="font-heading text-2xl font-bold text-foreground">Diet chart</h2>
+              <Link
+                href={`/clients/${clientId}/diet-chart`}
+                className="font-sans text-xs text-primary underline-offset-4 hover:underline"
+              >
+                {dietChart ? "Edit →" : "Generate →"}
+              </Link>
+            </div>
+            <Separator />
+            {dietChart === undefined ? (
+              <Skeleton className="h-40 w-full" />
+            ) : dietChart === null ? (
+              <p className="font-sans text-sm italic text-muted-foreground">
+                No diet chart yet.{" "}
+                <Link
+                  href={`/clients/${clientId}/diet-chart`}
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  Generate one →
+                </Link>
+              </p>
+            ) : (
+              (() => {
+                const params = dietChart.parameters as Record<string, unknown>;
+                const grid = (params?.grid ?? {}) as Record<
+                  string,
+                  Record<string, { food: string; timing: string }>
+                >;
+                const slots = (params?.meal_slots ?? []) as string[];
+                const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+                return (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="py-2 pr-3 text-left font-sans font-bold text-muted-foreground">
+                            Day
+                          </th>
+                          {slots.map((s) => (
+                            <th
+                              key={s}
+                              className="border-l border-border px-3 py-2 text-left font-sans font-bold text-muted-foreground"
+                            >
+                              {s}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {days.map((day) => (
+                          <tr key={day} className="border-b border-border last:border-0">
+                            <td className="py-2 pr-3 font-heading font-bold text-foreground">
+                              {day.slice(0, 3)}
+                            </td>
+                            {slots.map((s) => (
+                              <td
+                                key={s}
+                                className="border-l border-border px-3 py-2 font-sans text-foreground"
+                              >
+                                <div>{grid[day]?.[s]?.food ?? "—"}</div>
+                                {grid[day]?.[s]?.timing && (
+                                  <div className="text-muted-foreground">{grid[day][s].timing}</div>
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()
+            )}
+          </section>
+
+          {/* ── OPEN ACTION ITEMS (50%) + DETAILS (50%) — bg-B / bg-C ── */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Open action items — bg-B */}
+            <section className="space-y-4 rounded-2xl border border-border bg-background p-6">
+              <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+                Open action items
+              </h2>
+              <Separator />
+              {openItems === null ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-10 w-full" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : displayOpen.length === 0 ? (
+                <p className="py-2 font-heading text-lg font-black text-muted-foreground">
+                  All clear. <em>Nothing pending.</em>
+                </p>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {displayOpen.map((item) => (
+                    <li key={item.id} className="flex items-start gap-3 py-3">
+                      <input
+                        type="checkbox"
+                        checked={false}
+                        onChange={() => toggleItem(item.id, true)}
+                        className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                      />
+                      <div className="space-y-0.5">
+                        <p className="font-sans text-sm text-foreground">{item.description}</p>
+                        {item.due_date && (
+                          <p
+                            className={cn(
+                              "font-sans text-xs",
+                              isOverdue(item.due_date)
+                                ? "font-bold text-destructive"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            Due {new Date(item.due_date).toLocaleDateString("en-IN")}
+                            {isOverdue(item.due_date) && " · Overdue"}
+                          </p>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* Closed items collapsible — retained */}
+              {displayClosed.length > 0 && (
+                <details className="pt-2 border-t border-border">
+                  <summary className="cursor-pointer py-2 font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground list-none hover:text-foreground transition-colors duration-150">
+                    Closed ({displayClosed.length}) ▼
+                  </summary>
+                  <ul className="mt-2 divide-y divide-border">
+                    {displayClosed.map((item) => (
+                      <li key={item.id} className="flex items-start gap-3 py-3 opacity-60">
+                        <input
+                          type="checkbox"
+                          checked={true}
+                          onChange={() => toggleItem(item.id, false)}
+                          className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                        />
+                        <p className="font-sans text-sm text-foreground line-through">
+                          {item.description}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </section>
+
+            {/* Client details — bg-C */}
+            <section className="space-y-4 rounded-2xl border border-border bg-section-fill-02 p-6">
+              <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+                Details
+              </h2>
+              <Separator />
+              <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 font-sans text-sm">
+                {client!.email && (
+                  <>
+                    <dt className="text-muted-foreground">Email</dt>
+                    <dd className="text-foreground">{client!.email}</dd>
+                  </>
+                )}
+                {client!.phone && (
+                  <>
+                    <dt className="text-muted-foreground">Phone</dt>
+                    <dd className="text-foreground">{client!.phone}</dd>
+                  </>
+                )}
+                <dt className="text-muted-foreground">Stage</dt>
+                <dd className="text-foreground">
+                  {JOURNEY_STAGE_LABEL[client!.journey_stage] ?? client!.journey_stage}
+                </dd>
+                {client!.course_start_date && (
+                  <>
+                    <dt className="text-muted-foreground">Since</dt>
+                    <dd className="text-foreground">
+                      {new Date(client!.course_start_date).toLocaleDateString("en-IN", {
+                        day: "numeric", month: "short", year: "numeric",
+                      })}
+                    </dd>
+                  </>
+                )}
+                {client!.course_goal && (
+                  <>
+                    <dt className="text-muted-foreground">Goal</dt>
+                    <dd className="text-foreground">{client!.course_goal}</dd>
+                  </>
+                )}
+              </dl>
+            </section>
           </div>
         </>
       )}
