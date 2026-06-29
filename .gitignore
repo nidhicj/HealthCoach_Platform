@@ -63,3 +63,11 @@ cloudRunLogs/
 docs/technical-rundown.html
 random.py
 
+parivarthan-ui-spec-detailed.md
+image.png
+.playwright-mcp/*
+.playwright-mcp/
+.playwright-mcp/
+landing-full.png
+.gitignore
+parivarthan-landing-spine.md
