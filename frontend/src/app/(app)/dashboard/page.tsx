@@ -152,10 +152,7 @@ export default function DashboardPage() {
         )}
 
         {loading ? (
-          <div
-            className="grid gap-4"
-            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}
-          >
+          <div className="grid gap-4 grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-24 rounded-2xl" />
             ))}
@@ -165,10 +162,7 @@ export default function DashboardPage() {
             No active clients yet. <em>Add your first one.</em>
           </p>
         ) : (
-          <div
-            className="grid gap-4"
-            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}
-          >
+          <div className="grid gap-4 grid-cols-3">
             {activeClients.map((client) => (
               <ClientCard
                 key={client.id}
@@ -192,10 +186,7 @@ export default function DashboardPage() {
               <span className="text-xs">{pastExpanded ? "▲" : "▼"}</span>
             </button>
             {pastExpanded && (
-              <div
-                className="grid gap-4 mt-2"
-                style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}
-              >
+              <div className="grid gap-4 grid-cols-3 mt-2">
                 {pastClients.map((client) => (
                   <ClientCard
                     key={client.id}

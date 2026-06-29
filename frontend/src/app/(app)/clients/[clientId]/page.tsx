@@ -265,7 +265,7 @@ export default function ClientDetailPage() {
           {/* ── SESSIONS (60%) + SUPPLEMENTS (40%) — bg-B / bg-C ── */}
           <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
             {/* Sessions — bg-B */}
-            <section className="space-y-4 rounded-2xl border border-border bg-background p-6">
+            <section className="space-y-4 rounded-2xl border border-border bg-section-fill-01 p-6">
               <div className="flex items-center justify-between">
                 <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
                   Sessions
@@ -675,7 +675,7 @@ export default function ClientDetailPage() {
           {/* ── OPEN ACTION ITEMS (50%) + DETAILS (50%) — bg-B / bg-C ── */}
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Open action items — bg-B */}
-            <section className="space-y-4 rounded-2xl border border-border bg-background p-6">
+            <section className="space-y-4 rounded-2xl border border-border bg-section-fill-01 p-6">
               <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
                 Open action items
               </h2>
