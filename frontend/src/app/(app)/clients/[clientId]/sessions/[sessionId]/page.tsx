@@ -342,9 +342,9 @@ function MomTab({
       const result = await draftMom(session.id, session.session_notes ?? "");
       onMomChange(result);
       setEditedText(result.draft_text);
-      setDraftVisible(true);
     } finally {
       setDrafting(false);
+      requestAnimationFrame(() => setDraftVisible(true));
     }
   }
 
