@@ -11,7 +11,12 @@ import { cn } from "@/lib/utils";
 import { getClient, type ClientDetailOut } from "@/lib/api/clients";
 import { listSessions, type SessionOut } from "@/lib/api/sessions";
 import { listActionItems, patchActionItem, type ActionItemOut } from "@/lib/api/actionItems";
-import { getClientDietChart, type DietChartOut } from "@/lib/api/dietCharts";
+import {
+  getClientDietChart,
+  generateDietChart,
+  listTemplates,
+  type DietChartOut,
+} from "@/lib/api/dietCharts";
 import {
   listSupplements,
   createSupplement,
@@ -63,6 +68,11 @@ export default function ClientDetailPage() {
   });
   const [suppSaving, setSuppSaving] = useState(false);
   const [suppFormError, setSuppFormError] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<DietChartOut[] | null>(null);
+  const [showGenerate, setShowGenerate] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!clientId) return;
@@ -87,6 +97,10 @@ export default function ClientDetailPage() {
     listSupplements(clientId)
       .then(setSupplements)
       .catch(() => setSuppLoadError(true));
+
+    listTemplates()
+      .then(setTemplates)
+      .catch(() => {}); // non-fatal — generate button just stays disabled
   }, [clientId]);
 
   async function toggleItem(id: string, markComplete: boolean) {
@@ -507,77 +521,154 @@ export default function ClientDetailPage() {
           <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
             <div className="flex items-center justify-between">
               <h2 className="font-heading text-2xl font-bold text-foreground">Diet chart</h2>
-              <Link
-                href={`/clients/${clientId}/diet-chart`}
-                className="font-sans text-xs text-primary underline-offset-4 hover:underline"
-              >
-                {dietChart ? "Edit →" : "Generate →"}
-              </Link>
+              {!showGenerate && (
+                <div className="flex items-center gap-3">
+                  {dietChart && (
+                    <Link
+                      href={`/clients/${clientId}/diet-chart`}
+                      className="font-sans text-xs text-primary underline-offset-4 hover:underline"
+                    >
+                      Edit →
+                    </Link>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { setShowGenerate(true); setGenerateError(null); }}
+                    className={cn(
+                      buttonVariants({ variant: "accent", size: "sm" }),
+                    )}
+                  >
+                    {dietChart ? "Regenerate" : "Generate chart"}
+                  </button>
+                </div>
+              )}
+              {showGenerate && (
+                <button
+                  type="button"
+                  onClick={() => setShowGenerate(false)}
+                  className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+                >
+                  Cancel
+                </button>
+              )}
             </div>
             <Separator />
+            {showGenerate && (
+              <div className="space-y-3 rounded-xl border border-border bg-background p-4">
+                <div className="space-y-1">
+                  <label className="font-sans text-xs text-muted-foreground">
+                    Base this chart on a template
+                  </label>
+                  <select
+                    value={selectedTemplateId}
+                    onChange={(e) => setSelectedTemplateId(e.target.value)}
+                    className="w-full rounded-md border border-border bg-muted px-3 py-1.5 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">Select a template…</option>
+                    {(templates ?? []).map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {generateError && (
+                  <p className="font-sans text-xs text-destructive">{generateError}</p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={!selectedTemplateId || generating}
+                    onClick={async () => {
+                      if (!selectedTemplateId) return;
+                      setGenerating(true);
+                      setGenerateError(null);
+                      try {
+                        const result = await generateDietChart(clientId, { template_id: selectedTemplateId });
+                        setDietChart(result.chart);
+                        setShowGenerate(false);
+                      } catch {
+                        setGenerateError("Generation failed. Please try again.");
+                      } finally {
+                        setGenerating(false);
+                      }
+                    }}
+                    className={cn(
+                      buttonVariants({ variant: "accent", size: "sm" }),
+                      "disabled:opacity-50",
+                    )}
+                  >
+                    {generating ? "Generating…" : "Generate →"}
+                  </button>
+                </div>
+                {generating && (
+                  <div className="space-y-2 pt-2">
+                    <Skeleton className="h-6 w-full" />
+                    <Skeleton className="h-6 w-full" />
+                    <Skeleton className="h-6 w-5/6" />
+                    <Skeleton className="h-6 w-full" />
+                  </div>
+                )}
+              </div>
+            )}
             {dietChart === undefined ? (
               <Skeleton className="h-40 w-full" />
             ) : dietChart === null ? (
               <p className="font-sans text-sm italic text-muted-foreground">
-                No diet chart yet.{" "}
-                <Link
-                  href={`/clients/${clientId}/diet-chart`}
-                  className="text-primary underline-offset-4 hover:underline"
-                >
-                  Generate one →
-                </Link>
+                No diet chart yet.
               </p>
-            ) : (
-              (() => {
-                const params = dietChart.parameters as Record<string, unknown>;
-                const grid = (params?.grid ?? {}) as Record<
-                  string,
-                  Record<string, { food: string; timing: string }>
-                >;
-                const slots = (params?.meal_slots ?? []) as string[];
-                const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-                return (
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-xs">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="py-2 pr-3 text-left font-sans font-bold text-muted-foreground">
-                            Day
-                          </th>
-                          {slots.map((s) => (
-                            <th
-                              key={s}
-                              className="border-l border-border px-3 py-2 text-left font-sans font-bold text-muted-foreground"
-                            >
-                              {s}
+            ) : null}
+            {!generating && dietChart !== null && dietChart !== undefined && (
+              <div className="animate-in fade-in duration-200">
+                {(() => {
+                  const params = dietChart.parameters as Record<string, unknown>;
+                  const grid = (params?.grid ?? {}) as Record<
+                    string,
+                    Record<string, { food: string; timing: string }>
+                  >;
+                  const slots = (params?.meal_slots ?? []) as string[];
+                  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-xs">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="py-2 pr-3 text-left font-sans font-bold text-muted-foreground">
+                              Day
                             </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {days.map((day) => (
-                          <tr key={day} className="border-b border-border last:border-0">
-                            <td className="py-2 pr-3 font-heading font-bold text-foreground">
-                              {day.slice(0, 3)}
-                            </td>
                             {slots.map((s) => (
-                              <td
+                              <th
                                 key={s}
-                                className="border-l border-border px-3 py-2 font-sans text-foreground"
+                                className="border-l border-border px-3 py-2 text-left font-sans font-bold text-muted-foreground"
                               >
-                                <div>{grid[day]?.[s]?.food ?? "—"}</div>
-                                {grid[day]?.[s]?.timing && (
-                                  <div className="text-muted-foreground">{grid[day][s].timing}</div>
-                                )}
-                              </td>
+                                {s}
+                              </th>
                             ))}
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                );
-              })()
+                        </thead>
+                        <tbody>
+                          {days.map((day) => (
+                            <tr key={day} className="border-b border-border last:border-0">
+                              <td className="py-2 pr-3 font-heading font-bold text-foreground">
+                                {day.slice(0, 3)}
+                              </td>
+                              {slots.map((s) => (
+                                <td
+                                  key={s}
+                                  className="border-l border-border px-3 py-2 font-sans text-foreground"
+                                >
+                                  <div>{grid[day]?.[s]?.food ?? "—"}</div>
+                                  {grid[day]?.[s]?.timing && (
+                                    <div className="text-muted-foreground">{grid[day][s].timing}</div>
+                                  )}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
             )}
           </section>
 
