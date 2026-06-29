@@ -44,6 +44,7 @@ class SessionOut(BaseModel):
 
 
 class SessionPatch(BaseModel):
+    notes_internal: str | None = None
     session_notes: str | None = None
 
 
@@ -201,6 +202,8 @@ async def patch_session(
 ) -> SessionOut:
     logger = get_logger(request_id=getattr(request.state, "request_id", ""), hc_id=hc_id)
     sess = await _get_owned_session(db, session_id, hc_id)
+    if body.notes_internal is not None:
+        sess.notes_internal = body.notes_internal
     if body.session_notes is not None:
         sess.session_notes = body.session_notes
     await db.flush()

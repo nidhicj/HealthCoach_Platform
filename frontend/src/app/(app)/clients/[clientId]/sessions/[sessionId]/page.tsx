@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +15,6 @@ import {
   getMom,
   draftMom,
   patchMom,
-  sendMom,
   endSession,
   patchSession,
   type SessionOut,
@@ -137,34 +136,25 @@ function NotesTab({
   filesLoading: boolean;
   onFilesChange: (files: ClientFileOut[]) => void;
 }) {
-  const [notes, setNotes] = useState(session.session_notes ?? "");
-  const [saving, setSaving] = useState(false);
+  const [notes, setNotes] = useState(session.notes_internal ?? "");
+  const [notesFrozen, setNotesFrozen] = useState(false);
+  const [notesSaving, setNotesSaving] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const triggerSave = useCallback(
-    (value: string) => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(async () => {
-        setSaving(true);
-        try {
-          await patchSession(session.id, { session_notes: value });
-        } finally {
-          setSaving(false);
-        }
-      }, 800);
-    },
-    [session.id],
-  );
-
-  function handleNotesChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const val = e.target.value;
-    setNotes(val);
-    triggerSave(val);
+  async function handleNotesSave() {
+    setNotesSaving(true);
+    try {
+      await patchSession(session.id, { notes_internal: notes });
+      setNotesFrozen(true);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setNotesSaving(false);
+    }
   }
 
   async function handleFiles(incoming: FileList | null) {
@@ -210,15 +200,29 @@ function NotesTab({
           <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
             Session notes
           </h2>
-          {saving && (
-            <span className="font-sans text-xs text-muted-foreground">Saving…</span>
-          )}
+          <div className="flex items-center gap-2">
+            {notesFrozen ? (
+              <Button variant="outline" size="sm" onClick={() => setNotesFrozen(false)}>
+                Edit
+              </Button>
+            ) : notesSaving ? (
+              <span className="font-sans text-xs text-muted-foreground">Saving…</span>
+            ) : (
+              <Button variant="secondary" size="sm" onClick={handleNotesSave}>
+                Save
+              </Button>
+            )}
+          </div>
         </div>
         <Textarea
           value={notes}
-          onChange={handleNotesChange}
+          onChange={(e) => setNotes(e.target.value)}
+          readOnly={notesFrozen}
           placeholder="Paste transcript, write observations, add context…"
-          className="min-h-64 font-sans text-sm leading-relaxed resize-y"
+          className={cn(
+            "min-h-64 font-sans text-sm leading-relaxed resize-y",
+            notesFrozen && "opacity-70 bg-muted/50",
+          )}
         />
       </div>
 
@@ -307,7 +311,7 @@ function NotesTab({
   );
 }
 
-// ── tab: MOM ─────────────────────────────────────────────────────────────────
+// ── tab: Session Review ───────────────────────────────────────────────────────
 
 function MomTab({
   session,
@@ -319,18 +323,17 @@ function MomTab({
   onMomChange: (mom: MomOut) => void;
 }) {
   const [drafting, setDrafting] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [editedText, setEditedText] = useState<string>("");
-  const [saving, setSaving] = useState(false);
+  const [sessionReviewText, setSessionReviewText] = useState<string>("");
+  const [sessionReviewFrozen, setSessionReviewFrozen] = useState(false);
+  const [sessionReviewSaving, setSessionReviewSaving] = useState(false);
   const [draftVisible, setDraftVisible] = useState(false);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (mom?.final_text != null) {
-      setEditedText(mom.final_text);
+      setSessionReviewText(mom.final_text);
       setDraftVisible(true);
     } else if (mom?.draft_text) {
-      setEditedText(mom.draft_text);
+      setSessionReviewText(mom.draft_text);
       setDraftVisible(true);
     }
   }, [mom?.id]);
@@ -341,144 +344,96 @@ function MomTab({
     try {
       const result = await draftMom(session.id, session.session_notes ?? "");
       onMomChange(result);
-      setEditedText(result.draft_text);
+      setSessionReviewText(result.draft_text);
+      setSessionReviewFrozen(false);
     } finally {
       setDrafting(false);
       requestAnimationFrame(() => setDraftVisible(true));
     }
   }
 
-  function handleEditChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const val = e.target.value;
-    setEditedText(val);
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      setSaving(true);
-      try {
-        const updated = await patchMom(session.id, { final_text: val });
-        onMomChange(updated);
-      } finally {
-        setSaving(false);
-      }
-    }, 800);
-  }
-
-  async function handleSend() {
-    setSending(true);
+  async function handleSaveReview() {
+    setSessionReviewSaving(true);
     try {
-      const result = await sendMom(session.id);
-      onMomChange(result);
+      const updated = await patchMom(session.id, { final_text: sessionReviewText });
+      onMomChange(updated);
+      setSessionReviewFrozen(true);
+    } catch (err) {
+      console.error(err);
     } finally {
-      setSending(false);
+      setSessionReviewSaving(false);
     }
   }
-
-  const isSent = mom?.status === "sent";
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-          Minutes of meeting
+          Session review
         </h2>
         {mom && (
-          <Badge variant={isSent ? "secondary" : "outline"}>
-            {isSent ? "Sent" : mom.status.replace(/_/g, " ")}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {sessionReviewFrozen ? (
+              <Button variant="outline" size="sm" onClick={() => setSessionReviewFrozen(false)}>
+                Edit
+              </Button>
+            ) : sessionReviewSaving ? (
+              <span className="font-sans text-xs text-muted-foreground">Saving…</span>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleSaveReview}
+                disabled={!sessionReviewText.trim()}
+              >
+                Save
+              </Button>
+            )}
+          </div>
         )}
       </div>
 
       {mom === null ? (
         <div className="space-y-4">
           <p className="font-heading text-lg font-black text-muted-foreground">
-            No MOM yet. <em>Generate the draft first.</em>
+            No session review yet. <em>Generate the draft first.</em>
           </p>
           <Button variant="default" onClick={handleDraft} disabled={drafting}>
             {drafting ? "Generating draft…" : "Generate draft"}
           </Button>
         </div>
       ) : (
-        <div className="space-y-6">
-          {/* Two-pane on desktop, stacked on mobile */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* Left: AI draft */}
-            <div className="space-y-2">
-              <p className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                AI draft
-              </p>
-              {drafting ? (
-                <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-4">
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-5/6" />
-                  <Skeleton className="h-4 w-4/6" />
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-3/6" />
-                </div>
-              ) : (
-                <div
-                  className={cn(
-                    "rounded-lg border border-border bg-muted/40 p-4 transition-opacity duration-200",
-                    draftVisible ? "opacity-100" : "opacity-0",
-                  )}
-                >
-                  <p className="font-sans text-sm leading-relaxed text-foreground whitespace-pre-line">
-                    {mom.draft_text}
-                  </p>
-                </div>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDraft}
-                disabled={drafting || isSent}
-              >
-                {drafting ? "Regenerating…" : "Regenerate draft"}
-              </Button>
+        <div className="space-y-4">
+          {drafting ? (
+            <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-4">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-4/6" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/6" />
             </div>
-
-            {/* Right: editable final */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                  Your version
-                </p>
-                {saving && (
-                  <span className="font-sans text-xs text-muted-foreground">
-                    Saving…
-                  </span>
-                )}
-              </div>
-              <Textarea
-                value={editedText}
-                onChange={handleEditChange}
-                disabled={isSent}
-                placeholder="Edit the draft here before sending…"
-                className="min-h-64 font-sans text-sm leading-relaxed resize-y"
-              />
-            </div>
-          </div>
-
-          {/* Send button — THE single Marigold on this screen */}
-          {!isSent ? (
-            <Button
-              variant="accent"
-              onClick={handleSend}
-              disabled={sending || !editedText.trim()}
-              className="view-transition-name-[mom-send]"
-            >
-              {sending ? "Sending…" : "Send to client"}
-            </Button>
           ) : (
-            <p className="font-sans text-sm font-bold text-primary">
-              MOM sent to client.{" "}
-              {mom.sent_at &&
-                new Date(mom.sent_at).toLocaleDateString("en-IN", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                })}
-            </p>
+            <Textarea
+              value={sessionReviewText}
+              onChange={(e) => setSessionReviewText(e.target.value)}
+              readOnly={sessionReviewFrozen}
+              placeholder="Edit the session review here…"
+              className={cn(
+                "min-h-64 font-sans text-sm leading-relaxed resize-y transition-opacity duration-200",
+                draftVisible ? (sessionReviewFrozen ? "opacity-70" : "opacity-100") : "opacity-0",
+                sessionReviewFrozen && "bg-muted/50",
+              )}
+            />
           )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDraft}
+            disabled={drafting}
+          >
+            {drafting ? "Regenerating…" : "Regenerate draft"}
+          </Button>
         </div>
       )}
     </div>
@@ -625,7 +580,7 @@ export default function SessionPage() {
               <TabsList variant="line">
                 <TabsTrigger value="brief">Pre-session brief</TabsTrigger>
                 <TabsTrigger value="notes">In-session notes</TabsTrigger>
-                <TabsTrigger value="mom">MOM editor</TabsTrigger>
+                <TabsTrigger value="mom">Session Review</TabsTrigger>
               </TabsList>
             </div>
 

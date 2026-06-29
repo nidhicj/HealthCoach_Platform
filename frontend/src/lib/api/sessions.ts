@@ -91,7 +91,7 @@ export async function getSession(sessionId: string): Promise<SessionOut> {
 
 export async function patchSession(
   sessionId: string,
-  input: { session_notes?: string },
+  input: { session_notes?: string; notes_internal?: string },
 ): Promise<SessionOut> {
   const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}`, {
     method: "PATCH",
