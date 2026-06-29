@@ -16,7 +16,7 @@ Anthem rules from CLAUDE.md apply. Preflight every substantive response per PREF
 
 ## 1. Scope
 
-Restructure the frontend to feel welcoming and readable to a first-time user, not just a task-management tool. Three pages change substantially: the landing page becomes a Roster Board (replaces the existing dashboard), the Client Detail page gets a new layout anchored on sessions/supplements/diet chart, and the Session page gets an improved MOM generation moment. Diet chart inline generation is included as a deferred section (§ Part B) to be built in the same phase but after the layout work is stable.
+Restructure the frontend to feel welcoming and readable to a first-time user, not just a task-management tool. Three pages change substantially: the landing page becomes a Roster Board (replaces the existing dashboard), the Client Detail page gets a new layout anchored on sessions/supplements/diet chart, and the Session page gets an improved MOM generation moment. Diet chart inline generation is included as a deferred section (§ Part B) to be built in the same phase but after the layout work is stable. A public marketing landing page at `/` (Part C) replaces the existing client-side redirect with a branded, copy-driven page for unauthenticated visitors; authenticated coaches are silently redirected to `/dashboard`.
 
 **Not in scope:** Session page tabs (Brief, Notes) — kept as-is. Action Items kanban — kept as-is. Settings / Diet Charts settings page — kept as-is. No new domain logic, no new DB tables, no migrations.
 
@@ -29,24 +29,29 @@ Restructure the frontend to feel welcoming and readable to a first-time user, no
 ### Part A — Layout restructure
 
 #### A1 · Navigation (`frontend/src/app/(app)/layout.tsx`)
+
 - Remove "Clients" nav link — the Roster Board absorbs the clients list
 - Nav becomes: **[Parivarthan wordmark → /dashboard] · Action Items · Diet Charts · Settings**
 
 #### A2 · Landing page — Roster Board (`frontend/src/app/(app)/dashboard/page.tsx`)
+
 Full rewrite. Zones top-to-bottom:
 
 **Zone 1 — Page header**
+
 - Eyebrow: "YOUR PRACTICE" (Manrope 700, all-caps, letter-spaced, `text-primary`)
 - Title: "Dashboard" (Fraunces 900)
 - Subtitle: "Your whole practice, in one place." (Manrope 400, `text-muted-foreground`)
 - Top-right CTA: `[+ New client]` — Marigold (`variant="accent"`)
 
 **Zone 2 — Today banner**
+
 - Slim pill-row listing today's sessions: `Client name · HH:MM AM/PM` → links to session page
 - Derived client-side: `listSessions({limit: 50})` filtered to today's date (existing logic from old dashboard)
 - Empty state: Fraunces statement copy — "No sessions today. *Quiet morning.*" (no dead end — links to Action Items)
 
 **Zone 3 — Milestone card**
+
 - Primary trigger: any session where `session_number` is in `[5, 10, 25, 50]` and `scheduled_at` is within the last 7 days
 - Derived client-side from the sessions fetch (no new endpoint)
 - Card copy: "🎉 [Client name] just completed their [N]th session with you."
@@ -55,6 +60,7 @@ Full rewrite. Zones top-to-bottom:
 - Visual: Marigold border tint (`border-accent/40 bg-accent/5`)
 
 **Zone 4 — Client card grid**
+
 - Fetches: `listClients({limit: 100})`, `listSessions({limit: 100})`, `listActionItems({status: "missed", limit: 100})`
 - Client-side derivation:
   - `last_session_at` → build map `client_id → max(scheduled_at)` from sessions fetch
@@ -70,18 +76,22 @@ Full rewrite. Zones top-to-bottom:
 - Collapsible section at bottom: "Past clients ([N]) ▼" — expands to show completed clients in same card style but dimmed (`opacity-60`)
 
 #### A3 · Clients list page (`frontend/src/app/(app)/clients/page.tsx`)
+
 - Replace with a redirect to `/dashboard` — the roster is now the landing page
 - `import { redirect } from "next/navigation"; export default function() { redirect("/dashboard"); }`
 
 #### A4 · Client Detail page (`frontend/src/app/(app)/clients/[clientId]/page.tsx`)
+
 Full restructure. Removes the existing `lg:grid-cols-[1fr_320px]` right sidebar entirely.
 
 **Three-colour card system (defined once, applied consistently):**
+
 - `bg-A`: `bg-muted` — full-width bands
 - `bg-B`: `bg-background` — left card in every side-by-side pair
 - `bg-C`: `bg-section-fill-02` — right card in every side-by-side pair (subtle third shade)
 
 **Typography contract (uniform, no exceptions):**
+
 - Section headings above cards: Fraunces 700, `text-2xl` — identical size and weight everywhere
 - Card eyebrow labels: Manrope 700, all-caps, letter-spaced (`text-xs font-bold uppercase tracking-widest text-primary`)
 - Body text: Manrope 400 (`font-sans text-sm`)
@@ -128,11 +138,13 @@ Open action items                  │ Details
 **New:** Goal card component, three-colour system applied via Tailwind classes, 60/40 column split (`grid-cols-[3fr_2fr]`), 50/50 split (`grid-cols-2`).
 
 #### A5 · Session page — MOM tab (`frontend/src/app/(app)/clients/[clientId]/sessions/[sessionId]/page.tsx`)
+
 Only the MOM tab (`MomTab` component) changes. Everything else (Brief tab, Notes tab, session header, End session button) is untouched.
 
 **Current MOM tab behaviour:** "Generate draft" button text changes to "Generating draft…" — no skeleton, no visual generation moment.
 
 **Improved MOM generation moment:**
+
 - On `handleDraft()` call: immediately show a skeleton of the two-pane layout (AI draft pane + Your version pane), both filled with `<Skeleton>` rows
 - When draft resolves: skeleton fades out, content reveals with `animate-in fade-in` (200ms, `tw-animate-css` — already installed)
 - Error state: inline error message with "Retry" link — not a spinner loop
@@ -146,11 +158,13 @@ Only the MOM tab (`MomTab` component) changes. Everything else (Brief tab, Notes
 > Build after Part A layout is stable. Do not block Part A on Part B.
 
 #### B1 · Generate affordance on Diet chart card
+
 - Add "Generate" button (Marigold, `variant="accent"`) alongside existing "Edit →" link on the client detail diet chart section
 - If no chart exists: show "Generate chart" as primary CTA (Marigold)
 - If chart exists: show "Edit →" (text link) + "Regenerate" (Moss, `variant="default"`)
 
 #### B2 · Starting-point picker (inline panel)
+
 - On Generate click: the diet chart section expands inline (no modal/sheet) to show:
   ```
   Base this chart on:
@@ -161,14 +175,50 @@ Only the MOM tab (`MomTab` component) changes. Everything else (Brief tab, Notes
 - Collapses back when cancelled or after generation completes
 
 #### B3 · Skeleton → reveal moment
+
 - On Generate confirm: show a skeleton of the diet chart table shape
 - On resolution: `animate-in fade-in` (200ms) reveals the completed chart in place
 - Error: inline error with retry; no dead spinner
 
 #### B4 · Endpoint verification (flag to SoJo before building B)
+
 - Check: does `POST /api/clients/{clientId}/diet-chart/generate` (or equivalent) accept `{source: "template" | "session", source_id: UUID}` and return a full chart renderable inline?
 - If yes → Part B is fully frontend
 - If endpoint only supports the Templates flow → a thin backend route is needed → **flag to SoJo, do not build silently**
+
+---
+
+### Part C — Public landing page (shipped alongside Part A)
+
+> Built in the same phase. No backend dependency. Unauthenticated `/` route only.
+
+#### C1 · Auth-aware root page (`frontend/src/app/page.tsx`)
+
+- Replaced the existing client-side `router.replace("/dashboard")` redirect
+- On mount: calls `silentRefresh()` — if the refresh cookie is valid, redirects to `/dashboard`; otherwise renders the landing page
+- Loading state: blank parchment screen while the refresh resolves (no flash)
+
+#### C2 · `silentRefresh` export (`frontend/src/lib/auth/client.ts`)
+
+- Added `export` to `silentRefresh()` — previously module-private
+- No behaviour change — purely a visibility change to allow the root page to call it
+
+#### C3 · Landing page sections (all on verified claims only)
+
+| Section                | Copy source                       | Claim status                        |
+| ---------------------- | --------------------------------- | ----------------------------------- |
+| Nav                    | —                                | Static                              |
+| Hero + diet chart card | Spine §1                         | Diet chart generation — shipped    |
+| Problem                | Spine §2                         | No product claim                    |
+| How it works           | Spine §4 (WhatsApp step removed) | Session mgmt, diet chart — shipped |
+| Who it's for           | Spine §7                         | No product claim                    |
+| Final CTA              | Spine §8                         | Static                              |
+
+**Skipped from spine:** §5 Built for India (WhatsApp/UPI unverified), §6 Proof (placeholder, no real data yet).
+
+**Signature element:** The diet chart card in the hero is pure HTML/CSS — a mock Monday plan (Priya S., Indian foods, kcal per meal) rendered at a slight tilt with a ghost card behind it. No image file required. Uses existing brand tokens from `theme.yaml`.
+
+**CTA mechanism:** Both "Get started" (hero, Marigold) and "Sign in to get started" (final CTA, Moss) link to `/sign-in`. No waitlist form — coaches sign in directly.
 
 ---
 
@@ -214,6 +264,8 @@ None recorded. (To be updated as phase ships.)
 - `frontend/src/app/(app)/layout.tsx` — nav structure
 - `backend/src/api/clients.py` — confirmed `ClientOut` fields and stubs in `ClientDetailOut`
 - `backend/src/api/sessions.py` — confirmed `SessionOut` fields
+- `parivarthan-landing-spine.md` — copy source for all six landing page sections; claim verification table derived from §"VERIFY before publishing" block
+- `frontend/src/app/(public)/sign-in/page.tsx` — existing sign-in page (CTA target for both landing page buttons)
 
 ---
 
@@ -223,6 +275,7 @@ None recorded. (To be updated as phase ships.)
 - **Verification record**: TBD
 - **Test count at end of phase**: TBD
 - **Key checks** (to verify when phase ships):
+
   - [ ] Landing page shows active client grid; completed clients are collapsed
   - [ ] Milestone card shows for a client with session 5/10/25/50 within last 7 days; hidden when none qualify
   - [ ] Today banner shows today's sessions; empty state does not dead-end
@@ -235,6 +288,17 @@ None recorded. (To be updated as phase ships.)
   - [ ] Session MOM tab: skeleton shows on generate; fade-in on reveal
   - [ ] No `any` types introduced; all new API calls use `fetchWithAuth`
   - [ ] No Marigold elements outside primary CTAs on each screen
+
+  - **Part C — Public landing page**
+
+  - [ ] `/` shows landing page for unauthenticated visitors (no redirect to `/dashboard`)
+  - [ ] `/` redirects to `/dashboard` for a visitor with a valid session cookie
+  - [ ] Nav: "Parivarthan" wordmark visible; "Sign in →" links to `/sign-in`
+  - [ ] Hero: diet chart card renders (Priya S., 5 meal rows, total kcal, "Generated from your template" tag)
+  - [ ] "Get started" button (Marigold) links to `/sign-in`
+  - [ ] No WhatsApp, UPI, or proof claims appear anywhere on the page
+  - [ ] "Sign in to get started" button (Moss) in final CTA links to `/sign-in`
+  - [ ] Page uses only `theme.yaml` tokens — no new colours introduced
 
 ---
 
@@ -283,10 +347,12 @@ TBD — to be filled as phase ships.
 ### Task 1: Roster utility functions
 
 **Files:**
+
 - Create: `frontend/src/lib/rosterUtils.ts`
 - Create: `frontend/src/lib/rosterUtils.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `buildLastSessionMap(sessions: SessionOut[]): Map<string, Date>` — client_id → most recent past session date
   - `buildFlaggedSet(missedItems: ActionItemOut[]): Set<string>` — set of client_ids with missed items
@@ -418,6 +484,7 @@ describe("formatRelativeDate", () => {
 ```bash
 cd frontend && npm test -- rosterUtils
 ```
+
 Expected: several FAIL lines — functions don't exist yet.
 
 - [ ] **Step 3: Create `frontend/src/lib/rosterUtils.ts`**
@@ -479,6 +546,7 @@ export function formatRelativeDate(date: Date | null): string {
 ```bash
 cd frontend && npm test -- rosterUtils
 ```
+
 Expected: all PASS.
 
 - [ ] **Step 5: Typecheck**
@@ -486,6 +554,7 @@ Expected: all PASS.
 ```bash
 cd frontend && npx tsc --noEmit
 ```
+
 Expected: no errors.
 
 - [ ] **Step 6: Commit**
@@ -500,9 +569,11 @@ git commit -m "feat(frontend): add roster utility functions for client card deri
 ### Task 2: ClientCard component
 
 **Files:**
+
 - Create: `frontend/src/components/client-card.tsx`
 
 **Interfaces:**
+
 - Consumes: `ClientOut` from `@/lib/api/clients`; `formatRelativeDate` from `@/lib/rosterUtils`
 - Produces: `<ClientCard>` component used in Task 4 (dashboard grid)
 
@@ -561,6 +632,7 @@ export function ClientCard({ client, relativeDate, hasFlags, dim = false }: Clie
 ```bash
 cd frontend && npx tsc --noEmit
 ```
+
 Expected: no errors.
 
 - [ ] **Step 3: Commit**
@@ -575,6 +647,7 @@ git commit -m "feat(frontend): add ClientCard component for roster grid"
 ### Task 3: Nav cleanup + clients page redirect
 
 **Files:**
+
 - Modify: `frontend/src/app/(app)/layout.tsx` — remove "Clients" from `NAV_LINKS`
 - Modify: `frontend/src/app/(app)/clients/page.tsx` — replace with redirect
 
@@ -583,6 +656,7 @@ git commit -m "feat(frontend): add ClientCard component for roster grid"
 - [ ] **Step 1: Remove "Clients" from NAV_LINKS in `layout.tsx`**
 
 Find this block in `frontend/src/app/(app)/layout.tsx`:
+
 ```typescript
 const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -594,6 +668,7 @@ const NAV_LINKS = [
 ```
 
 Replace with:
+
 ```typescript
 const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -606,6 +681,7 @@ const NAV_LINKS = [
 - [ ] **Step 2: Replace `frontend/src/app/(app)/clients/page.tsx` with redirect**
 
 Replace the entire file contents with:
+
 ```typescript
 import { redirect } from "next/navigation";
 
@@ -619,6 +695,7 @@ export default function ClientsPage() {
 ```bash
 cd frontend && npx tsc --noEmit
 ```
+
 Expected: no errors.
 
 - [ ] **Step 4: Verify in dev server**
@@ -626,6 +703,7 @@ Expected: no errors.
 ```bash
 cd frontend && npm run dev
 ```
+
 - Navigate to `http://localhost:3000` — confirm "Clients" is absent from nav
 - Navigate to `/clients` — confirm it redirects to `/dashboard`
 
@@ -641,9 +719,11 @@ git commit -m "feat(frontend): remove Clients nav entry, redirect /clients to da
 ### Task 4: Dashboard — Roster Board rewrite
 
 **Files:**
+
 - Modify: `frontend/src/app/(app)/dashboard/page.tsx` — full rewrite
 
 **Interfaces:**
+
 - Consumes: `listClients`, `ClientOut` from `@/lib/api/clients`; `listSessions`, `SessionOut` from `@/lib/api/sessions`; `listActionItems`, `ActionItemOut` from `@/lib/api/actionItems`; `ClientCard` from `@/components/client-card`; all four functions from `@/lib/rosterUtils`; `buttonVariants` from `@/components/ui/button`
 
 - [ ] **Step 1: Rewrite `frontend/src/app/(app)/dashboard/page.tsx`**
@@ -871,6 +951,7 @@ export default function DashboardPage() {
 ```bash
 cd frontend && npx tsc --noEmit
 ```
+
 Expected: no errors.
 
 - [ ] **Step 3: Verify in dev server — check all zones**
@@ -878,6 +959,7 @@ Expected: no errors.
 ```bash
 cd frontend && npm run dev
 ```
+
 - `/dashboard` loads — no flash of old layout
 - Today banner: shows session pills with client names when sessions exist today; shows empty state with "Review follow-ups" link otherwise
 - Milestone card: visible only when a client has session #5/10/25/50 in last 7 days; flag signal shows when `flaggedCount > 0` and no milestone
@@ -896,9 +978,11 @@ git commit -m "feat(frontend): rewrite dashboard as Roster Board with client gri
 ### Task 5: Client Detail page restructure
 
 **Files:**
+
 - Modify: `frontend/src/app/(app)/clients/[clientId]/page.tsx`
 
 **Interfaces:**
+
 - Consumes: all existing imports (unchanged); removes `getClientAst` call since AST card is removed
 - New layout removes right sidebar; adds Goal card, 60/40 top row, full-width diet chart, 50/50 bottom row
 
@@ -907,6 +991,7 @@ git commit -m "feat(frontend): rewrite dashboard as Roster Board with client gri
 - [ ] **Step 1: Remove AST import + state from the page**
 
 In `frontend/src/app/(app)/clients/[clientId]/page.tsx`, remove:
+
 - `getClientAst, type AstOut` from the `@/lib/api/clients` import
 - The `ast` state: `const [ast, setAst] = useState<AstOut | null>(null);`
 - `getClientAst(clientId)` from the `Promise.all` call
@@ -915,6 +1000,7 @@ In `frontend/src/app/(app)/clients/[clientId]/page.tsx`, remove:
 - The `FLAG_LABEL` constant (no longer needed)
 
 Update the `Promise.all` to:
+
 ```typescript
 Promise.all([
   getClient(clientId),
@@ -938,6 +1024,7 @@ const [openItems, setOpenItems] = useState<ActionItemOut[] | null>(null);
 ```
 
 Fetch it separately (same `useEffect`, separate call):
+
 ```typescript
 listActionItems({ client_id: clientId, status: "open", limit: 50 })
   .then((r) => setOpenItems(r.items))
@@ -945,6 +1032,7 @@ listActionItems({ client_id: clientId, status: "open", limit: 50 })
 ```
 
 Update `displayOpen` and `displayClosed` to use `openItems` instead of `ast?.open_items`:
+
 ```typescript
 const displayOpen = [
   ...(openItems ?? []).filter((i) => !completedIds.has(i.id)),
@@ -958,6 +1046,7 @@ const displayClosed = [
 ```
 
 Update loading guard (remove ast from loading check):
+
 ```typescript
 const loading = !loadError && client === null;
 ```
@@ -1452,6 +1541,7 @@ return (
 - [ ] **Step 3: Remove unused imports**
 
 After the JSX rewrite, remove from the import block any symbols no longer used:
+
 - `getClientAst`, `AstOut` from `@/lib/api/clients`
 - `Card`, `CardContent`, `CardHeader`, `CardTitle` from `@/components/ui/card` (if no longer used)
 
@@ -1460,6 +1550,7 @@ After the JSX rewrite, remove from the import block any symbols no longer used:
 ```bash
 cd frontend && npx tsc --noEmit
 ```
+
 Expected: no errors. Fix any that appear (likely `ast` state still referenced somewhere — remove).
 
 - [ ] **Step 5: Verify in dev server**
@@ -1482,6 +1573,7 @@ git commit -m "feat(frontend): restructure client detail page — goal card, 60/
 ### Task 6: MOM tab — skeleton + reveal
 
 **Files:**
+
 - Modify: `frontend/src/app/(app)/clients/[clientId]/sessions/[sessionId]/page.tsx` — `MomTab` component only
 
 **Interfaces:** Consumes existing `MomOut`, `draftMom`, `patchMom`, `sendMom` — no changes to those. Adds `draftVisible` state to control skeleton/content toggle.
@@ -1495,6 +1587,7 @@ const [draftVisible, setDraftVisible] = useState(false);
 ```
 
 Update `handleDraft`:
+
 ```typescript
 async function handleDraft() {
   setDrafting(true);
@@ -1511,6 +1604,7 @@ async function handleDraft() {
 ```
 
 Also set `draftVisible(true)` when `mom` is already loaded on mount. Update the `useEffect`:
+
 ```typescript
 useEffect(() => {
   if (mom?.final_text != null) {
@@ -1565,6 +1659,7 @@ Find the `{/* Two-pane on desktop, stacked on mobile */}` block and replace the 
 ```
 
 Also wrap the `cn` import — confirm it's already imported at the top of the file. If not, add:
+
 ```typescript
 import { cn } from "@/lib/utils";
 ```
@@ -1574,6 +1669,7 @@ import { cn } from "@/lib/utils";
 ```bash
 cd frontend && npx tsc --noEmit
 ```
+
 Expected: no errors.
 
 - [ ] **Step 4: Verify in dev server**
@@ -1597,16 +1693,19 @@ git commit -m "feat(frontend): add skeleton + fade-in reveal to MOM draft genera
 > **Before starting:** Verify B4 — `generateDietChart(clientId, {template_id})` exists and works from the client detail page context. The function does NOT currently accept a `session_id` — session-based generation requires a new backend endpoint. **Do not add a session option here; flag it to SoJo as a follow-up.**
 
 **Files:**
+
 - Modify: `frontend/src/app/(app)/clients/[clientId]/page.tsx` — diet chart section only
 - Add import: `generateDietChart`, `listTemplates`, `DietChartOut` from `@/lib/api/dietCharts`
 
 **Interfaces:**
+
 - Consumes: `generateDietChart(clientId, {template_id})`, `listTemplates()` from existing API
 - New state: `templates`, `showGenerate`, `selectedTemplateId`, `generating`, `generateError`
 
 - [ ] **Step 1: Add generation state to `ClientDetailPage`**
 
 Add these state variables to the component (after existing state):
+
 ```typescript
 const [templates, setTemplates] = useState<DietChartOut[] | null>(null);
 const [showGenerate, setShowGenerate] = useState(false);
@@ -1616,6 +1715,7 @@ const [generateError, setGenerateError] = useState<string | null>(null);
 ```
 
 Add `listTemplates` to imports:
+
 ```typescript
 import {
   getClientDietChart,
@@ -1626,6 +1726,7 @@ import {
 ```
 
 Fetch templates in the existing `useEffect` (add alongside existing fetches):
+
 ```typescript
 listTemplates()
   .then(setTemplates)
@@ -1635,6 +1736,7 @@ listTemplates()
 - [ ] **Step 2: Replace the diet chart section header with generate affordance**
 
 In the diet chart section, replace the existing header:
+
 ```tsx
 <div className="flex items-center justify-between">
   <h2 className="font-heading text-2xl font-bold text-foreground">Diet chart</h2>
@@ -1735,6 +1837,7 @@ After the `<Separator />` in the diet chart section, insert the picker panel:
 ```
 
 Wrap the existing diet chart table render in a fade-in wrapper:
+
 ```tsx
 {!generating && dietChart !== null && dietChart !== undefined && (
   <div className="animate-in fade-in duration-200">
@@ -1748,6 +1851,7 @@ Wrap the existing diet chart table render in a fade-in wrapper:
 ```bash
 cd frontend && npx tsc --noEmit
 ```
+
 Expected: no errors.
 
 - [ ] **Step 5: Verify in dev server**
@@ -1771,6 +1875,7 @@ git commit -m "feat(frontend): inline diet chart generation from client detail p
 ## Self-review
 
 **Spec coverage:**
+
 - ✅ A1 (subtitle under Dashboard heading) — Task 4 header subtitle
 - ✅ A2 (stat strip) — **deliberately dropped** per user decision in brainstorm
 - ✅ A3 (Today graceful empty state) — Task 4 today banner with "Review follow-ups" link
@@ -1793,6 +1898,7 @@ git commit -m "feat(frontend): inline diet chart generation from client detail p
 **Placeholder scan:** No TBD, TODO, or "implement later" in any task. All code blocks are complete and compilable.
 
 **Type consistency:**
+
 - `ClientOut.id` is `string` throughout — ✅
 - `ActionItemOut.client_id` is `string` throughout — ✅
 - `SessionOut.client_id`, `session_number`, `scheduled_at` types match Task 1 usage — ✅
