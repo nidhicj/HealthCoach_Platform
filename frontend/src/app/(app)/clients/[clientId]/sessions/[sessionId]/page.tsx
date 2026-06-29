@@ -29,6 +29,7 @@ import {
   type ClientFileOut,
 } from "@/lib/api/files";
 import { getClient, type ClientDetailOut } from "@/lib/api/clients";
+import { cn } from "@/lib/utils";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -321,22 +322,27 @@ function MomTab({
   const [sending, setSending] = useState(false);
   const [editedText, setEditedText] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [draftVisible, setDraftVisible] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (mom?.final_text != null) {
       setEditedText(mom.final_text);
+      setDraftVisible(true);
     } else if (mom?.draft_text) {
       setEditedText(mom.draft_text);
+      setDraftVisible(true);
     }
   }, [mom?.id]);
 
   async function handleDraft() {
     setDrafting(true);
+    setDraftVisible(false);
     try {
       const result = await draftMom(session.id, session.session_notes ?? "");
       onMomChange(result);
       setEditedText(result.draft_text);
+      setDraftVisible(true);
     } finally {
       setDrafting(false);
     }
@@ -395,16 +401,31 @@ function MomTab({
         <div className="space-y-6">
           {/* Two-pane on desktop, stacked on mobile */}
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* Left: draft */}
+            {/* Left: AI draft */}
             <div className="space-y-2">
               <p className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
                 AI draft
               </p>
-              <div className="rounded-lg border border-border bg-muted/40 p-4">
-                <p className="font-sans text-sm leading-relaxed text-foreground whitespace-pre-line">
-                  {mom.draft_text}
-                </p>
-              </div>
+              {drafting ? (
+                <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-4">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-5/6" />
+                  <Skeleton className="h-4 w-4/6" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/6" />
+                </div>
+              ) : (
+                <div
+                  className={cn(
+                    "rounded-lg border border-border bg-muted/40 p-4 transition-opacity duration-200",
+                    draftVisible ? "opacity-100" : "opacity-0",
+                  )}
+                >
+                  <p className="font-sans text-sm leading-relaxed text-foreground whitespace-pre-line">
+                    {mom.draft_text}
+                  </p>
+                </div>
+              )}
               <Button
                 variant="outline"
                 size="sm"
