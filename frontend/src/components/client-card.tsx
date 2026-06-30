@@ -51,25 +51,25 @@ export function ClientCard({ client, relativeDate, hasFlags, dim = false, metric
           <div className="flex gap-2 shrink-0">
             {metrics.map(m => (
               <div key={m.id ?? m.name} className="flex flex-col items-center gap-0.5">
-                <div className="w-14 h-14 rounded-full border border-border flex flex-col items-center justify-center px-1">
+                <div className="w-16 h-16 rounded-full border border-border flex flex-col items-center justify-center px-1">
                   {m.target ? (
                     <>
-                      <span className="font-sans text-[10px] font-medium text-foreground leading-tight text-center">
-                        {m.value}{m.unit ? ` ${m.unit}` : ""}
+                      <span className="font-sans text-xs font-medium text-foreground leading-tight text-center">
+                        {m.value}
                       </span>
                       <span className="w-8 border-t border-border my-0.5" />
-                      <span className="font-sans text-[10px] text-muted-foreground leading-tight text-center">
-                        {m.target}{m.unit ? ` ${m.unit}` : ""}
+                      <span className="font-sans text-xs text-muted-foreground leading-tight text-center">
+                        {m.target}
                       </span>
                     </>
                   ) : (
-                    <span className="font-sans text-xs font-medium text-foreground text-center">
-                      {m.value}{m.unit ? ` ${m.unit}` : ""}
+                    <span className="font-sans text-sm font-medium text-foreground text-center">
+                      {m.value}
                     </span>
                   )}
                 </div>
-                <span className="font-sans text-[9px] text-muted-foreground text-center leading-tight max-w-[56px] truncate">
-                  {m.name}
+                <span className="font-sans text-[10px] text-muted-foreground text-center leading-tight max-w-[64px] truncate">
+                  {m.name}{m.unit ? ` (${m.unit})` : ""}
                 </span>
               </div>
             ))}

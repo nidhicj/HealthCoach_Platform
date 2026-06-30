@@ -82,6 +82,7 @@ const css = `/* AUTO-GENERATED — do not edit. Source: frontend/theme.yaml */
   --color-marigold:     ${p.marigold};
   --color-section-fill-01: ${p.section_fill_01};
   --color-section-fill-02: ${p.section_fill_02};
+  --color-section-fill-03: ${p.section_fill_03};
 
   /* Functional colours — never decorative */
   --color-success: ${p.functional.success};

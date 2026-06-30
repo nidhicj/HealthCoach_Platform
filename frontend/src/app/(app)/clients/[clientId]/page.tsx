@@ -62,18 +62,18 @@ function DemographicsForm({
   const [form, setForm] = useState<Record<string, string>>(demographics);
 
   const field = (key: string, label: string, type: "text" | "date" | "select" | "textarea" = "text", options?: string[]) => (
-    <div key={key} className="space-y-1">
+    <div key={key} className="space-y-2">
       <label className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">{label}</label>
       {type === "textarea" ? (
         <textarea
-          className="w-full rounded-md border border-border bg-muted px-3 py-2 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary resize-none"
+          className="w-full rounded-md border border-border bg-background/80 px-3 py-2 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary resize-none"
           rows={3}
           value={form[key] ?? ""}
           onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value }))}
         />
       ) : type === "select" ? (
         <select
-          className="w-full rounded-md border border-border bg-muted px-3 py-2 font-sans text-sm text-foreground outline-none"
+          className="w-full rounded-md border border-border bg-background/80 px-3 py-2 font-sans text-sm text-foreground outline-none"
           value={form[key] ?? ""}
           onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value }))}
         >
@@ -83,7 +83,7 @@ function DemographicsForm({
       ) : (
         <input
           type={type}
-          className="w-full rounded-md border border-border bg-muted px-3 py-2 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+          className="w-full rounded-md border border-border bg-background/80 px-3 py-2 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
           value={form[key] ?? ""}
           onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value }))}
         />
@@ -92,7 +92,7 @@ function DemographicsForm({
   );
 
   return (
-    <div className="mt-6 space-y-4">
+    <div className="space-y-5">
       {field("dob", "Date of birth", "date")}
       {field("gender", "Gender", "select", ["Female", "Male", "Non-binary", "Prefer not to say"])}
       {field("city", "City / location")}
@@ -364,16 +364,18 @@ export default function ClientDetailPage() {
                 >
                   <Settings size={18} />
                 </SheetTrigger>
-                <SheetContent side="right" className="w-[420px] overflow-y-auto">
-                  <SheetHeader>
-                    <SheetTitle className="font-heading text-lg">Client profile</SheetTitle>
+                <SheetContent side="right" className="w-[420px] overflow-y-auto bg-section-fill-03">
+                  <SheetHeader className="px-5 pt-5 pb-4">
+                    <SheetTitle className="font-heading text-xl font-bold">Client profile</SheetTitle>
                   </SheetHeader>
-                  <DemographicsForm
-                    demographics={client!.demographics ?? {}}
-                    onSave={handleDemoSave}
-                    saving={demoSaving}
-                    saveError={demoSaveError}
-                  />
+                  <div className="px-5 pb-8">
+                    <DemographicsForm
+                      demographics={client!.demographics ?? {}}
+                      onSave={handleDemoSave}
+                      saving={demoSaving}
+                      saveError={demoSaveError}
+                    />
+                  </div>
                 </SheetContent>
               </Sheet>
             </div>
