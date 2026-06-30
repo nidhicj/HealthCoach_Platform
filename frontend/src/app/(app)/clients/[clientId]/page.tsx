@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getClient, patchClient, type ClientDetailOut } from "@/lib/api/clients";
+import { getClient, patchClient, type ClientDetailOut, type HealthMetric } from "@/lib/api/clients";
 import { listSessions, type SessionOut } from "@/lib/api/sessions";
 import { listActionItems, patchActionItem, type ActionItemOut } from "@/lib/api/actionItems";
 import {
@@ -24,6 +24,9 @@ import {
   deleteSupplement,
   type SupplementOut,
 } from "@/lib/api/supplements";
+import { Settings } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { HealthMetricsCard } from "@/components/health-metrics-card";
 
 function isOverdue(dateStr: string | null): boolean {
   if (!dateStr) return false;
@@ -44,6 +47,68 @@ const SUPPLEMENT_CATALOG = [
   "Curcumin / Turmeric", "Probiotics", "Whey Protein", "Plant Protein",
   "Multivitamin", "Collagen", "Biotin", "CoQ10", "Melatonin",
 ];
+
+function DemographicsForm({
+  demographics,
+  onSave,
+  saving,
+}: {
+  demographics: Record<string, string>;
+  onSave: (data: Record<string, string>) => void;
+  saving: boolean;
+}) {
+  const [form, setForm] = useState<Record<string, string>>(demographics);
+
+  const field = (key: string, label: string, type: "text" | "date" | "select" | "textarea" = "text", options?: string[]) => (
+    <div key={key} className="space-y-1">
+      <label className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">{label}</label>
+      {type === "textarea" ? (
+        <textarea
+          className="w-full rounded-md border border-border bg-muted px-3 py-2 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary resize-none"
+          rows={3}
+          value={form[key] ?? ""}
+          onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value }))}
+        />
+      ) : type === "select" ? (
+        <select
+          className="w-full rounded-md border border-border bg-muted px-3 py-2 font-sans text-sm text-foreground outline-none"
+          value={form[key] ?? ""}
+          onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value }))}
+        >
+          <option value="">— select —</option>
+          {options!.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : (
+        <input
+          type={type}
+          className="w-full rounded-md border border-border bg-muted px-3 py-2 font-sans text-sm text-foreground outline-none focus:ring-1 focus:ring-primary"
+          value={form[key] ?? ""}
+          onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value }))}
+        />
+      )}
+    </div>
+  );
+
+  return (
+    <div className="mt-6 space-y-4">
+      {field("dob", "Date of birth", "date")}
+      {field("gender", "Gender", "select", ["Female", "Male", "Non-binary", "Prefer not to say"])}
+      {field("city", "City / location")}
+      {field("occupation", "Occupation")}
+      {field("medical_conditions", "Medical conditions", "textarea")}
+      {field("allergies", "Allergies", "textarea")}
+      {field("current_medications", "Current medications", "textarea")}
+      {field("emergency_contact", "Emergency contact")}
+      <button
+        disabled={saving}
+        onClick={() => onSave(form)}
+        className="mt-2 w-full rounded-md bg-primary px-4 py-2 font-sans text-sm font-bold text-primary-foreground disabled:opacity-60"
+      >
+        {saving ? "Saving…" : "Save profile"}
+      </button>
+    </div>
+  );
+}
 
 export default function ClientDetailPage() {
   const { clientId } = useParams<{ clientId: string }>();
@@ -76,6 +141,7 @@ export default function ClientDetailPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [demoSaving, setDemoSaving] = useState(false);
 
   useEffect(() => {
     if (!clientId) return;
@@ -203,6 +269,18 @@ export default function ClientDetailPage() {
     }
   }
 
+  async function handleDemoSave(data: Record<string, string>) {
+    setDemoSaving(true);
+    try {
+      const updated = await patchClient(clientId, { demographics: data });
+      setClient(prev => prev ? { ...prev, demographics: updated.demographics } : prev);
+    } catch (e) {
+      console.error("Failed to save demographics", e);
+    } finally {
+      setDemoSaving(false);
+    }
+  }
+
   const loading = !loadError && client === null;
 
   const displayOpen = [
@@ -271,23 +349,53 @@ export default function ClientDetailPage() {
               {client!.code && (
                 <span className="font-sans text-xs text-muted-foreground">{client!.code}</span>
               )}
+              <Sheet>
+                <SheetTrigger
+                  className="ml-auto rounded-md p-1 text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="Edit client profile"
+                >
+                  <Settings size={18} />
+                </SheetTrigger>
+                <SheetContent side="right" className="w-[420px] overflow-y-auto">
+                  <SheetHeader>
+                    <SheetTitle className="font-heading text-lg">Client profile</SheetTitle>
+                  </SheetHeader>
+                  <DemographicsForm
+                    demographics={client!.demographics ?? {}}
+                    onSave={handleDemoSave}
+                    saving={demoSaving}
+                  />
+                </SheetContent>
+              </Sheet>
             </div>
           </div>
 
-          {/* ── GOAL — bg-A full width ── */}
-          <section className="rounded-2xl border border-border bg-section-fill-03 p-6">
-            <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary mb-3">
-              Goal
-            </h2>
-            <Separator />
-            <p className="mt-3 font-heading text-lg font-bold text-foreground">
-              {client!.course_goal ?? (
-                <span className="font-sans text-sm font-normal italic text-muted-foreground">
-                  Add a goal for this client
-                </span>
-              )}
-            </p>
-          </section>
+          {/* ── GOAL + HEALTH METRICS ROW — 30/70 ── */}
+          <div className="flex gap-4">
+            {/* Goal card — 30% */}
+            <section className="w-[30%] shrink-0 rounded-2xl border border-border bg-section-fill-03 p-6">
+              <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary mb-3">
+                Goal
+              </h2>
+              <Separator />
+              <p className="mt-3 font-heading text-lg font-bold text-foreground">
+                {client!.course_goal ?? (
+                  <span className="font-sans text-sm font-normal italic text-muted-foreground">
+                    Add a goal for this client
+                  </span>
+                )}
+              </p>
+            </section>
+
+            {/* Health Metrics card — 70% */}
+            <section className="flex-1 rounded-2xl border border-border bg-section-fill-01 p-6">
+              <HealthMetricsCard
+                clientId={clientId}
+                metrics={client!.health_metrics ?? []}
+                onSave={(metrics) => setClient(prev => prev ? { ...prev, health_metrics: metrics } : prev)}
+              />
+            </section>
+          </div>
 
           {/* ── SESSIONS (60%) + SUPPLEMENTS (40%) — bg-B / bg-C ── */}
           <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
@@ -813,6 +921,54 @@ export default function ClientDetailPage() {
                   </>
                 )}
               </dl>
+              {client!.demographics?.dob && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Date of birth</span>
+                  <span className="font-medium">{client!.demographics.dob}</span>
+                </div>
+              )}
+              {client!.demographics?.gender && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Gender</span>
+                  <span className="font-medium">{client!.demographics.gender}</span>
+                </div>
+              )}
+              {client!.demographics?.city && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">City</span>
+                  <span className="font-medium">{client!.demographics.city}</span>
+                </div>
+              )}
+              {client!.demographics?.occupation && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Occupation</span>
+                  <span className="font-medium">{client!.demographics.occupation}</span>
+                </div>
+              )}
+              {client!.demographics?.medical_conditions && (
+                <div className="flex flex-col gap-1 text-sm">
+                  <span className="text-muted-foreground">Medical conditions</span>
+                  <span className="font-medium">{client!.demographics.medical_conditions}</span>
+                </div>
+              )}
+              {client!.demographics?.allergies && (
+                <div className="flex flex-col gap-1 text-sm">
+                  <span className="text-muted-foreground">Allergies</span>
+                  <span className="font-medium">{client!.demographics.allergies}</span>
+                </div>
+              )}
+              {client!.demographics?.current_medications && (
+                <div className="flex flex-col gap-1 text-sm">
+                  <span className="text-muted-foreground">Medications</span>
+                  <span className="font-medium">{client!.demographics.current_medications}</span>
+                </div>
+              )}
+              {client!.demographics?.emergency_contact && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Emergency contact</span>
+                  <span className="font-medium">{client!.demographics.emergency_contact}</span>
+                </div>
+              )}
             </section>
           </div>
         </>
