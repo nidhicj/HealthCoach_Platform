@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
     openrouter_api_key: str = ""
     llm_call_encryption_key: str = ""
+    demographics_encryption_key: str = ""
 
     r2_account_id: str = ""
     r2_access_key_id: str = ""

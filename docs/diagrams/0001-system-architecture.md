@@ -72,18 +72,18 @@ ZOOM (HC's existing tool, unchanged)
 
 ## Component summary
 
-| Component | Tech | Where | Notes |
-|---|---|---|---|
-| Frontend (BFF) | Next.js 16 App Router, TypeScript, Tailwind, shadcn/ui | GCP Cloud Run `asia-south1` (Mumbai) | Serves HC UI; `app/api/[...path]/route.ts` proxies all `/api/*` server-to-server to the backend — cookie always on frontend domain |
-| Backend | FastAPI (Python 3.12), SQLAlchemy 2.0, Pydantic v2 | GCP Cloud Run `asia-south1` (Mumbai) — primary | Containerised Docker; scales to zero; full Python ecosystem |
-| Backend fallback | Same FastAPI Docker image | DigitalOcean Bangalore Droplet | Activated on ADR-0001 Cloud Run hosting triggers |
-| Database | Postgres (managed) | Supabase free tier, `ap-south-1` (Mumbai) | 500 MB free; keep-alive via GH Actions cron; upgrade path: Supabase Pro $25/mo |
-| Object storage | S3-compatible | Cloudflare R2 (global, zero egress) | Session notes mirror, client file library, consent PDFs. No India-region pin at MVP. |
-| LLM gateway | OpenRouter (HTTP, OpenAI-compatible) | Cloud Run → OpenRouter → upstream providers | Pinned free-model chain via `models` array |
-| Scheduler | GitHub Actions cron | External | Hits Cloud Run `/api/jobs/*` endpoints; also runs Supabase keep-alive |
-| Auth | Backend-issued JWT, Google OAuth | Cloud Run | Owned implementation; standard httpx (no platform-specific workarounds needed) |
-| Observability | Sentry + GCP Cloud Logging + `llm_calls` table | Mixed | Sentry for errors, Cloud Logging for structured app logs, Supabase for LLM telemetry |
-| Edge protection (frontend) | Cloudflare platform features | Cloudflare dashboard | Rate limit, WAF, cache rules, DDoS — for Cloudflare Pages layer |
+| Component                  | Tech                                                   | Where                                            | Notes                                                                                                                                  |
+| -------------------------- | ------------------------------------------------------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend (BFF)             | Next.js 16 App Router, TypeScript, Tailwind, shadcn/ui | GCP Cloud Run`asia-south1` (Mumbai)            | Serves HC UI;`app/api/[...path]/route.ts` proxies all `/api/*` server-to-server to the backend — cookie always on frontend domain |
+| Backend                    | FastAPI (Python 3.12), SQLAlchemy 2.0, Pydantic v2     | GCP Cloud Run`asia-south1` (Mumbai) — primary | Containerised Docker; scales to zero; full Python ecosystem                                                                            |
+| Backend fallback           | Same FastAPI Docker image                              | DigitalOcean Bangalore Droplet                   | Activated on ADR-0001 Cloud Run hosting triggers                                                                                       |
+| Database                   | Postgres (managed)                                     | Supabase free tier,`ap-south-1` (Mumbai)       | 500 MB free; keep-alive via GH Actions cron; upgrade path: Supabase Pro $25/mo                                                         |
+| Object storage             | S3-compatible                                          | Cloudflare R2 (global, zero egress)              | Session notes mirror, client file library, consent PDFs. No India-region pin at MVP.                                                   |
+| LLM gateway                | OpenRouter (HTTP, OpenAI-compatible)                   | Cloud Run → OpenRouter → upstream providers    | Pinned free-model chain via`models` array                                                                                            |
+| Scheduler                  | GitHub Actions cron                                    | External                                         | Hits Cloud Run`/api/jobs/*` endpoints; also runs Supabase keep-alive                                                                 |
+| Auth                       | Backend-issued JWT, Google OAuth                       | Cloud Run                                        | Owned implementation; standard httpx (no platform-specific workarounds needed)                                                         |
+| Observability              | Sentry + GCP Cloud Logging +`llm_calls` table        | Mixed                                            | Sentry for errors, Cloud Logging for structured app logs, Supabase for LLM telemetry                                                   |
+| Edge protection (frontend) | Cloudflare platform features                           | Cloudflare dashboard                             | Rate limit, WAF, cache rules, DDoS — for Cloudflare Pages layer                                                                       |
 
 ---
 
@@ -129,14 +129,14 @@ ZOOM (HC's existing tool, unchanged)
 
 ## Migration paths (per ADR-0002)
 
-| Trigger fires | Response |
-|---|---|
-| Cloud Run cold start p95 > 3s (sustained) | Add `min-instances: 1` on Cloud Run (~$10/mo extra) |
-| Cloud Run monthly cost > $25 | Migrate backend to DO Bangalore flat-rate droplet |
-| GCP Cloud Run outages > 2/30d | Migrate backend to DO Bangalore |
-| Supabase DB approaching 450 MB | Upgrade to Supabase Pro ($25/mo) |
-| Supabase MAU approaching 45 K | Upgrade to Supabase Pro ($25/mo) |
-| Free-model LLM quality fails (per ADR-0001 triggers 7–10) | Switch model IDs to paid Claude via OpenRouter |
+| Trigger fires                                              | Response                                             |
+| ---------------------------------------------------------- | ---------------------------------------------------- |
+| Cloud Run cold start p95 > 3s (sustained)                  | Add`min-instances: 1` on Cloud Run (~$10/mo extra) |
+| Cloud Run monthly cost > $25                               | Migrate backend to DO Bangalore flat-rate droplet    |
+| GCP Cloud Run outages > 2/30d                              | Migrate backend to DO Bangalore                      |
+| Supabase DB approaching 450 MB                             | Upgrade to Supabase Pro ($25/mo)                     |
+| Supabase MAU approaching 45 K                              | Upgrade to Supabase Pro ($25/mo)                     |
+| Free-model LLM quality fails (per ADR-0001 triggers 7–10) | Switch model IDs to paid Claude via OpenRouter       |
 
 ---
 
@@ -170,8 +170,8 @@ ZOOM (HC's existing tool, unchanged)
 
 ## Changelog
 
-| Date | Change |
-|---|---|
-| 2026-06-24 | Frontend moved from Cloudflare Pages to GCP Cloud Run (was documented in 2026-06-19 changelog but ASCII diagram still showed CF Pages — corrected now). Added BFF proxy pattern: Next.js `app/api/[...path]/route.ts` catches all `/api/*` from browser and proxies server-to-server to the backend. Reason: `run.app` is in the Public Suffix List; frontend and backend are cross-site; Firefox (dFPI) and Safari (ITP) block third-party cookies. Proxy makes all browser calls same-origin so refresh cookie is first-party. Updated: ASCII diagram, component table, request flow examples (added OAuth sign-in flow, updated MOM review and scheduler examples), "What's NOT here." ADR-0005 amended same date. |
-| 2026-06-19 | Hosting updated: CF Python Workers → GCP Cloud Run `asia-south1`. DB updated: AWS RDS Mumbai → Supabase free tier (Mumbai). Object storage was already R2 (May 2026). Migration paths table rewritten for Cloud Run triggers. Component table updated. "What's NOT here" updated. ASCII diagram redrawn. |
-| 2026-04-28 | Fresh description aligned with current ADRs. MERGE-REQUIRED — old repo version had n8n. |
+| Date       | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-06-24 | Frontend moved from Cloudflare Pages to GCP Cloud Run (was documented in 2026-06-19 changelog but ASCII diagram still showed CF Pages — corrected now). Added BFF proxy pattern: Next.js`app/api/[...path]/route.ts` catches all `/api/*` from browser and proxies server-to-server to the backend. Reason: `run.app` is in the Public Suffix List; frontend and backend are cross-site; Firefox (dFPI) and Safari (ITP) block third-party cookies. Proxy makes all browser calls same-origin so refresh cookie is first-party. Updated: ASCII diagram, component table, request flow examples (added OAuth sign-in flow, updated MOM review and scheduler examples), "What's NOT here." ADR-0005 amended same date. |
+| 2026-06-19 | Hosting updated: CF Python Workers → GCP Cloud Run`asia-south1`. DB updated: AWS RDS Mumbai → Supabase free tier (Mumbai). Object storage was already R2 (May 2026). Migration paths table rewritten for Cloud Run triggers. Component table updated. "What's NOT here" updated. ASCII diagram redrawn.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 2026-04-28 | Fresh description aligned with current ADRs. MERGE-REQUIRED — old repo version had n8n.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |

@@ -38,6 +38,8 @@ const baseClient = (overrides: Partial<ClientOut>): ClientOut => ({
   course_goal: null,
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
+  demographics: null,
+  health_metrics: [],
   ...overrides,
 });
 

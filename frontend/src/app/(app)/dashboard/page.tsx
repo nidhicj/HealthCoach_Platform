@@ -169,6 +169,7 @@ export default function DashboardPage() {
                 client={client}
                 relativeDate={formatRelativeDate(lastSessionMap.get(client.id) ?? null)}
                 hasFlags={flaggedSet.has(client.id)}
+                metrics={client.health_metrics.filter(m => m.display_on_card).map(({ id, name, value, unit, target }) => ({ id, name, value, unit, target }))}
               />
             ))}
           </div>
@@ -194,6 +195,7 @@ export default function DashboardPage() {
                     relativeDate={formatRelativeDate(lastSessionMap.get(client.id) ?? null)}
                     hasFlags={false}
                     dim
+                    metrics={client.health_metrics.filter(m => m.display_on_card).map(({ id, name, value, unit, target }) => ({ id, name, value, unit, target }))}
                   />
                 ))}
               </div>
