@@ -9,6 +9,7 @@ export const HealthMetricSchema = z.object({
   name: z.string(),
   value: z.string(),
   unit: z.string(),
+  target: z.string().default(""),
   display_on_card: z.boolean(),
 });
 
