@@ -5,7 +5,7 @@ P11 schema additions:
 - clients: add health_metrics JSONB NOT NULL DEFAULT '[]' — HC-defined health metrics with current values
 
 Revision ID: a1b2c3d4e5f6
-Revises: df7c84b2de4f
+Revises: 3914c2c221e8
 Create Date: 2026-06-30
 """
 from typing import Sequence, Union
@@ -16,7 +16,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 
 revision: str = "a1b2c3d4e5f6"
-down_revision: Union[str, Sequence[str], None] = "df7c84b2de4f"
+down_revision: Union[str, Sequence[str], None] = "3914c2c221e8"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
