@@ -1,9 +1,12 @@
 """SQLAlchemy TypeDecorator: transparently encrypt/decrypt a JSON dict using Fernet."""
 import json
 
+import structlog
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import Text
 from sqlalchemy.types import TypeDecorator
+
+logger = structlog.get_logger(__name__)
 
 # Used when DEMOGRAPHICS_ENCRYPTION_KEY is absent (dev / test environments only).
 # Not secure — production must set the env var.
@@ -33,7 +36,8 @@ class EncryptedJSON(TypeDecorator):
             return None
         try:
             return json.loads(_fernet().decrypt(value.encode()))
-        except (InvalidToken, Exception):
+        except Exception:
             # Graceful degradation: return None rather than crash the whole response
             # if ciphertext is corrupt or the key was rotated without re-encryption.
+            logger.warning("demographics_decrypt_failed", exc_info=True)
             return None

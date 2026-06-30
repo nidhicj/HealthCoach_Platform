@@ -61,7 +61,7 @@ export function HealthMetricsCard({ clientId, metrics: initialMetrics, onSave }:
             )}
             <div className="flex gap-2">
               <button
-                onClick={() => { setMetrics(initialMetrics); setEditing(false); }}
+                onClick={() => { setMetrics(initialMetrics); setEditing(false); setSaveError(null); }}
                 className="rounded-md border border-border px-3 py-1 font-sans text-xs text-muted-foreground hover:text-foreground"
               >
                 Cancel
