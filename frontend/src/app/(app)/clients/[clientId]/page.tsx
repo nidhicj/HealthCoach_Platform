@@ -275,7 +275,7 @@ export default function ClientDetailPage() {
           </div>
 
           {/* ── GOAL — bg-A full width ── */}
-          <section className="rounded-2xl border border-border bg-muted p-6">
+          <section className="rounded-2xl border border-border bg-section-fill-03 p-6">
             <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary mb-3">
               Goal
             </h2>
@@ -550,7 +550,7 @@ export default function ClientDetailPage() {
           </div>
 
           {/* ── DIET CHART — bg-A full width ── */}
-          <section className="space-y-4 rounded-2xl border border-border bg-muted p-6">
+          <section className="space-y-4 rounded-2xl border border-border bg-section-fill-03 p-6">
             <div className="flex items-center justify-between">
               <h2 className="font-heading text-2xl font-bold text-foreground">Diet chart</h2>
               {!showGenerate && (
