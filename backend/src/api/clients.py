@@ -31,6 +31,8 @@ class ClientCreate(BaseModel):
     course_start_date: datetime | None = None
     course_end_date: datetime | None = None
     course_goal: str | None = None
+    demographics: dict | None = None
+    health_metrics: list[dict] = []
 
     @field_validator("journey_stage")
     @classmethod
@@ -52,6 +54,8 @@ class ClientOut(BaseModel):
     course_start_date: datetime | None
     course_end_date: datetime | None
     course_goal: str | None
+    demographics: dict | None = None
+    health_metrics: list[dict] = []
     created_at: datetime
     updated_at: datetime
 
@@ -60,12 +64,24 @@ class ClientOut(BaseModel):
 
 class PatchClientInput(BaseModel):
     journey_stage: str | None = None
+    demographics: dict | None = None
+    health_metrics: list[dict] | None = None
 
     @field_validator("journey_stage")
     @classmethod
     def validate_journey_stage(cls, v: str | None) -> str | None:
         if v is not None and v not in _VALID_JOURNEY_STAGES:
             raise ValueError(f"journey_stage must be one of {_VALID_JOURNEY_STAGES}")
+        return v
+
+    @field_validator("health_metrics")
+    @classmethod
+    def validate_health_metrics(cls, v: list[dict] | None) -> list[dict] | None:
+        if v is None:
+            return v
+        display_count = sum(1 for m in v if m.get("display_on_card"))
+        if display_count > 3:
+            raise ValueError("At most 3 metrics can have display_on_card=true")
         return v
 
 
@@ -132,6 +148,8 @@ async def create_client(
         course_end_date=body.course_end_date,
         course_goal=body.course_goal,
         code=code,
+        demographics=body.demographics,
+        health_metrics=body.health_metrics,
     )
     db.add(client)
     await db.flush()
@@ -235,6 +253,10 @@ async def patch_client(
 
     if body.journey_stage is not None:
         client.journey_stage = body.journey_stage
+    if body.demographics is not None:
+        client.demographics = body.demographics
+    if body.health_metrics is not None:
+        client.health_metrics = body.health_metrics
 
     await db.commit()
     await db.refresh(client)
