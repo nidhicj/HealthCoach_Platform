@@ -384,7 +384,7 @@ export default function ClientDetailPage() {
           {/* ── GOAL + HEALTH METRICS ROW — 30/70 ── */}
           <div className="flex gap-4">
             {/* Goal card — 30% */}
-            <section className="w-[30%] shrink-0 rounded-2xl border border-border bg-section-fill-03 p-6">
+            <section className="w-[40%] shrink-0 rounded-2xl border border-border bg-section-fill-03 p-6">
               <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary mb-3">
                 Goal
               </h2>

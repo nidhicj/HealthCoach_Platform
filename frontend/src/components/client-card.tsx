@@ -51,14 +51,14 @@ export function ClientCard({ client, relativeDate, hasFlags, dim = false, metric
           <div className="flex gap-2 shrink-0">
             {metrics.map(m => (
               <div key={m.id ?? m.name} className="flex flex-col items-center gap-0.5">
-                <div className="w-16 h-16 rounded-full border border-border flex flex-col items-center justify-center px-1">
+                <div className="w-16 h-16 rounded-full border border-border flex flex-col bg-section-fill-03 items-center justify-center px-1">
                   {m.target ? (
                     <>
-                      <span className="font-sans text-xs font-medium text-foreground leading-tight text-center">
+                      <span className="font-sans text-base font-medium text-foreground leading-tight text-center">
                         {m.value}
                       </span>
                       <span className="w-8 border-t border-border my-0.5" />
-                      <span className="font-sans text-xs text-muted-foreground leading-tight text-center">
+                      <span className="font-sans text-base text-muted-foreground leading-tight text-center">
                         {m.target}
                       </span>
                     </>
