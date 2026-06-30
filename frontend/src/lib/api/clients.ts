@@ -4,6 +4,16 @@ import { fetchWithAuth } from "@/lib/auth/client";
 
 // ── schemas ──────────────────────────────────────────────────────────────────
 
+export const HealthMetricSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  value: z.string(),
+  unit: z.string(),
+  display_on_card: z.boolean(),
+});
+
+export type HealthMetric = z.infer<typeof HealthMetricSchema>;
+
 export const ClientOutSchema = z.object({
   id: z.string(),
   hc_user_id: z.string(),
@@ -18,6 +28,8 @@ export const ClientOutSchema = z.object({
   course_goal: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  demographics: z.record(z.string(), z.string()).nullable().optional(),
+  health_metrics: z.array(HealthMetricSchema).optional().default([]),
 });
 
 const ActionItemOutSchema = z.object({
@@ -110,7 +122,11 @@ export async function getClientAst(clientId: string): Promise<AstOut> {
 
 export async function patchClient(
   clientId: string,
-  input: { journey_stage?: string },
+  input: {
+    journey_stage?: string;
+    demographics?: Record<string, string> | null;
+    health_metrics?: HealthMetric[];
+  },
 ): Promise<ClientOut> {
   const res = await fetchWithAuth(`${API_URL}/api/clients/${clientId}`, {
     method: "PATCH",

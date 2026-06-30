@@ -20,6 +20,8 @@ function makeClient(id: string): ClientOut {
     course_goal: null,
     created_at: NOW,
     updated_at: NOW,
+    demographics: null,
+    health_metrics: [],
   };
 }
 
