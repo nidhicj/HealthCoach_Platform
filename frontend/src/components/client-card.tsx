@@ -16,9 +16,10 @@ interface ClientCardProps {
   relativeDate: string;
   hasFlags: boolean;
   dim?: boolean;
+  metrics?: Array<{ name: string; value: string; unit: string }>;
 }
 
-export function ClientCard({ client, relativeDate, hasFlags, dim = false }: ClientCardProps) {
+export function ClientCard({ client, relativeDate, hasFlags, dim = false, metrics }: ClientCardProps) {
   return (
     <Link
       href={`/clients/${client.id}`}
@@ -40,6 +41,16 @@ export function ClientCard({ client, relativeDate, hasFlags, dim = false }: Clie
         {STAGE_LABEL[client.journey_stage] ?? client.journey_stage}
       </Badge>
       <p className="font-sans text-xs text-muted-foreground">{relativeDate}</p>
+      {metrics && metrics.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+          {metrics.map(m => (
+            <span key={m.name} className="text-xs text-muted-foreground">
+              {m.name}:{" "}
+              <span className="font-medium text-foreground">{m.value} {m.unit}</span>
+            </span>
+          ))}
+        </div>
+      )}
     </Link>
   );
 }
