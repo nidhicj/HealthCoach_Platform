@@ -4,6 +4,38 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-06-30 — Phase 10 fixes + Phase 11: Client Profile and Health Metrics
+
+**Branch**: `feature/unit-001-phase-11-client-profile-and-health-metrics` (ready to merge to `main`)
+
+**Phase 10 fixes landed in this session:**
+- `bg-section-fill-01` applied to Sessions + Open Items cards (replaced incorrect white)
+- Dashboard grid: `grid-cols-3` → `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` (responsive)
+- Journey stage: editable `<select>` on client detail page + backend `PATCH /api/clients/{id}` for `journey_stage`
+- Session Notes (tab): Save/Edit freeze pattern writing to `notes_internal`
+- Session Review tab (was "MOM editor"): single textarea, AI generation, Save/Edit freeze, "Send to client" button removed, `draftMom` now reads from `notes_internal` not `session_notes`
+- Three-colour card system: introduced `section_fill_03` token (`#DFE3E6`) for Goal + Diet chart cards; `section_fill_01` for Sessions/Open Items, `section_fill_02` for Supplements/Details
+
+**Phase 11 built:**
+- **Gear icon → demographics Sheet**: 8 optional demographic fields (DOB, gender, city, occupation, medical conditions, allergies, medications, emergency contact) in a slide-over. Only non-empty fields render in Details card.
+- **Health Metrics card**: HC defines custom metrics (name/value/unit), max 3 flagged for roster display. Save/Edit freeze pattern. Sits at 70% alongside Goal card (30%).
+- **Roster card**: up to 3 `display_on_card` metrics shown below stage badge on each client tile.
+- **Backend**: `demographics TEXT` (encrypted) + `health_metrics JSONB NOT NULL DEFAULT '[]'` columns on `clients`; Alembic migration; `PatchClientInput` + `ClientOut` + `ClientCreate` updated; max-3 validator.
+- **ADR-0007**: app-layer Fernet encryption for `demographics` column (DPDP / CLAUDE.md §9.5).
+
+**Security:** `demographics` PII (medical conditions, allergies, medications) encrypted at rest via SQLAlchemy `EncryptedJSON` TypeDecorator (Fernet AES-128-CBC + HMAC). Column is `TEXT` at DB layer; Python/Pydantic layer sees `dict[str, str] | None` transparently. Key: `DEMOGRAPHICS_ENCRYPTION_KEY` env var.
+
+**Commits on branch (9 total):**
+- `2bf190e` spec, `90197e7` backend, `0c0ce3f` frontend API, `2b701f7` client detail page, `04a39ce` roster metrics, `61bf782` review fixes, `808cbbb` ADR-0007, `cb68a65` encryption, `e01f318` decrypt logging + Cancel state
+
+**Open items / follow-ups:**
+- Reseed mock data for P11 (mock scripts at `backend/scripts/mock_p6/` still target local Postgres `parivarthan_dev` — data is intact)
+- `health_metrics` encryption deferred (ADR-0007 §Consequences — client-side filter would break if encrypted)
+- KMS migration when platform crosses regulatory audit or 10k data principals
+- `h` column (Alembic revision ID `a1b2c3d4e5f6` is hand-typed not auto-generated — minor hygiene, non-breaking)
+
+---
+
 ## 2026-06-24/25 — P9 Part B: Cross-browser auth fix + production verification + mock data migration
 
 **Done**:
