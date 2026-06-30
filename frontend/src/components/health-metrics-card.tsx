@@ -13,6 +13,7 @@ interface HealthMetricsCardProps {
 export function HealthMetricsCard({ clientId, metrics: initialMetrics, onSave }: HealthMetricsCardProps) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<HealthMetric[]>(initialMetrics);
 
   const displayCount = metrics.filter(m => m.display_on_card).length;
@@ -33,6 +34,7 @@ export function HealthMetricsCard({ clientId, metrics: initialMetrics, onSave }:
   }
 
   async function handleSave() {
+    setSaveError(null);
     setSaving(true);
     try {
       await patchClient(clientId, { health_metrics: metrics });
@@ -40,6 +42,7 @@ export function HealthMetricsCard({ clientId, metrics: initialMetrics, onSave }:
       setEditing(false);
     } catch (e) {
       console.error("Failed to save health metrics", e);
+      setSaveError("Failed to save — please try again.");
     } finally {
       setSaving(false);
     }
@@ -52,20 +55,25 @@ export function HealthMetricsCard({ clientId, metrics: initialMetrics, onSave }:
           Health Metrics
         </h2>
         {editing ? (
-          <div className="flex gap-2">
-            <button
-              onClick={() => { setMetrics(initialMetrics); setEditing(false); }}
-              className="rounded-md border border-border px-3 py-1 font-sans text-xs text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              disabled={saving}
-              onClick={handleSave}
-              className="rounded-md bg-primary px-3 py-1 font-sans text-xs font-bold text-primary-foreground disabled:opacity-60"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
+          <div className="flex flex-col gap-1">
+            {saveError && (
+              <p className="text-sm text-error mt-2">{saveError}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setMetrics(initialMetrics); setEditing(false); }}
+                className="rounded-md border border-border px-3 py-1 font-sans text-xs text-muted-foreground hover:text-foreground"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={saving}
+                onClick={handleSave}
+                className="rounded-md bg-primary px-3 py-1 font-sans text-xs font-bold text-primary-foreground disabled:opacity-60"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         ) : (
           <button

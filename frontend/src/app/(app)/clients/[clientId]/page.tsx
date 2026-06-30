@@ -52,10 +52,12 @@ function DemographicsForm({
   demographics,
   onSave,
   saving,
+  saveError,
 }: {
   demographics: Record<string, string>;
   onSave: (data: Record<string, string>) => void;
   saving: boolean;
+  saveError?: string | null;
 }) {
   const [form, setForm] = useState<Record<string, string>>(demographics);
 
@@ -99,6 +101,9 @@ function DemographicsForm({
       {field("allergies", "Allergies", "textarea")}
       {field("current_medications", "Current medications", "textarea")}
       {field("emergency_contact", "Emergency contact")}
+      {saveError && (
+        <p className="text-sm text-error">{saveError}</p>
+      )}
       <button
         disabled={saving}
         onClick={() => onSave(form)}
@@ -142,6 +147,7 @@ export default function ClientDetailPage() {
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [demoSaving, setDemoSaving] = useState(false);
+  const [demoSaveError, setDemoSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!clientId) return;
@@ -270,12 +276,14 @@ export default function ClientDetailPage() {
   }
 
   async function handleDemoSave(data: Record<string, string>) {
+    setDemoSaveError(null);
     setDemoSaving(true);
     try {
       const updated = await patchClient(clientId, { demographics: data });
       setClient(prev => prev ? { ...prev, demographics: updated.demographics } : prev);
     } catch (e) {
       console.error("Failed to save demographics", e);
+      setDemoSaveError("Failed to save — please try again.");
     } finally {
       setDemoSaving(false);
     }
@@ -364,6 +372,7 @@ export default function ClientDetailPage() {
                     demographics={client!.demographics ?? {}}
                     onSave={handleDemoSave}
                     saving={demoSaving}
+                    saveError={demoSaveError}
                   />
                 </SheetContent>
               </Sheet>

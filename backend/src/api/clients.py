@@ -31,7 +31,7 @@ class ClientCreate(BaseModel):
     course_start_date: datetime | None = None
     course_end_date: datetime | None = None
     course_goal: str | None = None
-    demographics: dict | None = None
+    demographics: dict[str, str] | None = None
     health_metrics: list[dict] = []
 
     @field_validator("journey_stage")
@@ -54,7 +54,7 @@ class ClientOut(BaseModel):
     course_start_date: datetime | None
     course_end_date: datetime | None
     course_goal: str | None
-    demographics: dict | None = None
+    demographics: dict[str, str] | None = None
     health_metrics: list[dict] = []
     created_at: datetime
     updated_at: datetime
@@ -64,7 +64,7 @@ class ClientOut(BaseModel):
 
 class PatchClientInput(BaseModel):
     journey_stage: str | None = None
-    demographics: dict | None = None
+    demographics: dict[str, str] | None = None
     health_metrics: list[dict] | None = None
 
     @field_validator("journey_stage")

@@ -16,7 +16,7 @@ interface ClientCardProps {
   relativeDate: string;
   hasFlags: boolean;
   dim?: boolean;
-  metrics?: Array<{ name: string; value: string; unit: string }>;
+  metrics?: Array<{ id?: string; name: string; value: string; unit: string }>;
 }
 
 export function ClientCard({ client, relativeDate, hasFlags, dim = false, metrics }: ClientCardProps) {
@@ -44,7 +44,7 @@ export function ClientCard({ client, relativeDate, hasFlags, dim = false, metric
       {metrics && metrics.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
           {metrics.map(m => (
-            <span key={m.name} className="text-xs text-muted-foreground">
+            <span key={m.id ?? m.name} className="text-xs text-muted-foreground">
               {m.name}:{" "}
               <span className="font-medium text-foreground">{m.value} {m.unit}</span>
             </span>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { listClients, type ClientOut, type HealthMetric } from "@/lib/api/clients";
+import { listClients, type ClientOut } from "@/lib/api/clients";
 import { listSessions, type SessionOut } from "@/lib/api/sessions";
 import { listActionItems, type ActionItemOut } from "@/lib/api/actionItems";
 import { ClientCard } from "@/components/client-card";
@@ -169,7 +169,7 @@ export default function DashboardPage() {
                 client={client}
                 relativeDate={formatRelativeDate(lastSessionMap.get(client.id) ?? null)}
                 hasFlags={flaggedSet.has(client.id)}
-                metrics={client.health_metrics.filter(m => m.display_on_card).map(({ name, value, unit }) => ({ name, value, unit }))}
+                metrics={client.health_metrics.filter(m => m.display_on_card).map(({ id, name, value, unit }) => ({ id, name, value, unit }))}
               />
             ))}
           </div>
@@ -195,7 +195,7 @@ export default function DashboardPage() {
                     relativeDate={formatRelativeDate(lastSessionMap.get(client.id) ?? null)}
                     hasFlags={false}
                     dim
-                    metrics={client.health_metrics.filter(m => m.display_on_card).map(({ name, value, unit }) => ({ name, value, unit }))}
+                    metrics={client.health_metrics.filter(m => m.display_on_card).map(({ id, name, value, unit }) => ({ id, name, value, unit }))}
                   />
                 ))}
               </div>
