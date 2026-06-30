@@ -31,7 +31,7 @@ Restructure the frontend to feel welcoming and readable to a first-time user, no
 #### A1 · Navigation (`frontend/src/app/(app)/layout.tsx`)
 
 - Remove "Clients" nav link — the Roster Board absorbs the clients list
-- Nav becomes: **[Parivarthan wordmark → /dashboard] · Action Items · Diet Charts · Settings**
+- Nav becomes: **[Tapas wordmark → /dashboard] · Action Items · Diet Charts · Settings**
 
 #### A2 · Landing page — Roster Board (`frontend/src/app/(app)/dashboard/page.tsx`)
 

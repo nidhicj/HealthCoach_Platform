@@ -60,7 +60,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             href="/dashboard"
             className="shrink-0 font-heading text-lg font-black text-foreground"
           >
-            Parivarthan
+            Tapas
           </Link>
           {/* overflow-x-auto keeps nav from expanding <html> width on 375px screens */}
           <div className="flex min-w-0 flex-1 items-center justify-end gap-3 overflow-x-auto sm:gap-6">

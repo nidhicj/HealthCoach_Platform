@@ -18,7 +18,7 @@ const manrope = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: "Parivarthan",
+  title: "Tapas",
   description: "Health coach platform",
 };
 

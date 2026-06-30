@@ -12,7 +12,7 @@ function Nav() {
     <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur-sm">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
         <span className="font-heading text-xl font-black tracking-tight text-foreground">
-          Parivarthan
+          Tapas
         </span>
         <Link
           href="/sign-in"
@@ -271,7 +271,7 @@ function Footer() {
     <footer className="border-t border-border bg-background py-8">
       <div className="mx-auto max-w-5xl px-6">
         <p className="font-sans text-xs text-muted-foreground">
-          © 2025 Parivarthan. For independent health coaches in India.
+          © 2025 Tapas. For independent health coaches in India.
         </p>
       </div>
     </footer>

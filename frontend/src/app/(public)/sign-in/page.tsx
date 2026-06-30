@@ -25,7 +25,7 @@ export default function SignInPage() {
       <div className="flex flex-col items-center gap-3 text-center">
         {/* Fraunces 900 wordmark — headline rule */}
         <h1 className="font-heading text-5xl font-black text-foreground">
-          Parivarthan
+          Tapas
         </h1>
         {/* Marigold accent line — the ONE Marigold element on this screen (brand §divider) */}
         <div className="h-0.5 w-16 bg-accent" aria-hidden />
