@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { patchClient } from "@/lib/api/clients";
 import type { HealthMetric } from "@/lib/api/clients";
 
@@ -62,6 +62,7 @@ export function HealthMetricsCard({ clientId, metrics: initialMetrics, onSave }:
   const [saveError, setSaveError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<HealthMetric[]>(initialMetrics);
   const [showAll, setShowAll] = useState(false);
+  const closePanel = useCallback(() => setShowAll(false), []);
 
   const displayCount = metrics.filter(m => m.display_on_card).length;
 
@@ -209,12 +210,12 @@ export function HealthMetricsCard({ clientId, metrics: initialMetrics, onSave }:
               onClick={() => setShowAll(v => !v)}
               className="mt-2 font-sans text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
             >
-              {showAll ? "▲ Show less" : `+ ${metrics.length - VISIBLE_COUNT} more ▼`}
+              {showAll ? "▲ Show less" : `▼ Show all ${metrics.length}`}
             </button>
           )}
           {/* Overflow popover */}
           {showAll && (
-            <OverflowPanel metrics={metrics} onClose={() => setShowAll(false)} />
+            <OverflowPanel metrics={metrics} onClose={closePanel} />
           )}
         </div>
       )}
