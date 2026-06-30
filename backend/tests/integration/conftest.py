@@ -22,6 +22,7 @@ _TEST_PUBLIC_KEY = (
 
 os.environ.setdefault("JWT_PRIVATE_KEY", _TEST_PRIVATE_KEY)
 os.environ.setdefault("JWT_PUBLIC_KEY", _TEST_PUBLIC_KEY)
+os.environ.setdefault("DEMOGRAPHICS_ENCRYPTION_KEY", "ZGV2LXRlc3Qta2V5LTMyLWJ5dGVzLWV4YWN0bHkhISE=")
 
 # Clear any existing settings cache so the keys above take effect
 try:

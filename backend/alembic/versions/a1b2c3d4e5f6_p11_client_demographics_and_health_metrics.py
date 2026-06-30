@@ -22,7 +22,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("clients", sa.Column("demographics", JSONB(), nullable=True))
+    op.add_column("clients", sa.Column("demographics", sa.Text(), nullable=True))
     op.add_column(
         "clients",
         sa.Column("health_metrics", JSONB(), nullable=False, server_default=sa.text("'[]'::jsonb")),
