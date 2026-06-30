@@ -5,7 +5,7 @@ palette:
   marigold:    "#E8C547"   # 0 or 1 element per screen, primary CTA only
   section_fill_01: "#E8EDE5"  # odd sections  — swap to experiment
   section_fill_02: "#EFE7C9"  # even sections — swap to experiment (default = parchment)
-  section_fill_03: "#A28ECD"  # accent sections — lavender
+  section_fill_03: "#e3dbf3"  # accent sections — lavender
   functional:
     success: "#3F7D4B"     # success states only
     warning: "#B8722C"     # warnings only
