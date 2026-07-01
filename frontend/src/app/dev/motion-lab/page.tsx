@@ -275,7 +275,7 @@ export default function MotionLab() {
         <BrandRulesChecker />
 
         <footer className="border-t border-border pt-6 text-xs text-muted-foreground font-mono">
-          Parivarthan Motion Lab · Stage 1 · gated on NEXT_PUBLIC_DEV_ROUTES=true
+          Tapas Motion Lab · Stage 1 · gated on NEXT_PUBLIC_DEV_ROUTES=true
         </footer>
       </main>
     </TooltipProvider>
