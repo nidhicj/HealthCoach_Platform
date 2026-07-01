@@ -61,15 +61,14 @@ export default function DashboardPage() {
   const flaggedSet = buildFlaggedSet(missedItems ?? []);
   const milestone = findMilestone(sessions ?? [], clients ?? []);
 
-  const todaySessions = (sessions ?? []).filter((s) => isToday(s.scheduled_at));
-  const upcomingThisWeek = (sessions ?? [])
+  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const bannerSessions = (sessions ?? [])
     .filter((s) => {
       const d = new Date(s.scheduled_at);
-      return d > new Date() && d.getTime() - Date.now() <= 7 * 24 * 60 * 60 * 1000;
+      return isToday(s.scheduled_at) || (d > new Date() && d <= sevenDaysLater);
     })
     .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
-  const bannerSessions = todaySessions.length > 0 ? todaySessions : upcomingThisWeek;
-  const bannerLabel = todaySessions.length > 0 ? "Today" : "Upcoming";
+  const bannerLabel = bannerSessions.some((s) => isToday(s.scheduled_at)) ? "Today" : "Upcoming";
   const activeClients = (clients ?? []).filter((c) => c.journey_stage !== "completed");
   const pastClients = (clients ?? []).filter((c) => c.journey_stage === "completed");
   const flaggedCount = activeClients.filter((c) => flaggedSet.has(c.id)).length;
