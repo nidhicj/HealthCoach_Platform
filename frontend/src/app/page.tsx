@@ -193,12 +193,12 @@ function HowItWorksSection() {
         <h2 className="font-heading text-3xl font-black text-foreground md:text-4xl">
           Three steps, every client.
         </h2>
-        <div className="mt-10 grid gap-10 md:grid-cols-3">
+        <div className="mt-10 grid gap-10  md:grid-cols-3">
           {STEPS.map((s) => (
             <div key={s.n} className="flex flex-col gap-2">
               <span
                 className="font-heading text-6xl font-black leading-none select-none"
-                style={{ color: "var(--color-section-fill-01)" }}
+                style={{ color: "var(--color-marigold)" }}
                 aria-hidden
               >
                 {s.n}

@@ -13,11 +13,12 @@ import {
   type ClientRow,
 } from "@/lib/actionItemsKanban";
 
-function isOverdue(item: ActionItemOut): boolean {
-  if (item.status === "missed") return true;
-  if (!item.due_date) return false;
-  return new Date(item.due_date) < new Date(new Date().toDateString());
-}
+const STATUS_TAG: Record<string, { label: string; className: string }> = {
+  open:        { label: "Starting",    className: "bg-blue-50 text-blue-600 border-blue-200" },
+  in_progress: { label: "In Progress", className: "bg-orange-50 text-orange-600 border-orange-200" },
+  completed:   { label: "Done",        className: "bg-emerald-50 text-emerald-600 border-emerald-200" },
+  missed:      { label: "Missed",      className: "bg-red-50 text-red-600 border-red-200" },
+};
 
 function ItemCard({
   item,
@@ -27,9 +28,9 @@ function ItemCard({
   onMove: (id: string, newStatus: string) => void;
 }) {
   const [transitioning, setTransitioning] = useState(false);
-  const overdue = isOverdue(item);
   const forward = MOVE_FORWARD[item.status];
   const back = MOVE_BACK[item.status];
+  const tag = STATUS_TAG[item.status];
 
   async function handleMove(targetStatus: string) {
     const originalStatus = item.status;
@@ -45,12 +46,7 @@ function ItemCard({
   }
 
   return (
-    <div
-      className={cn(
-        "rounded-lg border p-3 space-y-1.5 text-sm",
-        overdue ? "border-destructive/40 bg-destructive/5" : "border-border bg-background",
-      )}
-    >
+    <div className="rounded-lg border border-border bg-background p-3 space-y-1.5 text-sm">
       <p
         className={cn(
           "font-sans font-medium leading-snug",
@@ -61,19 +57,16 @@ function ItemCard({
       >
         {item.description}
       </p>
-      <p
-        className={cn(
-          "font-sans text-xs",
-          overdue ? "font-bold text-destructive" : "text-muted-foreground",
-        )}
-      >
-        {new Date(item.created_at).toLocaleDateString("en-IN", {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-        })}
-        {overdue && " · Overdue"}
-      </p>
+      {tag && (
+        <span
+          className={cn(
+            "inline-block rounded-full border px-2 py-0.5 font-sans text-xs font-semibold",
+            tag.className,
+          )}
+        >
+          {tag.label}
+        </span>
+      )}
       {transitioning ? (
         <p className="font-sans text-xs text-muted-foreground">Moving…</p>
       ) : (

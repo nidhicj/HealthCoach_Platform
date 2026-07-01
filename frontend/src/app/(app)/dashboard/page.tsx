@@ -16,8 +16,21 @@ import {
   formatRelativeDate,
 } from "@/lib/rosterUtils";
 
+const toIST = (d: Date) =>
+  d.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" });
+
 function isToday(iso: string): boolean {
-  return new Date(iso).toDateString() === new Date().toDateString();
+  return toIST(new Date(iso)) === toIST(new Date());
+}
+
+function sessionDayLabel(iso: string): string {
+  const sessionDate = toIST(new Date(iso));
+  if (sessionDate === toIST(new Date())) return "";
+  if (sessionDate === toIST(new Date(Date.now() + 86_400_000))) return "Tomorrow";
+  return new Date(iso).toLocaleDateString("en-IN", {
+    weekday: "short",
+    timeZone: "Asia/Kolkata",
+  });
 }
 
 export default function DashboardPage() {
@@ -49,6 +62,14 @@ export default function DashboardPage() {
   const milestone = findMilestone(sessions ?? [], clients ?? []);
 
   const todaySessions = (sessions ?? []).filter((s) => isToday(s.scheduled_at));
+  const upcomingThisWeek = (sessions ?? [])
+    .filter((s) => {
+      const d = new Date(s.scheduled_at);
+      return d > new Date() && d.getTime() - Date.now() <= 7 * 24 * 60 * 60 * 1000;
+    })
+    .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
+  const bannerSessions = todaySessions.length > 0 ? todaySessions : upcomingThisWeek;
+  const bannerLabel = todaySessions.length > 0 ? "Today" : "Upcoming";
   const activeClients = (clients ?? []).filter((c) => c.journey_stage !== "completed");
   const pastClients = (clients ?? []).filter((c) => c.journey_stage === "completed");
   const flaggedCount = activeClients.filter((c) => flaggedSet.has(c.id)).length;
@@ -73,11 +94,11 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Today banner */}
+      {/* Sessions banner */}
       <section className="rounded-2xl border border-border bg-muted px-5 py-3">
         {loading ? (
           <Skeleton className="h-5 w-56" />
-        ) : todaySessions.length === 0 ? (
+        ) : bannerSessions.length === 0 ? (
           <p className="font-heading text-base font-black text-muted-foreground">
             No sessions today.{" "}
             <em>Quiet morning.</em>{" "}
@@ -91,22 +112,27 @@ export default function DashboardPage() {
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-              Today
+              {bannerLabel}
             </span>
-            {todaySessions.map((s) => (
-              <Link
-                key={s.id}
-                href={`/clients/${s.client_id}/sessions/${s.id}`}
-                className="rounded-full border border-border bg-background px-3 py-1 font-sans text-sm text-foreground transition-colors duration-150 hover:border-primary hover:text-primary"
-              >
-                {clientMap.get(s.client_id)?.full_name ?? `Session ${s.session_number}`}
-                {" · "}
-                {new Date(s.scheduled_at).toLocaleTimeString("en-IN", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </Link>
-            ))}
+            {bannerSessions.map((s) => {
+              const dayLabel = sessionDayLabel(s.scheduled_at);
+              return (
+                <Link
+                  key={s.id}
+                  href={`/clients/${s.client_id}/sessions/${s.id}`}
+                  className="rounded-full border border-border bg-background px-3 py-1 font-sans text-sm text-foreground transition-colors duration-150 hover:border-primary hover:text-primary"
+                >
+                  {clientMap.get(s.client_id)?.full_name ?? `Session ${s.session_number}`}
+                  {dayLabel && ` · ${dayLabel}`}
+                  {" · "}
+                  {new Date(s.scheduled_at).toLocaleTimeString("en-IN", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    timeZone: "Asia/Kolkata",
+                  })}
+                </Link>
+              );
+            })}
           </div>
         )}
       </section>

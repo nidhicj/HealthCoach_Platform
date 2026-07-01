@@ -29,7 +29,12 @@ export function findMilestone(
   const cutoff = new Date(Date.now() - SEVEN_DAYS_MS);
   for (const s of sessions) {
     const d = new Date(s.scheduled_at);
-    if (MILESTONE_NUMBERS.has(s.session_number) && d >= cutoff && d <= new Date()) {
+    if (
+      s.ended_at !== null &&
+      MILESTONE_NUMBERS.has(s.session_number) &&
+      d >= cutoff &&
+      d <= new Date()
+    ) {
       const client = clientMap.get(s.client_id);
       if (client) return { clientName: client.full_name, sessionNumber: s.session_number };
     }

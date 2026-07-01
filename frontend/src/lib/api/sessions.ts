@@ -116,6 +116,14 @@ export async function getBrief(sessionId: string): Promise<BriefOut> {
   return BriefOutSchema.parse(await res.json());
 }
 
+export async function generateBrief(sessionId: string): Promise<BriefOut> {
+  const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/brief`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Generate brief failed: ${res.status}`);
+  return BriefOutSchema.parse(await res.json());
+}
+
 export async function getMom(sessionId: string): Promise<MomOut> {
   const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/mom`);
   if (!res.ok) throw new Error(`Get MOM failed: ${res.status}`);

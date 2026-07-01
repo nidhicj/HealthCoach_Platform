@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   getSession,
   getBrief,
+  generateBrief,
   getMom,
   draftMom,
   patchMom,
@@ -54,12 +55,14 @@ function BriefTab({
   briefLoading,
   onRegenerate,
   regenerating,
+  onNext,
 }: {
   session: SessionOut;
   brief: BriefOut | null;
   briefLoading: boolean;
   onRegenerate: () => void;
   regenerating: boolean;
+  onNext: () => void;
 }) {
   const sessionDate = new Date(session.scheduled_at).toLocaleDateString("en-IN", {
     weekday: "long",
@@ -70,9 +73,18 @@ function BriefTab({
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h2 className="font-heading text-2xl font-black text-foreground">
-          Pre-session brief — M{String(session.session_number).padStart(3, "0")}, {sessionDate}
-        </h2>
+        <div className="flex items-start justify-between gap-4">
+          <h2 className="font-heading text-2xl font-black text-foreground">
+            Pre-session brief — M{String(session.session_number).padStart(3, "0")}, {sessionDate}
+          </h2>
+          <button
+            onClick={onNext}
+            className="shrink-0 rounded-md px-3 py-1.5 font-sans text-xs font-bold text-foreground"
+            style={{ backgroundColor: "var(--color-marigold)" }}
+          >
+            Next →
+          </button>
+        </div>
         <div className="h-0.5 w-10 bg-primary" aria-hidden />
       </div>
 
@@ -123,18 +135,20 @@ function BriefTab({
   );
 }
 
-// ── tab: Notes ────────────────────────────────────────────────────────────────
+// ── tab: Session ──────────────────────────────────────────────────────────────
 
 function NotesTab({
   session,
   files,
   filesLoading,
   onFilesChange,
+  onNext,
 }: {
   session: SessionOut;
   files: ClientFileOut[];
   filesLoading: boolean;
   onFilesChange: (files: ClientFileOut[]) => void;
+  onNext: () => void;
 }) {
   const [notes, setNotes] = useState(session.notes_internal ?? "");
   const [notesFrozen, setNotesFrozen] = useState(false);
@@ -194,118 +208,143 @@ function NotesTab({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-            Session notes
-          </h2>
-          <div className="flex items-center gap-2">
-            {notesFrozen ? (
-              <Button variant="outline" size="sm" onClick={() => setNotesFrozen(false)}>
-                Edit
-              </Button>
-            ) : notesSaving ? (
-              <span className="font-sans text-xs text-muted-foreground">Saving…</span>
-            ) : (
-              <Button variant="secondary" size="sm" onClick={handleNotesSave}>
-                Save
-              </Button>
-            )}
-          </div>
-        </div>
-        <Textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          readOnly={notesFrozen}
-          placeholder="Paste transcript, write observations, add context…"
-          className={cn(
-            "min-h-64 font-sans text-sm leading-relaxed resize-y",
-            notesFrozen && "opacity-70 bg-muted/50",
-          )}
-        />
+    <div className="space-y-4">
+      {/* Tab header */}
+      <div className="flex items-center justify-between">
+        <h2 className="font-heading text-2xl font-black text-foreground">
+          Session
+        </h2>
+        <button
+          onClick={onNext}
+          className="rounded-md px-3 py-1.5 font-sans text-xs font-bold text-foreground"
+          style={{ backgroundColor: "var(--color-marigold)" }}
+        >
+          Next →
+        </button>
       </div>
 
-      <Separator />
+      {/* Two-column layout */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
 
-      <div className="space-y-4">
-        <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-          Files
-        </h2>
-
-        {/* Drop zone */}
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragOver(false);
-            handleFiles(e.dataTransfer.files);
-          }}
-          onClick={() => fileInputRef.current?.click()}
-          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-6 py-8 transition-colors duration-150 ${
-            dragOver ? "border-primary bg-muted" : "border-border hover:border-primary/50"
-          }`}
-        >
-          <p className="font-sans text-sm text-muted-foreground">
-            {uploading ? "Uploading…" : "Drop files here, or click to browse"}
+        {/* Left: Meet placeholder */}
+        <div className="flex min-h-[420px] flex-col items-center justify-center gap-4 rounded-xl border border-border bg-muted/20 p-10 text-center">
+          <p className="font-heading text-3xl font-black text-muted-foreground">
+            Google Meet
           </p>
-          <p className="font-sans text-xs text-muted-foreground">
-            .txt · .md · .pdf · .docx · max 25 MB
+          <p className="font-sans text-base text-muted-foreground">
+            start / join the meet
           </p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".txt,.md,.pdf,.docx"
-            className="hidden"
-            onChange={(e) => handleFiles(e.target.files)}
-          />
+          <span className="mt-1 rounded-full border border-border bg-background px-4 py-1.5 font-sans text-xs text-muted-foreground opacity-50 cursor-not-allowed select-none">
+            Join (coming soon)
+          </span>
         </div>
 
-        {uploadError && (
-          <p className="font-sans text-sm text-destructive">{uploadError}</p>
-        )}
+        {/* Right: Notes + Files */}
+        <div className="space-y-5">
 
-        {/* File list */}
-        {filesLoading ? (
+          {/* Session notes */}
           <div className="space-y-2">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-          </div>
-        ) : files.length > 0 ? (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {files.map((file) => (
-              <li
-                key={file.id}
-                className="flex items-center justify-between px-4 py-3"
-              >
-                <div>
-                  <p className="font-sans text-sm text-foreground">
-                    {file.original_filename}
-                    {file.is_zoom_summary && (
-                      <Badge variant="secondary" className="ml-2">
-                        Zoom summary
-                      </Badge>
-                    )}
-                  </p>
-                  <p className="font-sans text-xs text-muted-foreground">
-                    {formatBytes(file.size_bytes)}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDelete(file.id)}
-                  disabled={deletingId === file.id}
-                  className="text-destructive hover:text-destructive"
-                >
-                  {deletingId === file.id ? "Removing…" : "Remove"}
+            <div className="flex items-center justify-between">
+              <h3 className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                Session notes
+              </h3>
+              {notesFrozen ? (
+                <Button variant="outline" size="sm" onClick={() => setNotesFrozen(false)}>
+                  Edit
                 </Button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
+              ) : notesSaving ? (
+                <span className="font-sans text-xs text-muted-foreground">Saving…</span>
+              ) : (
+                <Button variant="secondary" size="sm" onClick={handleNotesSave}>
+                  Save
+                </Button>
+              )}
+            </div>
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              readOnly={notesFrozen}
+              placeholder="Paste transcript, write observations, add context…"
+              className={cn(
+                "min-h-40 font-sans text-sm leading-relaxed resize-y",
+                notesFrozen && "opacity-70 bg-muted/50",
+              )}
+            />
+          </div>
+
+          <Separator />
+
+          {/* Files */}
+          <div className="space-y-3">
+            <h3 className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              Files
+            </h3>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                handleFiles(e.dataTransfer.files);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-6 transition-colors duration-150 ${
+                dragOver ? "border-primary bg-muted" : "border-border hover:border-primary/50"
+              }`}
+            >
+              <p className="font-sans text-sm text-muted-foreground">
+                {uploading ? "Uploading…" : "Drop files here, or click to browse"}
+              </p>
+              <p className="font-sans text-xs text-muted-foreground">
+                .txt · .md · .pdf · .docx · max 25 MB
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".txt,.md,.pdf,.docx"
+                className="hidden"
+                onChange={(e) => handleFiles(e.target.files)}
+              />
+            </div>
+            {uploadError && (
+              <p className="font-sans text-sm text-destructive">{uploadError}</p>
+            )}
+            {filesLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : files.length > 0 ? (
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {files.map((file) => (
+                  <li key={file.id} className="flex items-center justify-between px-4 py-3">
+                    <div>
+                      <p className="font-sans text-sm text-foreground">
+                        {file.original_filename}
+                        {file.is_zoom_summary && (
+                          <Badge variant="secondary" className="ml-2">Zoom summary</Badge>
+                        )}
+                      </p>
+                      <p className="font-sans text-xs text-muted-foreground">
+                        {formatBytes(file.size_bytes)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(file.id)}
+                      disabled={deletingId === file.id}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      {deletingId === file.id ? "Removing…" : "Remove"}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -368,7 +407,7 @@ function MomTab({
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
+        <h2 className="font-heading text-2xl font-black text-foreground">
           Session review
         </h2>
         {mom && (
@@ -458,6 +497,7 @@ export default function SessionPage() {
   const [loadError, setLoadError] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [activeTab, setActiveTab] = useState("brief");
 
   useEffect(() => {
     if (!clientId || !sessionId) return;
@@ -493,7 +533,9 @@ export default function SessionPage() {
     if (!sessionId) return;
     setRegenerating(true);
     try {
-      const result = await getBrief(sessionId);
+      const result = brief === null
+        ? await getBrief(sessionId)      // first generation: GET (creates if missing)
+        : await generateBrief(sessionId); // re-generation: POST (deletes + recreates)
       setBrief(result);
     } finally {
       setRegenerating(false);
@@ -574,12 +616,12 @@ export default function SessionPage() {
           <Separator />
 
           {/* Three-tab layout */}
-          <Tabs defaultValue="brief" className="space-y-0">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-0">
             {/* overflow-x-auto keeps the tab strip from expanding <html> width at 375px */}
             <div className="overflow-x-auto">
               <TabsList variant="line">
                 <TabsTrigger value="brief">Pre-session brief</TabsTrigger>
-                <TabsTrigger value="notes">In-session notes</TabsTrigger>
+                <TabsTrigger value="notes">Session</TabsTrigger>
                 <TabsTrigger value="mom">Session Review</TabsTrigger>
               </TabsList>
             </div>
@@ -592,6 +634,7 @@ export default function SessionPage() {
                   briefLoading={briefLoading}
                   onRegenerate={handleRegenerate}
                   regenerating={regenerating}
+                  onNext={() => setActiveTab("notes")}
                 />
               </TabsContent>
 
@@ -601,6 +644,7 @@ export default function SessionPage() {
                   files={files}
                   filesLoading={filesLoading}
                   onFilesChange={setFiles}
+                  onNext={() => setActiveTab("mom")}
                 />
               </TabsContent>
 

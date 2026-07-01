@@ -269,6 +269,44 @@ async def get_brief(
     return BriefOut.model_validate(brief)
 
 
+@router.post("/{session_id}/brief")
+async def regenerate_brief(
+    session_id: UUID,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> BriefOut:
+    sess = await _get_owned_session(db, session_id, hc_id)
+
+    existing = (await db.execute(
+        select(Brief).where(Brief.session_id == session_id)
+    )).scalar_one_or_none()
+    if existing is not None:
+        await db.delete(existing)
+        await db.flush()
+
+    from src.llm_service import generate_brief
+    brief_text, triage_flags, llm_call_id = await generate_brief(
+        db,
+        session_id=session_id,
+        hc_user_id=UUID(hc_id),
+        client_id=sess.client_id,
+    )
+
+    brief = Brief(
+        session_id=session_id,
+        hc_user_id=UUID(hc_id),
+        client_id=sess.client_id,
+        brief_text=brief_text,
+        triage_flags=triage_flags or [],
+        llm_call_id=llm_call_id,
+    )
+    db.add(brief)
+    await db.flush()
+    await db.commit()
+    return BriefOut.model_validate(brief)
+
+
 # ── MOM routes ─────────────────────────────────────────────────────────────────
 
 
