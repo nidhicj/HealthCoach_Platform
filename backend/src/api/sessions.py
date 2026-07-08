@@ -470,13 +470,42 @@ async def freeze_mom(
             detail="MOM must be in draft status to freeze",
         )
 
-    for item in (mom.action_items_draft or []):
-        due_date = date_type.fromisoformat(item["due_date"]) if item.get("due_date") else None
+    draft_items = mom.action_items_draft or []
+
+    # Validate every item before creating any rows — a bad item anywhere in the
+    # list must reject the whole freeze, not partially apply it.
+    parsed_items: list[tuple[str, date_type | None]] = []
+    for idx, item in enumerate(draft_items):
+        raw_description = item.get("description") if isinstance(item, dict) else None
+        description = (raw_description or "").strip()
+        if not description:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Action item at index {idx} has a missing or empty description",
+            )
+
+        raw_due_date = item.get("due_date") if isinstance(item, dict) else None
+        due_date: date_type | None = None
+        if raw_due_date:
+            try:
+                due_date = date_type.fromisoformat(raw_due_date)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"Action item at index {idx} ('{description}') has an "
+                        f"invalid due_date: {raw_due_date!r}"
+                    ),
+                )
+
+        parsed_items.append((description, due_date))
+
+    for description, due_date in parsed_items:
         db.add(ActionItem(
             session_id=session_id,
             client_id=sess.client_id,
             hc_user_id=UUID(hc_id),
-            description=item["description"],
+            description=description,
             due_date=due_date,
         ))
 

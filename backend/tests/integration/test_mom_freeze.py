@@ -70,3 +70,90 @@ async def test_freeze_requires_draft_status(http_client, hc_headers, session_id)
 
     r = await http_client.post(f"/api/sessions/{session_id}/mom/freeze", headers=hc_headers)
     assert r.status_code == 409
+
+
+_MOCK_JSON_EMPTY_DESCRIPTION = json.dumps({
+    "summary": "Good session.",
+    "key_discussion_points": [],
+    "action_items": [
+        {"description": "   ", "due_date": None},
+    ],
+    "follow_ups": [],
+    "hc_closing_note": "Nice work.",
+})
+
+_MOCK_JSON_BAD_DUE_DATE = json.dumps({
+    "summary": "Good session.",
+    "key_discussion_points": [],
+    "action_items": [
+        {"description": "Walk daily", "due_date": "15/07/2026"},
+    ],
+    "follow_ups": [],
+    "hc_closing_note": "Nice work.",
+})
+
+_MOCK_JSON_MIXED_VALID_AND_INVALID = json.dumps({
+    "summary": "Good session.",
+    "key_discussion_points": [],
+    "action_items": [
+        {"description": "Walk daily", "due_date": "2026-07-15"},
+        {"description": "", "due_date": None},
+    ],
+    "follow_ups": [],
+    "hc_closing_note": "Nice work.",
+})
+
+
+@pytest.mark.asyncio
+async def test_freeze_rejects_empty_description(http_client, hc_headers, db, session_id):
+    with patch("src.llm_service.client.make_http_client", return_value=_mock_http(_MOCK_JSON_EMPTY_DESCRIPTION)):
+        await http_client.post(
+            f"/api/sessions/{session_id}/mom/draft", headers=hc_headers,
+            json={"session_notes": "notes"},
+        )
+
+    r = await http_client.post(f"/api/sessions/{session_id}/mom/freeze", headers=hc_headers)
+    assert r.status_code == 422, r.text
+
+    rows = (await db.execute(
+        sa.select(ActionItem).where(ActionItem.session_id == session_id)
+    )).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_freeze_rejects_invalid_due_date(http_client, hc_headers, db, session_id):
+    with patch("src.llm_service.client.make_http_client", return_value=_mock_http(_MOCK_JSON_BAD_DUE_DATE)):
+        await http_client.post(
+            f"/api/sessions/{session_id}/mom/draft", headers=hc_headers,
+            json={"session_notes": "notes"},
+        )
+
+    r = await http_client.post(f"/api/sessions/{session_id}/mom/freeze", headers=hc_headers)
+    assert r.status_code == 422, r.text
+
+    rows = (await db.execute(
+        sa.select(ActionItem).where(ActionItem.session_id == session_id)
+    )).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_freeze_rejects_mixed_valid_and_invalid_all_or_nothing(http_client, hc_headers, db, session_id):
+    """One bad item anywhere in the list means zero rows get created — not partial application."""
+    with patch(
+        "src.llm_service.client.make_http_client",
+        return_value=_mock_http(_MOCK_JSON_MIXED_VALID_AND_INVALID),
+    ):
+        await http_client.post(
+            f"/api/sessions/{session_id}/mom/draft", headers=hc_headers,
+            json={"session_notes": "notes"},
+        )
+
+    r = await http_client.post(f"/api/sessions/{session_id}/mom/freeze", headers=hc_headers)
+    assert r.status_code == 422, r.text
+
+    rows = (await db.execute(
+        sa.select(ActionItem).where(ActionItem.session_id == session_id)
+    )).scalars().all()
+    assert rows == []
