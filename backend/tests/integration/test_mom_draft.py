@@ -86,6 +86,33 @@ async def test_mom_draft_writes_llm_calls_row(http_client, hc_headers, session_i
 
 
 @pytest.mark.asyncio
+async def test_mom_draft_preserves_structured_action_items(http_client, hc_headers, session_id):
+    """POST /mom/draft populates action_items_draft with the LLM's structured list, not just prose."""
+    mock_json = json.dumps({
+        "summary": "Good session.",
+        "key_discussion_points": ["Sleep"],
+        "action_items": [
+            {"description": "Walk 20 minutes daily", "due_date": "2026-07-15"},
+            {"description": "Cut sugar after 7pm", "due_date": None},
+        ],
+        "follow_ups": [],
+        "hc_closing_note": "Keep it up.",
+    })
+    with patch("src.llm_service.client.make_http_client", return_value=_mock_http(mock_json)):
+        r = await http_client.post(
+            f"/api/sessions/{session_id}/mom/draft",
+            headers=hc_headers,
+            json={"session_notes": "Talked about sleep and sugar."},
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["action_items_draft"] == [
+        {"description": "Walk 20 minutes daily", "due_date": "2026-07-15"},
+        {"description": "Cut sugar after 7pm", "due_date": None},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_mom_draft_wrong_hc_returns_404(http_client, session_id):
     other_hc_id = str(uuid.uuid4())
     token = create_access_token(

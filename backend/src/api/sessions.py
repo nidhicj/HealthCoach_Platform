@@ -75,6 +75,7 @@ class MomOut(BaseModel):
     client_id: UUID
     draft_text: str
     final_text: str | None
+    action_items_draft: list[dict] | None
     status: str
     llm_call_id: UUID | None = None
     sent_at: datetime | None
@@ -325,7 +326,7 @@ async def draft_mom(
     await db.flush()
 
     from src.llm_service import generate_mom_draft
-    draft_text, llm_call_id = await generate_mom_draft(
+    draft_text, action_items, llm_call_id = await generate_mom_draft(
         db,
         session_id=session_id,
         hc_user_id=UUID(hc_id),
@@ -343,13 +344,16 @@ async def draft_mom(
             hc_user_id=UUID(hc_id),
             client_id=sess.client_id,
             draft_text=draft_text,
+            action_items_draft=action_items,
             llm_call_id=llm_call_id,
         )
         db.add(mom)
     else:
         existing.draft_text = draft_text
+        existing.action_items_draft = action_items
         existing.llm_call_id = llm_call_id
         existing.final_text = None
+        existing.status = "draft"
         existing.updated_at = datetime.now(timezone.utc)
         mom = existing
 

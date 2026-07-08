@@ -99,9 +99,10 @@ async def generate_mom_draft(
     client_id: UUID,
     session_notes: str,
     request_id: UUID | None = None,
-) -> tuple[str, UUID]:
+) -> tuple[str, list[dict], UUID]:
     """
-    Generate an AI MOM draft. Returns (draft_text, llm_call_id).
+    Generate an AI MOM draft. Returns (draft_text, action_items, llm_call_id).
+    action_items is [{"description": str, "due_date": str | None}, ...].
     Raises HTTPException 503 on LLM failure, 422 on persistent validation failure.
     """
     cfg = get_llm_config()
@@ -225,7 +226,11 @@ async def generate_mom_draft(
     await update_usage(db, [s.id for s in snippets])
 
     draft_text = parsed.to_draft_text()
-    return draft_text, llm_call_id
+    action_items = [
+        {"description": a.description, "due_date": a.due_date}
+        for a in parsed.action_items
+    ]
+    return draft_text, action_items, llm_call_id
 
 
 async def generate_brief(
