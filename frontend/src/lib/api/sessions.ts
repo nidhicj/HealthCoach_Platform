@@ -18,12 +18,18 @@ export const SessionOutSchema = z.object({
   created_at: z.string(),
 });
 
+const ActionItemDraftSchema = z.object({
+  description: z.string(),
+  due_date: z.string().nullable(),
+});
+
 export const MomOutSchema = z.object({
   id: z.string(),
   session_id: z.string(),
   client_id: z.string(),
   draft_text: z.string(),
   final_text: z.string().nullable(),
+  action_items_draft: z.array(ActionItemDraftSchema).nullable(),
   status: z.string(),
   llm_call_id: z.string().nullable(),
   sent_at: z.string().nullable(),
@@ -49,6 +55,7 @@ const PaginatedSessionsSchema = z.object({
 export type SessionOut = z.infer<typeof SessionOutSchema>;
 export type MomOut = z.infer<typeof MomOutSchema>;
 export type BriefOut = z.infer<typeof BriefOutSchema>;
+export type ActionItemDraft = z.infer<typeof ActionItemDraftSchema>;
 
 // ── api wrappers ─────────────────────────────────────────────────────────────
 
@@ -145,7 +152,7 @@ export async function draftMom(
 
 export async function patchMom(
   sessionId: string,
-  input: { draft_text?: string; final_text?: string; status?: string },
+  input: { draft_text?: string; final_text?: string; action_items_draft?: ActionItemDraft[]; status?: string },
 ): Promise<MomOut> {
   const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/mom`, {
     method: "PATCH",
@@ -156,9 +163,19 @@ export async function patchMom(
   return MomOutSchema.parse(await res.json());
 }
 
-export async function sendMom(sessionId: string): Promise<MomOut> {
+export async function freezeMom(sessionId: string): Promise<MomOut> {
+  const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/mom/freeze`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Freeze MOM failed: ${res.status}`);
+  return MomOutSchema.parse(await res.json());
+}
+
+export async function sendMom(sessionId: string, message: string): Promise<MomOut> {
   const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/mom/send`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
   });
   if (!res.ok) throw new Error(`Send MOM failed: ${res.status}`);
   return MomOutSchema.parse(await res.json());
