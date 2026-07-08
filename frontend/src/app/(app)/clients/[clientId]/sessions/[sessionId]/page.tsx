@@ -16,11 +16,13 @@ import {
   getMom,
   draftMom,
   patchMom,
+  freezeMom,
   endSession,
   patchSession,
   type SessionOut,
   type BriefOut,
   type MomOut,
+  type ActionItemDraft,
 } from "@/lib/api/sessions";
 import {
   listFiles,
@@ -356,16 +358,20 @@ function MomTab({
   session,
   mom,
   onMomChange,
+  onSaved,
 }: {
   session: SessionOut;
   mom: MomOut | null;
   onMomChange: (mom: MomOut) => void;
+  onSaved: (mom: MomOut) => void;
 }) {
   const [drafting, setDrafting] = useState(false);
   const [sessionReviewText, setSessionReviewText] = useState<string>("");
+  const [actionItems, setActionItems] = useState<ActionItemDraft[]>([]);
   const [sessionReviewFrozen, setSessionReviewFrozen] = useState(false);
-  const [sessionReviewSaving, setSessionReviewSaving] = useState(false);
   const [draftVisible, setDraftVisible] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (mom?.final_text != null) {
@@ -375,7 +381,9 @@ function MomTab({
       setSessionReviewText(mom.draft_text);
       setDraftVisible(true);
     }
-  }, [mom?.id]);
+    setActionItems(mom?.action_items_draft ?? []);
+    setSessionReviewFrozen(mom?.status !== "draft" && mom !== null);
+  }, [mom?.id, mom?.status]);
 
   async function handleDraft() {
     setDrafting(true);
@@ -384,6 +392,7 @@ function MomTab({
       const result = await draftMom(session.id, session.notes_internal ?? "");
       onMomChange(result);
       setSessionReviewText(result.draft_text);
+      setActionItems(result.action_items_draft ?? []);
       setSessionReviewFrozen(false);
     } finally {
       setDrafting(false);
@@ -391,17 +400,40 @@ function MomTab({
     }
   }
 
-  async function handleSaveReview() {
-    setSessionReviewSaving(true);
+  async function handleSave() {
+    const confirmed = window.confirm(
+      "Once saved, this locks the review and creates your client's action items — you won't be able to edit it after. Continue?",
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    setSaveError(null);
     try {
-      const updated = await patchMom(session.id, { final_text: sessionReviewText });
-      onMomChange(updated);
+      await patchMom(session.id, {
+        final_text: sessionReviewText,
+        action_items_draft: actionItems,
+      });
+      const frozen = await freezeMom(session.id);
+      onMomChange(frozen);
       setSessionReviewFrozen(true);
+      onSaved(frozen);
     } catch (err) {
-      console.error(err);
+      setSaveError(err instanceof Error ? err.message : "Failed to save. Check the action items for anything unusual and try again.");
     } finally {
-      setSessionReviewSaving(false);
+      setSaving(false);
     }
+  }
+
+  function updateActionItem(index: number, description: string) {
+    setActionItems((prev) => prev.map((item, i) => (i === index ? { ...item, description } : item)));
+  }
+
+  function removeActionItem(index: number) {
+    setActionItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function addActionItem() {
+    setActionItems((prev) => [...prev, { description: "", due_date: null }]);
   }
 
   return (
@@ -410,26 +442,6 @@ function MomTab({
         <h2 className="font-heading text-2xl font-black text-foreground">
           Session review
         </h2>
-        {mom && (
-          <div className="flex items-center gap-2">
-            {sessionReviewFrozen ? (
-              <Button variant="outline" size="sm" onClick={() => setSessionReviewFrozen(false)}>
-                Edit
-              </Button>
-            ) : sessionReviewSaving ? (
-              <span className="font-sans text-xs text-muted-foreground">Saving…</span>
-            ) : (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleSaveReview}
-                disabled={!sessionReviewText.trim()}
-              >
-                Save
-              </Button>
-            )}
-          </div>
-        )}
       </div>
 
       {mom === null ? (
@@ -448,8 +460,6 @@ function MomTab({
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-5/6" />
               <Skeleton className="h-4 w-4/6" />
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-3/6" />
             </div>
           ) : (
             <Textarea
@@ -465,14 +475,53 @@ function MomTab({
             />
           )}
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDraft}
-            disabled={drafting}
-          >
-            {drafting ? "Regenerating…" : "Regenerate draft"}
-          </Button>
+          {!sessionReviewFrozen && !drafting && (
+            <div className="space-y-2 rounded-lg border border-border p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                  Action items
+                </h3>
+                <p className="font-sans text-xs text-muted-foreground">
+                  Anything listed here will be tracked and shown to your client.
+                </p>
+              </div>
+              {actionItems.map((item, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    value={item.description}
+                    onChange={(e) => updateActionItem(i, e.target.value)}
+                    className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-sans text-sm"
+                    placeholder="Action item description"
+                  />
+                  <button
+                    onClick={() => removeActionItem(i)}
+                    className="font-sans text-xs text-muted-foreground hover:text-destructive"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={addActionItem}>
+                + Add action item
+              </Button>
+            </div>
+          )}
+
+          {!sessionReviewFrozen && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleDraft} disabled={drafting}>
+                  {drafting ? "Regenerating…" : "Regenerate draft"}
+                </Button>
+                <Button variant="default" size="sm" onClick={handleSave} disabled={saving || drafting}>
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+              </div>
+              {saveError && (
+                <p className="font-sans text-sm text-destructive">{saveError}</p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
