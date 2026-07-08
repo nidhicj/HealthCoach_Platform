@@ -114,12 +114,15 @@ async def test_mom_draft_preserves_structured_action_items(http_client, hc_heade
 
 @pytest.mark.asyncio
 async def test_mom_draft_rejects_redraft_after_freeze(http_client, hc_headers, session_id, db):
-    """Once a MOM is frozen (reviewed/sent), draft_mom must not allow re-drafting.
+    """Both draft_mom and freeze_mom must guard against state changes once a MOM is frozen.
 
-    Re-drafting resets status back to "draft", which would let a second freeze create a
-    duplicate batch of ActionItem rows (freeze only ever db.add()s, never removes previously
-    promoted items) and would let a subsequent send re-email the client after a "sent" MOM
-    was reset back to "draft" — both violate SPEC-0001 D-13's no-resend guarantee.
+    This test verifies that two separate failure modes are prevented:
+    1. If draft_mom allowed re-drafting after freeze, status would reset to "draft", allowing
+       a second freeze to create duplicate ActionItem rows (freeze only db.add()s, never removes)
+    2. If freeze_mom allowed freezing a non-draft MOM, it could also create duplicate rows
+
+    This confirms both guards work in combination: re-draft is rejected (409), re-freeze is
+    also rejected (409), and action_items row count stays unchanged after both rejections.
     """
     with patch("src.llm_service.client.make_http_client", return_value=_mock_http(_MOCK_MOM_JSON)):
         await http_client.post(
@@ -136,13 +139,18 @@ async def test_mom_draft_rejects_redraft_after_freeze(http_client, hc_headers, s
         {"sid": session_id},
     )).scalar()
 
+    # Attempt to re-draft after freeze — should be rejected by draft_mom's guard
     with patch("src.llm_service.client.make_http_client", return_value=_mock_http(_MOCK_MOM_JSON)):
-        r = await http_client.post(
+        redraft_r = await http_client.post(
             f"/api/sessions/{session_id}/mom/draft",
             headers=hc_headers,
             json={"session_notes": "Attempting a re-draft after freeze."},
         )
-    assert r.status_code == 409, r.text
+    assert redraft_r.status_code == 409, redraft_r.text
+
+    # Attempt to re-freeze after freeze — should be rejected by freeze_mom's "must be draft" guard
+    refreeze_r = await http_client.post(f"/api/sessions/{session_id}/mom/freeze", headers=hc_headers)
+    assert refreeze_r.status_code == 409, refreeze_r.text
 
     count_after = (await db.execute(
         sa.text("SELECT COUNT(*) FROM action_items WHERE session_id = :sid"),
