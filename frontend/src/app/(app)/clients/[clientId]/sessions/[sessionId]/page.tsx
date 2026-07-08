@@ -17,6 +17,7 @@ import {
   draftMom,
   patchMom,
   freezeMom,
+  sendMom,
   endSession,
   patchSession,
   type SessionOut,
@@ -354,6 +355,83 @@ function NotesTab({
 
 // ── tab: Session Review ───────────────────────────────────────────────────────
 
+function SendDialog({
+  mom,
+  clientName,
+  coachName,
+  onSent,
+  onClose,
+}: {
+  mom: MomOut;
+  clientName: string;
+  coachName: string;
+  onSent: (mom: MomOut) => void;
+  onClose: () => void;
+}) {
+  const [message, setMessage] = useState(
+    `Hi ${clientName.split(" ")[0]}, here's what we're focusing on this week. Keep it up! — ${coachName}`,
+  );
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSend() {
+    setSending(true);
+    setError(null);
+    try {
+      const updated = await sendMom(mom.session_id, message);
+      onSent(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg space-y-4 rounded-xl border border-border bg-background p-6">
+        <h3 className="font-heading text-xl font-black text-foreground">Send to client</h3>
+
+        <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-4">
+          <p className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+            Action items (read-only)
+          </p>
+          <ul className="space-y-1 font-sans text-sm">
+            {(mom.action_items_draft ?? []).map((item, i) => (
+              <li key={i}>
+                {item.description}
+                {item.due_date && <span className="text-muted-foreground"> (due {item.due_date})</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="space-y-1">
+          <Textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            className="min-h-32 font-sans text-sm"
+          />
+          <p className="font-sans text-xs text-muted-foreground">
+            This message isn&apos;t tracked as an action item.
+          </p>
+        </div>
+
+        {error && <p className="font-sans text-sm text-destructive">{error}</p>}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={sending}>
+            Cancel
+          </Button>
+          <Button variant="default" size="sm" onClick={handleSend} disabled={sending}>
+            {sending ? "Sending…" : "Send"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MomTab({
   session,
   mom,
@@ -547,6 +625,7 @@ export default function SessionPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [ending, setEnding] = useState(false);
   const [activeTab, setActiveTab] = useState("brief");
+  const [sendDialogMom, setSendDialogMom] = useState<MomOut | null>(null);
 
   useEffect(() => {
     if (!clientId || !sessionId) return;
@@ -702,10 +781,24 @@ export default function SessionPage() {
                   session={session!}
                   mom={mom}
                   onMomChange={setMom}
+                  onSaved={(savedMom) => setSendDialogMom(savedMom)}
                 />
               </TabsContent>
             </div>
           </Tabs>
+
+          {sendDialogMom && client && (
+            <SendDialog
+              mom={sendDialogMom}
+              clientName={client.full_name}
+              coachName="Your coach"
+              onSent={(updated) => {
+                setMom(updated);
+                setSendDialogMom(null);
+              }}
+              onClose={() => setSendDialogMom(null)}
+            />
+          )}
         </>
       )}
     </div>
