@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
 from src.db.models import ActionItem, Brief, Client, ClientFile, Mom, Session
+from src.lib.email import send_action_items_email
 from src.lib.s3 import _get_session_date_ist, build_session_file_key, s3_put
 from src.telemetry.log import get_logger
 
@@ -69,6 +70,10 @@ class MomPatch(BaseModel):
         if v == "sent":
             raise ValueError("Use POST /mom/send to transition to 'sent' status")
         return v
+
+
+class MomSendRequest(BaseModel):
+    message: str
 
 
 class MomOut(BaseModel):
@@ -519,22 +524,62 @@ async def freeze_mom(
 @router.post("/{session_id}/mom/send")
 async def send_mom(
     session_id: UUID,
+    body: MomSendRequest,
     claims: HcClaimsDep,
     hc_id: TenantDep,
     db: DbDep,
 ) -> MomOut:
-    await _get_owned_session(db, session_id, hc_id)
+    sess = await _get_owned_session(db, session_id, hc_id)
     mom = await _get_session_mom(db, session_id)
 
-    if mom.status != "sent":
-        if mom.final_text is None:
-            mom.final_text = mom.draft_text
-        mom.status = "sent"
-        mom.sent_at = datetime.now(timezone.utc)
-        mom.updated_at = datetime.now(timezone.utc)
-        await db.flush()
-        await db.commit()
+    if mom.status == "sent":
+        return MomOut.model_validate(mom)
 
+    if mom.status != "reviewed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="MOM must be frozen (reviewed) before it can be sent",
+        )
+
+    client = (await db.execute(
+        select(Client).where(Client.id == sess.client_id)
+    )).scalar_one_or_none()
+    if client is None or not client.email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Client has no email address on record. Add one in the client settings before sending.",
+        )
+
+    action_items = (await db.execute(
+        select(ActionItem).where(ActionItem.session_id == session_id)
+    )).scalars().all()
+
+    from src.db.models import User
+    hc = (await db.execute(
+        select(User).where(User.id == UUID(hc_id))
+    )).scalar_one_or_none()
+    coach_name = hc.display_name if (hc and hc.display_name) else "Your coach"
+
+    session_date = sess.scheduled_at.strftime("%-d %B %Y")
+
+    send_action_items_email(
+        to=client.email,
+        coach_name=coach_name,
+        client_name=client.full_name,
+        session_date=session_date,
+        action_items=[
+            {"description": item.description, "due_date": item.due_date.isoformat() if item.due_date else None}
+            for item in action_items
+        ],
+        message=body.message,
+    )
+
+    mom.status = "sent"
+    mom.sent_at = datetime.now(timezone.utc)
+    mom.sent_to_email = client.email
+    mom.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.commit()
     return MomOut.model_validate(mom)
 
 
