@@ -1,0 +1,70 @@
+"""Transactional email via Resend. All outbound emails go through here."""
+import html
+
+import resend
+
+from src.config import get_settings
+
+
+def _get_api_key() -> str:
+    return get_settings().resend_api_key
+
+
+def send_action_items_email(
+    *,
+    to: str,
+    coach_name: str,
+    client_name: str,
+    session_date: str,
+    action_items: list[dict],
+    message: str,
+) -> None:
+    api_key = _get_api_key()
+    if not api_key:
+        raise RuntimeError("resend_api_key not configured")
+
+    resend.api_key = api_key
+
+    safe_coach = html.escape(coach_name)
+    safe_client = html.escape(client_name)
+    safe_date = html.escape(session_date)
+    safe_message = html.escape(message).replace("\n", "<br>")
+
+    items_html = "".join(
+        f'<li>{html.escape(item["description"])}'
+        + (f' <span style="color:#888;">(due {html.escape(item["due_date"])})</span>' if item.get("due_date") else "")
+        + "</li>"
+        for item in action_items
+    )
+
+    subject = f"Your action items from {safe_coach} — {safe_date}"
+
+    body_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{subject}</title>
+</head>
+<body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #2C2C1E; background: #F7F4EE;">
+  <div style="background: #5C6652; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+    <h1 style="color: #F7F4EE; font-size: 20px; margin: 0;">Tapas</h1>
+  </div>
+  <div style="background: #ffffff; padding: 28px 24px; border-radius: 0 0 8px 8px; border: 1px solid #E8EDE5;">
+    <p style="font-size: 15px; margin-top: 0;">Hi {safe_client},</p>
+    <p style="font-size: 15px; white-space: pre-line;">{safe_message}</p>
+    <hr style="border: none; border-top: 1px solid #E8EDE5; margin: 20px 0;">
+    <p style="font-size: 13px; font-weight: bold; text-transform: uppercase; color: #888;">This week's action items</p>
+    <ul style="font-size: 14px; line-height: 1.8;">{items_html}</ul>
+    <hr style="border: none; border-top: 1px solid #E8EDE5; margin: 20px 0;">
+    <p style="font-size: 12px; color: #888;">Sent via Tapas · your health coaching platform</p>
+  </div>
+</body>
+</html>"""
+
+    resend.Emails.send({
+        "from": "noreply@tapas.health",
+        "to": [to],
+        "subject": subject,
+        "html": body_html,
+    })

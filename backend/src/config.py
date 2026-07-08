@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
 
     scheduler_secret: str = ""
+    resend_api_key: str = ""
 
     @field_validator("database_url", "jwt_private_key", "jwt_public_key", mode="before")
     @classmethod
