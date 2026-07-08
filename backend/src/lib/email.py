@@ -25,9 +25,7 @@ def send_action_items_email(
 
     resend.api_key = api_key
 
-    safe_coach = html.escape(coach_name)
     safe_client = html.escape(client_name)
-    safe_date = html.escape(session_date)
     safe_message = html.escape(message).replace("\n", "<br>")
 
     items_html = "".join(
@@ -37,14 +35,18 @@ def send_action_items_email(
         for item in action_items
     )
 
-    subject = f"Your action items from {safe_coach} — {safe_date}"
+    # Subject is a plain-text mail header, not HTML — must use raw values,
+    # not the HTML-escaped ones (which would leak entities like &#x27; into
+    # the recipient's inbox subject line, e.g. for names like "D'Souza").
+    subject = f"Your action items from {coach_name} — {session_date}"
+    safe_subject = html.escape(subject)
 
     body_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{subject}</title>
+  <title>{safe_subject}</title>
 </head>
 <body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #2C2C1E; background: #F7F4EE;">
   <div style="background: #5C6652; padding: 20px 24px; border-radius: 8px 8px 0 0;">

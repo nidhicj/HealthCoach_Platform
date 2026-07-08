@@ -53,3 +53,24 @@ def test_html_template_escapes_special_chars():
     html = mock_send.call_args[0][0]["html"]
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
+
+
+def test_subject_uses_raw_unescaped_names_not_html_entities():
+    """Subject is a mail header (plain text), not HTML — it must never contain
+    HTML entities like &#x27; or &amp; even when coach/client names contain
+    characters that get escaped inside the HTML body (e.g. "D'Souza")."""
+    mock_send = MagicMock()
+    with patch("resend.Emails.send", mock_send), patch("src.lib.email._get_api_key", return_value="test_key_123"):
+        from src.lib.email import send_action_items_email
+        send_action_items_email(
+            to="client@example.com",
+            coach_name="D'Souza & Sons",
+            client_name="Sunita Rao",
+            session_date="Monday, 30 June 2026",
+            action_items=[{"description": "Walk 20 minutes daily", "due_date": None}],
+            message="Great session!",
+        )
+    call_kwargs = mock_send.call_args[0][0]
+    assert "D'Souza & Sons" in call_kwargs["subject"]
+    assert "&#x27;" not in call_kwargs["subject"]
+    assert "&amp;" not in call_kwargs["subject"]
