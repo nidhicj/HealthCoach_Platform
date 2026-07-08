@@ -1,5 +1,6 @@
 """HC session management endpoints, including MOMs and brief. All routes tenant-scoped."""
 from datetime import datetime, timezone
+from datetime import date as date_type
 from typing import Annotated
 from uuid import UUID
 
@@ -9,7 +10,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
-from src.db.models import Brief, Client, ClientFile, Mom, Session
+from src.db.models import ActionItem, Brief, Client, ClientFile, Mom, Session
 from src.lib.s3 import _get_session_date_ist, build_session_file_key, s3_put
 from src.telemetry.log import get_logger
 
@@ -447,6 +448,39 @@ async def patch_mom(
     if body.status is not None:
         mom.status = body.status
 
+    mom.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.commit()
+    return MomOut.model_validate(mom)
+
+
+@router.post("/{session_id}/mom/freeze")
+async def freeze_mom(
+    session_id: UUID,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> MomOut:
+    sess = await _get_owned_session(db, session_id, hc_id)
+    mom = await _get_session_mom(db, session_id)
+
+    if mom.status != "draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="MOM must be in draft status to freeze",
+        )
+
+    for item in (mom.action_items_draft or []):
+        due_date = date_type.fromisoformat(item["due_date"]) if item.get("due_date") else None
+        db.add(ActionItem(
+            session_id=session_id,
+            client_id=sess.client_id,
+            hc_user_id=UUID(hc_id),
+            description=item["description"],
+            due_date=due_date,
+        ))
+
+    mom.status = "reviewed"
     mom.updated_at = datetime.now(timezone.utc)
     await db.flush()
     await db.commit()
