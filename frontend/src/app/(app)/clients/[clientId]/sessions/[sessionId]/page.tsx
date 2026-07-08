@@ -513,7 +513,7 @@ function MomTab({
                 <Button variant="outline" size="sm" onClick={handleDraft} disabled={drafting}>
                   {drafting ? "Regenerating…" : "Regenerate draft"}
                 </Button>
-                <Button variant="default" size="sm" onClick={handleSave} disabled={saving || drafting}>
+                <Button variant="default" size="sm" onClick={handleSave} disabled={saving || drafting || !sessionReviewText.trim()}>
                   {saving ? "Saving…" : "Save"}
                 </Button>
               </div>
