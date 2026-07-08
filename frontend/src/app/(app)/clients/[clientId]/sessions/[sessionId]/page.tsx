@@ -600,6 +600,14 @@ function MomTab({
               )}
             </div>
           )}
+
+          {sessionReviewFrozen && mom.status === "reviewed" && (
+            <div className="space-y-2">
+              <Button variant="default" size="sm" onClick={() => onSaved(mom)}>
+                Send to client
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

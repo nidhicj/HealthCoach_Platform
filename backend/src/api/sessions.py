@@ -328,6 +328,16 @@ async def draft_mom(
 ) -> MomOut:
     sess = await _get_owned_session(db, session_id, hc_id)
 
+    existing = (await db.execute(
+        select(Mom).where(Mom.session_id == session_id)
+    )).scalar_one_or_none()
+
+    if existing is not None and existing.status != "draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session review is already frozen and cannot be redrafted",
+        )
+
     # Persist session_notes to DB before LLM call — protects notes against timeout loss
     sess.session_notes = body.session_notes
     await db.flush()
@@ -340,10 +350,6 @@ async def draft_mom(
         client_id=sess.client_id,
         session_notes=body.session_notes,
     )
-
-    existing = (await db.execute(
-        select(Mom).where(Mom.session_id == session_id)
-    )).scalar_one_or_none()
 
     if existing is None:
         mom = Mom(

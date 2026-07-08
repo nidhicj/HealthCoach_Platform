@@ -113,6 +113,45 @@ async def test_mom_draft_preserves_structured_action_items(http_client, hc_heade
 
 
 @pytest.mark.asyncio
+async def test_mom_draft_rejects_redraft_after_freeze(http_client, hc_headers, session_id, db):
+    """Once a MOM is frozen (reviewed/sent), draft_mom must not allow re-drafting.
+
+    Re-drafting resets status back to "draft", which would let a second freeze create a
+    duplicate batch of ActionItem rows (freeze only ever db.add()s, never removes previously
+    promoted items) and would let a subsequent send re-email the client after a "sent" MOM
+    was reset back to "draft" — both violate SPEC-0001 D-13's no-resend guarantee.
+    """
+    with patch("src.llm_service.client.make_http_client", return_value=_mock_http(_MOCK_MOM_JSON)):
+        await http_client.post(
+            f"/api/sessions/{session_id}/mom/draft",
+            headers=hc_headers,
+            json={"session_notes": "Good hydration discussion."},
+        )
+
+    freeze_r = await http_client.post(f"/api/sessions/{session_id}/mom/freeze", headers=hc_headers)
+    assert freeze_r.status_code == 200, freeze_r.text
+
+    count_before = (await db.execute(
+        sa.text("SELECT COUNT(*) FROM action_items WHERE session_id = :sid"),
+        {"sid": session_id},
+    )).scalar()
+
+    with patch("src.llm_service.client.make_http_client", return_value=_mock_http(_MOCK_MOM_JSON)):
+        r = await http_client.post(
+            f"/api/sessions/{session_id}/mom/draft",
+            headers=hc_headers,
+            json={"session_notes": "Attempting a re-draft after freeze."},
+        )
+    assert r.status_code == 409, r.text
+
+    count_after = (await db.execute(
+        sa.text("SELECT COUNT(*) FROM action_items WHERE session_id = :sid"),
+        {"sid": session_id},
+    )).scalar()
+    assert count_after == count_before
+
+
+@pytest.mark.asyncio
 async def test_mom_draft_wrong_hc_returns_404(http_client, session_id):
     other_hc_id = str(uuid.uuid4())
     token = create_access_token(
