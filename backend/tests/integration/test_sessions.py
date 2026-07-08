@@ -261,32 +261,10 @@ async def test_patch_mom_cannot_set_sent_status(http_client, hc_headers):
     )
     assert r.status_code == 422
 
-
-# ── POST /api/sessions/{id}/mom/send ──────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_send_mom_transitions_to_sent(http_client, hc_headers):
-    client = await _create_client(http_client, hc_headers)
-    sess = await _create_session(http_client, hc_headers, client["id"])
-    await _create_mom(http_client, hc_headers, sess["id"], draft_text="Original draft")
-
-    r = await http_client.post(f"/api/sessions/{sess['id']}/mom/send", headers=hc_headers)
-    assert r.status_code == 200
-    body = r.json()
-    assert body["status"] == "sent"
-    assert body["sent_at"] is not None
-    assert body["final_text"] == "Original draft"  # copied from draft_text when final_text was null
-
-
-@pytest.mark.asyncio
-async def test_send_mom_idempotent(http_client, hc_headers):
-    client = await _create_client(http_client, hc_headers)
-    sess = await _create_session(http_client, hc_headers, client["id"])
-    await _create_mom(http_client, hc_headers, sess["id"])
-
-    r1 = await http_client.post(f"/api/sessions/{sess['id']}/mom/send", headers=hc_headers)
-    r2 = await http_client.post(f"/api/sessions/{sess['id']}/mom/send", headers=hc_headers)
-    assert r1.status_code == 200
-    assert r2.status_code == 200
-    assert r1.json()["sent_at"] == r2.json()["sent_at"]
+# NOTE: POST /api/sessions/{id}/mom/send tests were removed from this file — the
+# endpoint's contract changed (Unit_004 PHASE-01 Task 6): it now requires a
+# {"message": str} body, requires status == "reviewed" (post-freeze), and emails
+# real ActionItem rows via send_action_items_email instead of copying draft_text
+# into final_text. Current coverage lives in tests/integration/test_mom_workflow.py
+# (test_send_mom_requires_reviewed_status, test_send_mom_emails_action_items_and_marks_sent,
+# test_send_mom_returns_422_when_client_has_no_email, test_send_mom_already_sent_is_idempotent_no_op).

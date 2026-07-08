@@ -1,5 +1,6 @@
 """Integration tests for /api/me/* client-facing endpoints. P3."""
 import uuid
+from unittest.mock import patch
 
 import pytest
 
@@ -16,14 +17,35 @@ async def _make_session(http_client, headers, client_id: str, num: int = 1) -> d
     return r.json()
 
 
-async def _make_mom_sent(http_client, headers, session_id: str) -> dict:
+async def _make_mom_sent(http_client, headers, session_id: str, db=None, client_id: str | None = None) -> dict:
+    """Create a MOM, freeze it, and send it (mocking the actual email delivery).
+
+    Sending requires status == "reviewed" (post-freeze) and a client with an
+    email on record — see Unit_004 PHASE-01 Task 6.
+    """
     r = await http_client.post(
         f"/api/sessions/{session_id}/mom", headers=headers,
         json={"draft_text": "Session recap draft"},
     )
     assert r.status_code == 201
-    r2 = await http_client.post(f"/api/sessions/{session_id}/mom/send", headers=headers)
-    assert r2.status_code == 200
+
+    if db is not None and client_id is not None:
+        import sqlalchemy as sa
+        from src.db.models import Client
+        client = (await db.execute(
+            sa.select(Client).where(Client.id == uuid.UUID(client_id))
+        )).scalar_one()
+        client.email = "client@example.com"
+        await db.flush()
+
+    await http_client.post(f"/api/sessions/{session_id}/mom/freeze", headers=headers)
+
+    with patch("src.api.sessions.send_action_items_email"):
+        r2 = await http_client.post(
+            f"/api/sessions/{session_id}/mom/send", headers=headers,
+            json={"message": "Here are your action items."},
+        )
+    assert r2.status_code == 200, r2.text
     return r2.json()
 
 
@@ -68,9 +90,9 @@ async def test_client_without_linked_record_returns_404(http_client, hc_user, cl
 
 
 @pytest.mark.asyncio
-async def test_client_sees_sent_moms(http_client, hc_headers, client_headers, client_rec):
+async def test_client_sees_sent_moms(http_client, hc_headers, client_headers, client_rec, db):
     sess = await _make_session(http_client, hc_headers, str(client_rec.id))
-    await _make_mom_sent(http_client, hc_headers, sess["id"])
+    await _make_mom_sent(http_client, hc_headers, sess["id"], db=db, client_id=str(client_rec.id))
 
     r = await http_client.get("/api/me/moms", headers=client_headers)
     assert r.status_code == 200
@@ -128,9 +150,9 @@ async def test_client_sees_empty_action_items(http_client, client_headers, clien
 
 
 @pytest.mark.asyncio
-async def test_client_can_read_sent_mom_by_id(http_client, hc_headers, client_headers, client_rec):
+async def test_client_can_read_sent_mom_by_id(http_client, hc_headers, client_headers, client_rec, db):
     sess = await _make_session(http_client, hc_headers, str(client_rec.id))
-    sent = await _make_mom_sent(http_client, hc_headers, sess["id"])
+    sent = await _make_mom_sent(http_client, hc_headers, sess["id"], db=db, client_id=str(client_rec.id))
 
     r = await http_client.get(f"/api/me/moms/{sent['id']}", headers=client_headers)
     assert r.status_code == 200
