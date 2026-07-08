@@ -55,6 +55,29 @@ def test_html_template_escapes_special_chars():
     assert "&lt;script&gt;" in html
 
 
+def test_send_action_items_email_uses_configured_from_address():
+    """The 'from' address must come from settings.resend_from_email, not a
+    hardcoded literal — sender domain isn't verified with Resend yet, so this
+    needs to be swappable (e.g. sandbox sender) without a code change."""
+    mock_send = MagicMock()
+    with (
+        patch("resend.Emails.send", mock_send),
+        patch("src.lib.email._get_api_key", return_value="test_key_123"),
+        patch("src.lib.email._get_from_email", return_value="sandbox@resend.dev"),
+    ):
+        from src.lib.email import send_action_items_email
+        send_action_items_email(
+            to="client@example.com",
+            coach_name="Priya Sharma",
+            client_name="Sunita Rao",
+            session_date="Monday, 30 June 2026",
+            action_items=[],
+            message="hi",
+        )
+    call_kwargs = mock_send.call_args[0][0]
+    assert call_kwargs["from"] == "sandbox@resend.dev"
+
+
 def test_subject_uses_raw_unescaped_names_not_html_entities():
     """Subject is a mail header (plain text), not HTML — it must never contain
     HTML entities like &#x27; or &amp; even when coach/client names contain

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
 
     scheduler_secret: str = ""
     resend_api_key: str = ""
+    resend_from_email: str = "noreply@tapas.health"
 
     @field_validator("database_url", "jwt_private_key", "jwt_public_key", mode="before")
     @classmethod

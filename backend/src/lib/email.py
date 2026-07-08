@@ -10,6 +10,10 @@ def _get_api_key() -> str:
     return get_settings().resend_api_key
 
 
+def _get_from_email() -> str:
+    return get_settings().resend_from_email
+
+
 def send_action_items_email(
     *,
     to: str,
@@ -65,7 +69,7 @@ def send_action_items_email(
 </html>"""
 
     resend.Emails.send({
-        "from": "noreply@tapas.health",
+        "from": _get_from_email(),
         "to": [to],
         "subject": subject,
         "html": body_html,
