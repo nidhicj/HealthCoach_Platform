@@ -103,3 +103,21 @@ async def test_manual_mom_patch_does_not_capture_snippet(
         sa.text("SELECT COUNT(*) FROM hc_style_snippets WHERE hc_user_id = :hc"), {"hc": hc_user.id}
     )
     assert result.scalar() == 0
+
+
+@pytest.mark.asyncio
+async def test_patch_mom_updates_action_items_draft(http_client, hc_headers, session_id):
+    """HC can edit the structured action-items list independently of the free-text review."""
+    with patch("src.llm_service.client.make_http_client", return_value=_mock_http(_MOCK_MOM_JSON)):
+        await http_client.post(
+            f"/api/sessions/{session_id}/mom/draft", headers=hc_headers,
+            json={"session_notes": "notes"},
+        )
+
+    edited = [{"description": "Drink 3L daily", "due_date": "2026-07-20"}]
+    r = await http_client.patch(
+        f"/api/sessions/{session_id}/mom", headers=hc_headers,
+        json={"action_items_draft": edited},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["action_items_draft"] == edited

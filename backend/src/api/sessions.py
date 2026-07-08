@@ -59,6 +59,7 @@ class MomDraftRequest(BaseModel):
 class MomPatch(BaseModel):
     draft_text: str | None = None
     final_text: str | None = None
+    action_items_draft: list[dict] | None = None
     status: str | None = None
 
     @field_validator("status")
@@ -439,6 +440,9 @@ async def patch_mom(
                     client_id=mom.client_id,
                 )
         mom.final_text = body.final_text
+
+    if body.action_items_draft is not None:
+        mom.action_items_draft = body.action_items_draft
 
     if body.status is not None:
         mom.status = body.status
