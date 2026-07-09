@@ -9,6 +9,7 @@ import {
   getClientDietChart,
   generateDietChart,
   patchDietChart,
+  sendDietChart,
   listTemplates,
   type DietChartOut,
 } from "@/lib/api/dietCharts";
@@ -45,6 +46,9 @@ export default function DietChartEditorPage() {
   const [saving, setSaving] = useState(false);
   const [fallbackWarning, setFallbackWarning] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [lastSentAt, setLastSentAt] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [newSlotName, setNewSlotName] = useState("");
   const [editingSlot, setEditingSlot] = useState<string | null>(null);
@@ -106,6 +110,24 @@ export default function DietChartEditorPage() {
       setSaveError(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSend() {
+    const confirmed = window.confirm(
+      "Once sent, this exact version is what your client sees, permanently. You can keep editing afterward — that becomes a new version for your next send.",
+    );
+    if (!confirmed) return;
+
+    setSending(true);
+    setSendError(null);
+    try {
+      const result = await sendDietChart(clientId);
+      setLastSentAt(result.sent_at);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Send failed");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -279,16 +301,33 @@ export default function DietChartEditorPage() {
                 <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
                   7-day grid
                 </h2>
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="rounded-lg bg-primary px-4 py-2 font-sans text-xs font-bold uppercase tracking-widest text-primary-foreground disabled:opacity-50"
-                >
-                  {saving ? "Saving…" : "Save chart"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="rounded-lg bg-primary px-4 py-2 font-sans text-xs font-bold uppercase tracking-widest text-primary-foreground disabled:opacity-50"
+                  >
+                    {saving ? "Saving…" : "Save chart"}
+                  </button>
+                  <button
+                    onClick={handleSend}
+                    disabled={sending}
+                    className="rounded-lg border border-primary px-4 py-2 font-sans text-xs font-bold uppercase tracking-widest text-primary disabled:opacity-50"
+                  >
+                    {sending ? "Sending…" : "Send to client"}
+                  </button>
+                </div>
               </div>
               {saveError && (
                 <p className="font-sans text-xs text-destructive">{saveError}</p>
+              )}
+              {sendError && (
+                <p className="font-sans text-xs text-destructive">{sendError}</p>
+              )}
+              {lastSentAt && !sendError && (
+                <p className="font-sans text-xs text-muted-foreground">
+                  Sent to client at {new Date(lastSentAt).toLocaleString("en-IN")}
+                </p>
               )}
               <div className="overflow-x-auto rounded-2xl border border-border">
                 <table className="w-full border-collapse text-sm">
