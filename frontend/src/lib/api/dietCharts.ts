@@ -95,3 +95,21 @@ export async function patchDietChart(
   if (!res.ok) throw new Error(`Patch diet chart failed: ${res.status}`);
   return DietChartOutSchema.parse(await res.json());
 }
+
+export const DietChartSendOutSchema = z.object({
+  id: z.string(),
+  client_id: z.string(),
+  chart_name: z.string(),
+  sent_at: z.string(),
+});
+
+export type DietChartSendOut = z.infer<typeof DietChartSendOutSchema>;
+
+export async function sendDietChart(clientId: string): Promise<DietChartSendOut> {
+  const res = await fetchWithAuth(
+    `${API_URL}/api/clients/${clientId}/diet-chart/send`,
+    { method: "POST" },
+  );
+  if (!res.ok) throw new Error(`Send diet chart failed: ${res.status}`);
+  return DietChartSendOutSchema.parse(await res.json());
+}

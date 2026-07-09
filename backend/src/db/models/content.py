@@ -66,3 +66,23 @@ class ContentAssignment(Base):
     content_id: Mapped[UUID] = mapped_column(nullable=False)
     assigned_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+class DietChartSend(Base):
+    """A frozen, permanent snapshot of a diet chart at the moment it was sent to a client.
+
+    Decoupled from `DietChart`/`ContentAssignment`, which remain the HC's private,
+    continuously-editable working copy (SPEC-0001 D-16). Never updated after creation —
+    each row is one immutable send event.
+    """
+    __tablename__ = "diet_chart_sends"
+    __table_args__ = (
+        Index("idx_diet_chart_sends_client_sent", "client_id", "sent_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
+    client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    hc_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    chart_name: Mapped[str] = mapped_column(Text, nullable=False)
+    chart_parameters: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    sent_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
