@@ -324,7 +324,7 @@ export default function DietChartEditorPage() {
               {sendError && (
                 <p className="font-sans text-xs text-destructive">{sendError}</p>
               )}
-              {lastSentAt && !sendError && (
+              {lastSentAt && (
                 <p className="font-sans text-xs text-muted-foreground">
                   Sent to client at {new Date(lastSentAt).toLocaleString("en-IN")}
                 </p>
