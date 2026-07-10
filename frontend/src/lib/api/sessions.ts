@@ -13,6 +13,7 @@ export const SessionOutSchema = z.object({
   started_at: z.string().nullable(),
   ended_at: z.string().nullable(),
   zoom_meeting_id: z.string().nullable(),
+  meeting_url: z.string().nullable(),
   notes_internal: z.string().nullable(),
   session_notes: z.string().nullable(),
   created_at: z.string(),
@@ -64,6 +65,7 @@ export async function createSession(input: {
   session_number: number;
   scheduled_at: string;
   zoom_meeting_id?: string;
+  meeting_url?: string;
   notes_internal?: string;
 }): Promise<SessionOut> {
   const res = await fetchWithAuth(`${API_URL}/api/sessions`, {
@@ -98,7 +100,7 @@ export async function getSession(sessionId: string): Promise<SessionOut> {
 
 export async function patchSession(
   sessionId: string,
-  input: { session_notes?: string; notes_internal?: string },
+  input: { session_notes?: string; notes_internal?: string; meeting_url?: string },
 ): Promise<SessionOut> {
   const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}`, {
     method: "PATCH",
