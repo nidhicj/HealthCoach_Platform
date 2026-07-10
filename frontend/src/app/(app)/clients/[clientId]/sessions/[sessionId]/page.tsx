@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -145,12 +146,14 @@ function NotesTab({
   files,
   filesLoading,
   onFilesChange,
+  onSessionChange,
   onNext,
 }: {
   session: SessionOut;
   files: ClientFileOut[];
   filesLoading: boolean;
   onFilesChange: (files: ClientFileOut[]) => void;
+  onSessionChange: (session: SessionOut) => void;
   onNext: () => void;
 }) {
   const [notes, setNotes] = useState(session.notes_internal ?? "");
@@ -161,6 +164,10 @@ function NotesTab({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [editingLink, setEditingLink] = useState(false);
+  const [linkDraft, setLinkDraft] = useState("");
+  const [savingLink, setSavingLink] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
   async function handleNotesSave() {
     setNotesSaving(true);
@@ -171,6 +178,20 @@ function NotesTab({
       console.error(err);
     } finally {
       setNotesSaving(false);
+    }
+  }
+
+  async function handleSaveLink() {
+    setSavingLink(true);
+    setLinkError(null);
+    try {
+      const updated = await patchSession(session.id, { meeting_url: linkDraft.trim() });
+      onSessionChange(updated);
+      setEditingLink(false);
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : "Failed to save link.");
+    } finally {
+      setSavingLink(false);
     }
   }
 
@@ -231,15 +252,58 @@ function NotesTab({
 
         {/* Left: Meet placeholder */}
         <div className="flex min-h-[420px] flex-col items-center justify-center gap-4 rounded-xl border border-border bg-muted/20 p-10 text-center">
-          <p className="font-heading text-3xl font-black text-muted-foreground">
-            Google Meet
-          </p>
-          <p className="font-sans text-base text-muted-foreground">
-            start / join the meet
-          </p>
-          <span className="mt-1 rounded-full border border-border bg-background px-4 py-1.5 font-sans text-xs text-muted-foreground opacity-50 cursor-not-allowed select-none">
-            Join (coming soon)
-          </span>
+          {editingLink ? (
+            <div className="w-full max-w-sm space-y-3">
+              <Input
+                type="url"
+                value={linkDraft}
+                onChange={(e) => setLinkDraft(e.target.value)}
+                placeholder="https://meet.google.com/…"
+                autoFocus
+              />
+              <div className="flex items-center justify-center gap-2">
+                <Button size="sm" onClick={handleSaveLink} disabled={savingLink}>
+                  {savingLink ? "Saving…" : "Save"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setEditingLink(false)}>
+                  Cancel
+                </Button>
+              </div>
+              {linkError && <p className="font-sans text-xs text-destructive">{linkError}</p>}
+            </div>
+          ) : session.meeting_url ? (
+            <>
+              <p className="font-heading text-3xl font-black text-muted-foreground">
+                Meeting link
+              </p>
+              <a
+                href={session.meeting_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 rounded-full bg-primary px-4 py-1.5 font-sans text-xs font-bold text-primary-foreground"
+              >
+                Join call →
+              </a>
+              <button
+                onClick={() => { setLinkDraft(session.meeting_url ?? ""); setEditingLink(true); }}
+                className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+              >
+                Edit link
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="font-heading text-3xl font-black text-muted-foreground">
+                No meeting link yet
+              </p>
+              <button
+                onClick={() => { setLinkDraft(""); setEditingLink(true); }}
+                className="mt-1 rounded-full border border-border bg-background px-4 py-1.5 font-sans text-xs text-foreground hover:border-primary"
+              >
+                + Add meeting link
+              </button>
+            </>
+          )}
         </div>
 
         {/* Right: Notes + Files */}
@@ -780,6 +844,7 @@ export default function SessionPage() {
                   files={files}
                   filesLoading={filesLoading}
                   onFilesChange={setFiles}
+                  onSessionChange={setSession}
                   onNext={() => setActiveTab("mom")}
                 />
               </TabsContent>
