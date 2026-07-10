@@ -265,7 +265,7 @@ function NotesTab({
                 <Button size="sm" onClick={handleSaveLink} disabled={savingLink}>
                   {savingLink ? "Saving…" : "Save"}
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => setEditingLink(false)}>
+                <Button size="sm" variant="outline" onClick={() => setEditingLink(false)} disabled={savingLink}>
                   Cancel
                 </Button>
               </div>
