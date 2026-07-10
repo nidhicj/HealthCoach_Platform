@@ -86,6 +86,56 @@ async def test_duplicate_session_number_returns_409(http_client, hc_headers):
     assert r.status_code == 409
 
 
+@pytest.mark.asyncio
+async def test_create_session_with_meeting_url(http_client, hc_headers):
+    client = await _create_client(http_client, hc_headers)
+    r = await http_client.post(
+        "/api/sessions",
+        headers=hc_headers,
+        json={
+            "client_id": client["id"],
+            "session_number": 1,
+            "scheduled_at": "2026-08-01T10:00:00Z",
+            "meeting_url": "https://meet.google.com/abc-defg-hij",
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["meeting_url"] == "https://meet.google.com/abc-defg-hij"
+
+
+@pytest.mark.asyncio
+async def test_create_session_without_meeting_url_defaults_to_null(http_client, hc_headers):
+    client = await _create_client(http_client, hc_headers)
+    r = await http_client.post(
+        "/api/sessions",
+        headers=hc_headers,
+        json={
+            "client_id": client["id"],
+            "session_number": 1,
+            "scheduled_at": "2026-08-01T10:00:00Z",
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["meeting_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_session_sets_meeting_url(http_client, hc_headers):
+    client = await _create_client(http_client, hc_headers)
+    session = await _create_session(http_client, hc_headers, client["id"])
+
+    patch_r = await http_client.patch(
+        f"/api/sessions/{session['id']}",
+        headers=hc_headers,
+        json={"meeting_url": "https://zoom.us/j/123456789"},
+    )
+    assert patch_r.status_code == 200, patch_r.text
+    assert patch_r.json()["meeting_url"] == "https://zoom.us/j/123456789"
+
+    get_r = await http_client.get(f"/api/sessions/{session['id']}", headers=hc_headers)
+    assert get_r.json()["meeting_url"] == "https://zoom.us/j/123456789"
+
+
 # ── GET /api/sessions ──────────────────────────────────────────────────────────
 
 

@@ -26,6 +26,7 @@ class SessionCreate(BaseModel):
     session_number: int
     scheduled_at: datetime
     zoom_meeting_id: str | None = None
+    meeting_url: str | None = None
     notes_internal: str | None = None
 
 
@@ -38,6 +39,7 @@ class SessionOut(BaseModel):
     started_at: datetime | None
     ended_at: datetime | None
     zoom_meeting_id: str | None
+    meeting_url: str | None
     notes_internal: str | None
     session_notes: str | None
     created_at: datetime
@@ -48,6 +50,7 @@ class SessionOut(BaseModel):
 class SessionPatch(BaseModel):
     notes_internal: str | None = None
     session_notes: str | None = None
+    meeting_url: str | None = None
 
 
 class MomCreate(BaseModel):
@@ -127,6 +130,7 @@ async def create_session(
         session_number=body.session_number,
         scheduled_at=body.scheduled_at,
         zoom_meeting_id=body.zoom_meeting_id,
+        meeting_url=body.meeting_url,
         notes_internal=body.notes_internal,
     )
     db.add(session)
@@ -214,6 +218,8 @@ async def patch_session(
         sess.notes_internal = body.notes_internal
     if body.session_notes is not None:
         sess.session_notes = body.session_notes
+    if body.meeting_url is not None:
+        sess.meeting_url = body.meeting_url
     await db.flush()
     await db.commit()
 
