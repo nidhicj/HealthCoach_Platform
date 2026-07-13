@@ -42,6 +42,7 @@ class SessionOut(BaseModel):
     zoom_meeting_id: str | None
     meeting_url: str | None
     google_calendar_event_id: str | None
+    google_calendar_event_title: str | None
     notes_internal: str | None
     session_notes: str | None
     created_at: datetime
@@ -284,6 +285,7 @@ async def link_calendar_event(
 
     if body.google_event_id is None:
         sess.google_calendar_event_id = None
+        sess.google_calendar_event_title = None
         await db.flush()
         await db.commit()
         return SessionOut.model_validate(sess)
@@ -301,6 +303,7 @@ async def link_calendar_event(
         )
 
     sess.google_calendar_event_id = event.id
+    sess.google_calendar_event_title = event.summary
     sess.meeting_url = event.hangout_link
     await db.flush()
     await db.commit()

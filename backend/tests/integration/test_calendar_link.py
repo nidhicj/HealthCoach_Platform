@@ -109,6 +109,7 @@ async def test_link_calendar_event_with_meet_link_sets_session_fields(
     body = r.json()
     assert body["google_calendar_event_id"] == "evt-meet-1"
     assert body["meeting_url"] == "https://meet.google.com/abc-defg-hij"
+    assert body["google_calendar_event_title"] == "1:1 with Priya"
 
     # The re-fetch must hit the single-event endpoint (not the list endpoint)
     # with the calling HC's own bearer token.
@@ -152,7 +153,7 @@ async def test_link_calendar_event_without_meet_link_returns_422_and_leaves_sess
 
 
 @pytest.mark.asyncio
-async def test_unlink_calendar_event_clears_event_id_leaves_meeting_url(
+async def test_unlink_calendar_event_clears_event_id_and_title_leaves_meeting_url(
     http_client, hc_headers, hc_user: User, db: AsyncSession, monkeypatch: pytest.MonkeyPatch,
 ):
     await _make_connection(db, hc_user)
@@ -171,6 +172,7 @@ async def test_unlink_calendar_event_clears_event_id_leaves_meeting_url(
     )
     assert link_r.status_code == 200, link_r.text
     assert link_r.json()["meeting_url"] == "https://meet.google.com/abc-defg-hij"
+    assert link_r.json()["google_calendar_event_title"] == "1:1 with Priya"
 
     unlink_r = await http_client.post(
         f"/api/sessions/{session['id']}/calendar-link",
@@ -181,6 +183,7 @@ async def test_unlink_calendar_event_clears_event_id_leaves_meeting_url(
     assert unlink_r.status_code == 200, unlink_r.text
     body = unlink_r.json()
     assert body["google_calendar_event_id"] is None
+    assert body["google_calendar_event_title"] is None
     # meeting_url must be left untouched by an unlink.
     assert body["meeting_url"] == "https://meet.google.com/abc-defg-hij"
 
