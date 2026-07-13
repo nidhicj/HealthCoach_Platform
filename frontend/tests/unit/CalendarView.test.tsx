@@ -1,9 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { addDays, addMonths, endOfDay, format, startOfDay, startOfMonth, startOfWeek, subMonths } from "date-fns";
 import { CalendarView } from "@/components/calendar/CalendarView";
 import type { CalendarEvent, CalendarStatus } from "@/lib/api/calendar";
 import { getCalendarStatus, getCalendarConnectUrl, listCalendarEvents } from "@/lib/api/calendar";
+
+// Mirrors CalendarView's internal visibleRange() for month view, so tests can
+// assert exact listCalendarEvents call args without hardcoding dates.
+function expectedMonthRange(anchor: Date): [string, string] {
+  const start = startOfWeek(startOfMonth(anchor));
+  const end = addDays(start, 41);
+  return [startOfDay(start).toISOString(), endOfDay(end).toISOString()];
+}
 
 vi.mock("@/lib/api/calendar", () => ({
   getCalendarStatus: vi.fn(),
@@ -136,5 +145,71 @@ describe("CalendarView", () => {
 
     expect(await screen.findByText(/could not load calendar events/i)).toBeInTheDocument();
     expect(screen.queryByTestId("day-cell")).not.toBeInTheDocument();
+  });
+
+  it("navigation: clicking next in month view advances the anchor by one month", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getCalendarStatus).mockResolvedValue(makeStatus({ connected: true, needs_reauth: false }));
+    vi.mocked(listCalendarEvents).mockResolvedValue([]);
+
+    render(<CalendarView onSelectEvent={vi.fn()} />);
+
+    const today = new Date();
+    expect(await screen.findByTestId("calendar-range-label")).toHaveTextContent(format(today, "MMMM yyyy"));
+    expect(listCalendarEvents).toHaveBeenCalledTimes(1);
+    const [initialMin, initialMax] = expectedMonthRange(today);
+    expect(listCalendarEvents).toHaveBeenNthCalledWith(1, initialMin, initialMax);
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    const nextMonth = addMonths(today, 1);
+    expect(await screen.findByTestId("calendar-range-label")).toHaveTextContent(format(nextMonth, "MMMM yyyy"));
+    const [nextMin, nextMax] = expectedMonthRange(nextMonth);
+    expect(listCalendarEvents).toHaveBeenCalledTimes(2);
+    expect(listCalendarEvents).toHaveBeenNthCalledWith(2, nextMin, nextMax);
+  });
+
+  it("navigation: clicking previous in month view goes back one month", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getCalendarStatus).mockResolvedValue(makeStatus({ connected: true, needs_reauth: false }));
+    vi.mocked(listCalendarEvents).mockResolvedValue([]);
+
+    render(<CalendarView onSelectEvent={vi.fn()} />);
+
+    const today = new Date();
+    expect(await screen.findByTestId("calendar-range-label")).toHaveTextContent(format(today, "MMMM yyyy"));
+
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+
+    const prevMonth = subMonths(today, 1);
+    expect(await screen.findByTestId("calendar-range-label")).toHaveTextContent(format(prevMonth, "MMMM yyyy"));
+    const [prevMin, prevMax] = expectedMonthRange(prevMonth);
+    expect(listCalendarEvents).toHaveBeenCalledTimes(2);
+    expect(listCalendarEvents).toHaveBeenNthCalledWith(2, prevMin, prevMax);
+  });
+
+  it("navigation: switching view mode after navigating away from today preserves the anchor", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getCalendarStatus).mockResolvedValue(makeStatus({ connected: true, needs_reauth: false }));
+    vi.mocked(listCalendarEvents).mockResolvedValue([]);
+
+    render(<CalendarView onSelectEvent={vi.fn()} />);
+
+    const today = new Date();
+    expect(await screen.findByTestId("calendar-range-label")).toHaveTextContent(format(today, "MMMM yyyy"));
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    const nextMonth = addMonths(today, 1);
+    expect(await screen.findByTestId("calendar-range-label")).toHaveTextContent(format(nextMonth, "MMMM yyyy"));
+
+    // Switch to week view — must show the navigated-to month's week, not today's.
+    await user.click(screen.getByRole("tab", { name: "Week" }));
+    const expectedWeekStart = startOfWeek(nextMonth);
+    expect(await screen.findByTestId("calendar-range-label")).toHaveTextContent(format(expectedWeekStart, "MMM d"));
+    expect(screen.getByTestId("calendar-range-label")).not.toHaveTextContent(format(today, "MMM d"));
+
+    // Switch back to month view — should still show the navigated month, not reset to today.
+    await user.click(screen.getByRole("tab", { name: "Month" }));
+    expect(await screen.findByTestId("calendar-range-label")).toHaveTextContent(format(nextMonth, "MMMM yyyy"));
   });
 });

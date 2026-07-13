@@ -1,7 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { addDays, endOfDay, startOfDay, startOfMonth, startOfWeek } from "date-fns";
+import {
+  addDays,
+  addMonths,
+  addWeeks,
+  endOfDay,
+  format,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+  subMonths,
+  subWeeks,
+} from "date-fns";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -29,6 +41,21 @@ function visibleRange(viewMode: ViewMode, anchor: Date): { start: Date; end: Dat
   }
   const start = startOfWeek(startOfMonth(anchor));
   return { start, end: addDays(start, MONTH_GRID_CELLS - 1) };
+}
+
+// Header label for the current navigated position — "MMMM yyyy" for month
+// view, a day-range for week view (compressed when start/end share a month
+// or year, so it doesn't read as e.g. "Jul 6, 2026 – Jul 12, 2026").
+function rangeLabel(viewMode: ViewMode, anchor: Date): string {
+  if (viewMode === "month") return format(anchor, "MMMM yyyy");
+
+  const start = startOfWeek(anchor);
+  const end = addDays(start, 6);
+  const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
+  const sameYear = start.getFullYear() === end.getFullYear();
+  if (sameMonth) return `${format(start, "MMM d")} – ${format(end, "d, yyyy")}`;
+  if (sameYear) return `${format(start, "MMM d")} – ${format(end, "MMM d, yyyy")}`;
+  return `${format(start, "MMM d, yyyy")} – ${format(end, "MMM d, yyyy")}`;
 }
 
 // ── connect / reconnect prompt (shared by the not-connected and needs_reauth states) ──
@@ -64,7 +91,7 @@ export function CalendarView({ onSelectEvent }: { onSelectEvent: (event: Calenda
   const [connectError, setConnectError] = useState<string | null>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>("month");
-  const [anchor] = useState(() => new Date());
+  const [anchor, setAnchor] = useState(() => new Date());
   const [events, setEvents] = useState<CalendarEvent[] | null>(null);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState<string | null>(null);
@@ -104,6 +131,14 @@ export function CalendarView({ onSelectEvent }: { onSelectEvent: (event: Calenda
       cancelled = true;
     };
   }, [status, viewMode, anchor]);
+
+  function goToPrevious() {
+    setAnchor((a) => (viewMode === "month" ? subMonths(a, 1) : subWeeks(a, 1)));
+  }
+
+  function goToNext() {
+    setAnchor((a) => (viewMode === "month" ? addMonths(a, 1) : addWeeks(a, 1)));
+  }
 
   async function handleConnect() {
     setConnecting(true);
@@ -173,13 +208,26 @@ export function CalendarView({ onSelectEvent }: { onSelectEvent: (event: Calenda
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
-          <TabsList variant="line">
-            <TabsTrigger value="month">Month</TabsTrigger>
-            <TabsTrigger value="week">Week</TabsTrigger>
-          </TabsList>
-        </Tabs>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-3">
+          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
+            <TabsList variant="line">
+              <TabsTrigger value="month">Month</TabsTrigger>
+              <TabsTrigger value="week">Week</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon-sm" onClick={goToPrevious} aria-label="Previous">
+              <ChevronLeftIcon />
+            </Button>
+            <span data-testid="calendar-range-label" className="font-sans text-sm font-medium whitespace-nowrap">
+              {rangeLabel(viewMode, anchor)}
+            </span>
+            <Button variant="ghost" size="icon-sm" onClick={goToNext} aria-label="Next">
+              <ChevronRightIcon />
+            </Button>
+          </div>
+        </div>
         <Button size="sm" onClick={() => setShowCreateForm(true)}>
           + Create event
         </Button>
