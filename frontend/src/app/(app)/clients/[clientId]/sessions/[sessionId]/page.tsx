@@ -21,6 +21,7 @@ import {
   sendMom,
   endSession,
   patchSession,
+  linkCalendarEvent,
   type SessionOut,
   type BriefOut,
   type MomOut,
@@ -33,6 +34,8 @@ import {
   type ClientFileOut,
 } from "@/lib/api/files";
 import { getClient, type ClientDetailOut } from "@/lib/api/clients";
+import { CalendarView } from "@/components/calendar/CalendarView";
+import type { CalendarEvent } from "@/lib/api/calendar";
 import { cn } from "@/lib/utils";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -139,9 +142,47 @@ function BriefTab({
   );
 }
 
+// ── Google Calendar event picker (PHASE-01e Task 16) ────────────────────────
+//
+// Reuses this file's existing modal-overlay convention (see SendDialog below):
+// a fixed, centered `bg-black/40` backdrop with a bordered panel — rather than
+// introducing the separate (and, elsewhere in this app, dev-only) shadcn/base-ui
+// Dialog primitive.
+
+function CalendarPickerDialog({
+  onClose,
+  onSelectEvent,
+  linking,
+  error,
+}: {
+  onClose: () => void;
+  onSelectEvent: (event: CalendarEvent) => void;
+  linking: boolean;
+  error: string | null;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[85vh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-xl border border-border bg-background p-6">
+        <div className="flex items-center justify-between">
+          <h3 className="font-heading text-xl font-black text-foreground">
+            Choose from Google Calendar
+          </h3>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={linking}>
+            Close
+          </Button>
+        </div>
+
+        {error && <p className="font-sans text-sm text-destructive">{error}</p>}
+
+        <CalendarView onSelectEvent={onSelectEvent} />
+      </div>
+    </div>
+  );
+}
+
 // ── tab: Session ──────────────────────────────────────────────────────────────
 
-function NotesTab({
+export function NotesTab({
   session,
   files,
   filesLoading,
@@ -168,6 +209,10 @@ function NotesTab({
   const [linkDraft, setLinkDraft] = useState("");
   const [savingLink, setSavingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [showCalendarPicker, setShowCalendarPicker] = useState(false);
+  const [linkingCalendarEvent, setLinkingCalendarEvent] = useState(false);
+  const [calendarLinkError, setCalendarLinkError] = useState<string | null>(null);
+  const [unlinking, setUnlinking] = useState(false);
 
   async function handleNotesSave() {
     setNotesSaving(true);
@@ -192,6 +237,33 @@ function NotesTab({
       setLinkError(err instanceof Error ? err.message : "Failed to save link.");
     } finally {
       setSavingLink(false);
+    }
+  }
+
+  async function handleSelectCalendarEvent(event: CalendarEvent) {
+    setLinkingCalendarEvent(true);
+    setCalendarLinkError(null);
+    try {
+      const updated = await linkCalendarEvent(session.id, event.id);
+      onSessionChange(updated);
+      setShowCalendarPicker(false);
+    } catch (err) {
+      setCalendarLinkError(err instanceof Error ? err.message : "Failed to link calendar event.");
+    } finally {
+      setLinkingCalendarEvent(false);
+    }
+  }
+
+  async function handleUnlinkCalendarEvent() {
+    setUnlinking(true);
+    setCalendarLinkError(null);
+    try {
+      const updated = await linkCalendarEvent(session.id, null);
+      onSessionChange(updated);
+    } catch (err) {
+      setCalendarLinkError(err instanceof Error ? err.message : "Failed to unlink calendar event.");
+    } finally {
+      setUnlinking(false);
     }
   }
 
@@ -284,12 +356,35 @@ function NotesTab({
               >
                 Join call →
               </a>
-              <button
-                onClick={() => { setLinkDraft(session.meeting_url ?? ""); setEditingLink(true); }}
-                className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
-              >
-                Edit link
-              </button>
+              {session.google_calendar_event_id && (
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">via Google Calendar</Badge>
+                  <button
+                    onClick={handleUnlinkCalendarEvent}
+                    disabled={unlinking}
+                    className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+                  >
+                    {unlinking ? "Unlinking…" : "Unlink"}
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => { setLinkDraft(session.meeting_url ?? ""); setEditingLink(true); }}
+                  className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+                >
+                  Edit link
+                </button>
+                <button
+                  onClick={() => { setCalendarLinkError(null); setShowCalendarPicker(true); }}
+                  className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+                >
+                  Choose from Google Calendar →
+                </button>
+              </div>
+              {calendarLinkError && !showCalendarPicker && (
+                <p className="font-sans text-xs text-destructive">{calendarLinkError}</p>
+              )}
             </>
           ) : (
             <>
@@ -302,6 +397,15 @@ function NotesTab({
               >
                 + Add meeting link
               </button>
+              <button
+                onClick={() => { setCalendarLinkError(null); setShowCalendarPicker(true); }}
+                className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+              >
+                Choose from Google Calendar →
+              </button>
+              {calendarLinkError && !showCalendarPicker && (
+                <p className="font-sans text-xs text-destructive">{calendarLinkError}</p>
+              )}
             </>
           )}
         </div>
@@ -413,6 +517,15 @@ function NotesTab({
           </div>
         </div>
       </div>
+
+      {showCalendarPicker && (
+        <CalendarPickerDialog
+          onClose={() => setShowCalendarPicker(false)}
+          onSelectEvent={handleSelectCalendarEvent}
+          linking={linkingCalendarEvent}
+          error={calendarLinkError}
+        />
+      )}
     </div>
   );
 }

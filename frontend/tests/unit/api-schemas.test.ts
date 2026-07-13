@@ -110,6 +110,7 @@ describe("SessionOutSchema", () => {
     ended_at: null,
     zoom_meeting_id: null,
     meeting_url: null,
+    google_calendar_event_id: null,
     notes_internal: null,
     session_notes: null,
     created_at: NOW,
@@ -126,6 +127,11 @@ describe("SessionOutSchema", () => {
       ended_at: NOW,
     });
     expect(result.ended_at).toBe(NOW);
+  });
+
+  it("allows a non-null google_calendar_event_id", () => {
+    const result = SessionOutSchema.parse({ ...valid, google_calendar_event_id: "evt-1" });
+    expect(result.google_calendar_event_id).toBe("evt-1");
   });
 
   it("throws when session_number is missing", () => {

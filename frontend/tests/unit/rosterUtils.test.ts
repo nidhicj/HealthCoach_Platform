@@ -19,6 +19,7 @@ const baseSession = (overrides: Partial<SessionOut>): SessionOut => ({
   ended_at: null,
   zoom_meeting_id: null,
   meeting_url: null,
+  google_calendar_event_id: null,
   notes_internal: null,
   session_notes: null,
   created_at: new Date().toISOString(),
