@@ -1,16 +1,18 @@
-"""HC-facing calendar-data endpoints (PHASE-01e Task 5, Task 6, Task 7).
+"""HC-facing calendar-data endpoints (PHASE-01e Task 5, Task 6, Task 7, Task 12).
 
 Distinct from the OAuth-flow routes in src/auth/router.py (connect/callback),
 which manage the Google OAuth handshake itself. This router exposes read-only
 status about an HC's Google Calendar connection for the Settings UI, the
 internal `_get_valid_access_token` chokepoint (Task 6) that later tasks
-(7, 12, 15) call before making any real Google Calendar API request, and
-(Task 7) a read-only proxy for the HC's upcoming Google Calendar events.
+(7, 12, 15) call before making any real Google Calendar API request, (Task 7)
+a read-only proxy for the HC's upcoming Google Calendar events, and (Task 12)
+a proxy to create a new Google Calendar event (optionally with a Google Meet
+link attached).
 """
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -254,3 +256,83 @@ async def list_calendar_events(
     items = data.get("items", [])
     _log("success", event_count=len(items))
     return [_map_google_calendar_event(item) for item in items]
+
+
+class CalendarEventCreateIn(BaseModel):
+    summary: str
+    start: datetime
+    end: datetime
+    add_meet: bool = True
+
+
+@router.post("/events")
+async def create_calendar_event(
+    body: CalendarEventCreateIn,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> CalendarEventOut:
+    """Proxy Google Calendar's events.insert for the HC's primary calendar.
+
+    When `add_meet` is true, requests a Google Meet link by sending
+    `conferenceData.createRequest.requestId` (a fresh uuid4 per call, as
+    Google requires for idempotency) in the request body and
+    `conferenceDataVersion=1` as a query param — both are omitted entirely
+    when `add_meet` is false, since Google treats their mere presence as a
+    Meet request regardless of value.
+
+    Raises:
+        HTTPException(409, detail="calendar_not_connected" /
+            "calendar_reauth_required"): via `_get_valid_access_token`.
+        HTTPException(502, detail="calendar_event_create_failed"): Google's
+            events.insert call failed (non-2xx response, timeout, connection
+            error, etc.) — surfaced as a clean Bad Gateway rather than
+            leaking a raw httpx exception into FastAPI's generic 500
+            handler, since this route is a proxy to an external service.
+    """
+    access_token = await _get_valid_access_token(db, UUID(hc_id))
+
+    started = time.monotonic()
+    logger = get_logger(request_id="")
+
+    def _log(outcome: str, **extra: Any) -> None:
+        logger.info(
+            "google_calendar_api_call",
+            operation="create_event",
+            hc_id=hc_id,
+            outcome=outcome,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            **extra,
+        )
+
+    request_body: dict[str, Any] = {
+        "summary": body.summary,
+        "start": {"dateTime": body.start.isoformat()},
+        "end": {"dateTime": body.end.isoformat()},
+    }
+    params: dict[str, str] = {}
+    if body.add_meet:
+        request_body["conferenceData"] = {"createRequest": {"requestId": str(uuid4())}}
+        params["conferenceDataVersion"] = "1"
+
+    async with make_http_client() as client:
+        try:
+            resp = await client.post(
+                _CALENDAR_EVENTS_URL,
+                params=params,
+                json=request_body,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPError as exc:
+            # Covers both a non-2xx response (HTTPStatusError, via
+            # raise_for_status above) and lower-level transport failures
+            # (timeout, connection error). Either way, log it and convert
+            # to a deliberate 502 rather than let the raw httpx exception
+            # propagate into FastAPI's generic 500 handler.
+            _log("error")
+            raise HTTPException(status_code=502, detail="calendar_event_create_failed") from exc
+
+    _log("success")
+    return _map_google_calendar_event(data)

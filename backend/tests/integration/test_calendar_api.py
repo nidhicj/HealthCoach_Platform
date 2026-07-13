@@ -492,3 +492,225 @@ async def test_list_events_returns_502_and_logs_error_on_google_failure(
     assert matches[0]["extra"]["hc_id"] == str(hc_user.id)
     assert matches[0]["extra"]["outcome"] == "error"
     assert "latency_ms" in matches[0]["extra"]
+
+
+# ── POST /api/calendar/events ───────────────────────────────────────────────────
+
+_GOOGLE_CREATED_EVENT_WITH_MEET = {
+    "id": "evt-new-1",
+    "summary": "New coaching call",
+    "start": {"dateTime": "2026-07-20T09:00:00+05:30", "timeZone": "Asia/Kolkata"},
+    "end": {"dateTime": "2026-07-20T09:30:00+05:30", "timeZone": "Asia/Kolkata"},
+    "hangoutLink": "https://meet.google.com/xyz-abcd-efg",
+    "htmlLink": "https://calendar.google.com/event?eid=evt-new-1",
+}
+
+_GOOGLE_CREATED_EVENT_NO_MEET = {
+    # No hangoutLink — Google never returns this key when no Meet was requested.
+    "id": "evt-new-2",
+    "summary": "No-meet call",
+    "start": {"dateTime": "2026-07-21T09:00:00+05:30", "timeZone": "Asia/Kolkata"},
+    "end": {"dateTime": "2026-07-21T09:30:00+05:30", "timeZone": "Asia/Kolkata"},
+    "htmlLink": "https://calendar.google.com/event?eid=evt-new-2",
+}
+
+
+@pytest.mark.asyncio
+async def test_create_event_with_meet_returns_hangout_link(
+    http_client, hc_headers, hc_user: User, db: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+):
+    await _make_connection(
+        db, hc_user,
+        access_token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        credentials={"access_token": "at-still-valid", "refresh_token": "rt-456"},
+    )
+
+    handler, captured_requests = _mock_google_events_transport(_GOOGLE_CREATED_EVENT_WITH_MEET)
+    monkeypatch.setattr(
+        "src.api.calendar.make_http_client",
+        lambda **kw: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    r = await http_client.post(
+        "/api/calendar/events",
+        json={
+            "summary": "New coaching call",
+            "start": "2026-07-20T09:00:00+05:30",
+            "end": "2026-07-20T09:30:00+05:30",
+            "add_meet": True,
+        },
+        headers=hc_headers,
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body == {
+        "id": "evt-new-1",
+        "summary": "New coaching call",
+        "start": "2026-07-20T09:00:00+05:30",
+        "end": "2026-07-20T09:30:00+05:30",
+        "hangout_link": "https://meet.google.com/xyz-abcd-efg",
+        "html_link": "https://calendar.google.com/event?eid=evt-new-1",
+        "location": None,
+    }
+
+    # The outgoing request to Google must carry conferenceDataVersion=1 and a
+    # conferenceData.createRequest.requestId when add_meet=true.
+    assert len(captured_requests) == 1
+    sent = captured_requests[0]
+    assert sent.method == "POST"
+    assert sent.headers["authorization"] == "Bearer at-still-valid"
+    assert sent.url.params["conferenceDataVersion"] == "1"
+    sent_body = json.loads(sent.content)
+    assert sent_body["summary"] == "New coaching call"
+    assert sent_body["start"]["dateTime"] == "2026-07-20T09:00:00+05:30"
+    assert sent_body["end"]["dateTime"] == "2026-07-20T09:30:00+05:30"
+    assert "requestId" in sent_body["conferenceData"]["createRequest"]
+
+
+@pytest.mark.asyncio
+async def test_create_event_without_meet_omits_conference_data(
+    http_client, hc_headers, hc_user: User, db: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+):
+    await _make_connection(
+        db, hc_user,
+        access_token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        credentials={"access_token": "at-still-valid", "refresh_token": "rt-456"},
+    )
+
+    handler, captured_requests = _mock_google_events_transport(_GOOGLE_CREATED_EVENT_NO_MEET)
+    monkeypatch.setattr(
+        "src.api.calendar.make_http_client",
+        lambda **kw: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    r = await http_client.post(
+        "/api/calendar/events",
+        json={
+            "summary": "No-meet call",
+            "start": "2026-07-21T09:00:00+05:30",
+            "end": "2026-07-21T09:30:00+05:30",
+            "add_meet": False,
+        },
+        headers=hc_headers,
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["hangout_link"] is None
+
+    # Must inspect the OUTGOING request, not just the response: neither the
+    # conferenceDataVersion query param nor a conferenceData body key may be
+    # present when add_meet=false.
+    assert len(captured_requests) == 1
+    sent = captured_requests[0]
+    assert "conferenceDataVersion" not in sent.url.params
+    sent_body = json.loads(sent.content)
+    assert "conferenceData" not in sent_body
+
+
+@pytest.mark.asyncio
+async def test_create_event_returns_409_not_connected_when_no_row(
+    http_client, hc_headers,
+):
+    # No GoogleCalendarConnection row, and no Google transport mocked — if the
+    # route somehow reached the Google call, this would attempt a real network
+    # request and fail loudly rather than silently pass.
+    r = await http_client.post(
+        "/api/calendar/events",
+        json={
+            "summary": "Orphan call",
+            "start": "2026-07-22T09:00:00+05:30",
+            "end": "2026-07-22T09:30:00+05:30",
+        },
+        headers=hc_headers,
+    )
+
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == "calendar_not_connected"
+
+
+@pytest.mark.asyncio
+async def test_create_event_emits_success_log_line(
+    http_client, hc_headers, hc_user: User, db: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    """A successful events.insert call must emit a google_calendar_api_call log
+    line with operation="create_event" and outcome="success", mirroring
+    list_calendar_events' logging pattern (Task 7)."""
+    await _make_connection(
+        db, hc_user,
+        access_token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        credentials={"access_token": "at-still-valid", "refresh_token": "rt-456"},
+    )
+
+    handler, _ = _mock_google_events_transport(_GOOGLE_CREATED_EVENT_WITH_MEET)
+    monkeypatch.setattr(
+        "src.api.calendar.make_http_client",
+        lambda **kw: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    r = await http_client.post(
+        "/api/calendar/events",
+        json={
+            "summary": "New coaching call",
+            "start": "2026-07-20T09:00:00+05:30",
+            "end": "2026-07-20T09:30:00+05:30",
+        },
+        headers=hc_headers,
+    )
+    assert r.status_code == 200, r.text
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines() if line]
+    matches = [
+        line for line in lines
+        if line["event"] == "google_calendar_api_call" and line["extra"]["operation"] == "create_event"
+    ]
+    assert len(matches) == 1
+    assert matches[0]["extra"]["hc_id"] == str(hc_user.id)
+    assert matches[0]["extra"]["outcome"] == "success"
+    assert "latency_ms" in matches[0]["extra"]
+
+
+@pytest.mark.asyncio
+async def test_create_event_returns_502_and_logs_error_on_google_failure(
+    http_client, hc_headers, hc_user: User, db: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    """A non-2xx response from Google's events.insert must not crash as a raw
+    500 — it must surface as a clean HTTPException(502) and still emit an
+    error-outcome google_calendar_api_call log line, mirroring
+    list_calendar_events' error handling (Task 7)."""
+    await _make_connection(
+        db, hc_user,
+        access_token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        credentials={"access_token": "at-still-valid", "refresh_token": "rt-456"},
+    )
+
+    handler, _ = _mock_google_events_transport({"error": "internal"}, expected_status=500)
+    monkeypatch.setattr(
+        "src.api.calendar.make_http_client",
+        lambda **kw: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    r = await http_client.post(
+        "/api/calendar/events",
+        json={
+            "summary": "New coaching call",
+            "start": "2026-07-20T09:00:00+05:30",
+            "end": "2026-07-20T09:30:00+05:30",
+        },
+        headers=hc_headers,
+    )
+
+    assert r.status_code == 502, r.text
+    assert r.json()["detail"] == "calendar_event_create_failed"
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines() if line]
+    matches = [
+        line for line in lines
+        if line["event"] == "google_calendar_api_call" and line["extra"]["operation"] == "create_event"
+    ]
+    assert len(matches) == 1
+    assert matches[0]["extra"]["hc_id"] == str(hc_user.id)
+    assert matches[0]["extra"]["outcome"] == "error"
+    assert "latency_ms" in matches[0]["extra"]
