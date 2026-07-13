@@ -413,3 +413,82 @@ async def test_list_events_does_not_persist_beyond_token_refresh(
     assert rows[0].id == connection_id
     assert rows[0].credentials == credentials_before
     assert rows[0].updated_at == updated_at_before
+
+
+@pytest.mark.asyncio
+async def test_list_events_emits_success_log_line(
+    http_client, hc_headers, hc_user: User, db: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    """A successful events.list call must emit a google_calendar_api_call log
+    line with operation="list_events" and outcome="success", distinct from
+    the get_valid_access_token log line also emitted by the same request."""
+    await _make_connection(
+        db, hc_user,
+        access_token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        credentials={"access_token": "at-still-valid", "refresh_token": "rt-456"},
+    )
+
+    handler, _ = _mock_google_events_transport(_GOOGLE_EVENTS_RESPONSE)
+    monkeypatch.setattr(
+        "src.api.calendar.make_http_client",
+        lambda **kw: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    r = await http_client.get(
+        "/api/calendar/events",
+        params={"time_min": "2026-07-13T00:00:00Z", "time_max": "2026-07-20T00:00:00Z"},
+        headers=hc_headers,
+    )
+    assert r.status_code == 200, r.text
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines() if line]
+    matches = [
+        line for line in lines
+        if line["event"] == "google_calendar_api_call" and line["extra"]["operation"] == "list_events"
+    ]
+    assert len(matches) == 1
+    assert matches[0]["extra"]["hc_id"] == str(hc_user.id)
+    assert matches[0]["extra"]["outcome"] == "success"
+    assert matches[0]["extra"]["event_count"] == 3
+    assert "latency_ms" in matches[0]["extra"]
+
+
+@pytest.mark.asyncio
+async def test_list_events_returns_502_and_logs_error_on_google_failure(
+    http_client, hc_headers, hc_user: User, db: AsyncSession, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    """A non-2xx response from Google's events.list must not crash as a raw
+    500 — it must surface as a clean HTTPException(502) and still emit an
+    error-outcome google_calendar_api_call log line."""
+    await _make_connection(
+        db, hc_user,
+        access_token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        credentials={"access_token": "at-still-valid", "refresh_token": "rt-456"},
+    )
+
+    handler, _ = _mock_google_events_transport({"error": "internal"}, expected_status=500)
+    monkeypatch.setattr(
+        "src.api.calendar.make_http_client",
+        lambda **kw: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    r = await http_client.get(
+        "/api/calendar/events",
+        params={"time_min": "2026-07-13T00:00:00Z", "time_max": "2026-07-20T00:00:00Z"},
+        headers=hc_headers,
+    )
+
+    assert r.status_code == 502, r.text
+    assert r.json()["detail"] == "calendar_events_fetch_failed"
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines() if line]
+    matches = [
+        line for line in lines
+        if line["event"] == "google_calendar_api_call" and line["extra"]["operation"] == "list_events"
+    ]
+    assert len(matches) == 1
+    assert matches[0]["extra"]["hc_id"] == str(hc_user.id)
+    assert matches[0]["extra"]["outcome"] == "error"
+    assert "latency_ms" in matches[0]["extra"]

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -204,21 +205,52 @@ async def list_calendar_events(
     Read-only: does not write anything to our DB beyond whatever
     `_get_valid_access_token` itself persists (token refresh). Event data
     is not cached or stored here.
+
+    Raises:
+        HTTPException(502, detail="calendar_events_fetch_failed"): Google's
+            events.list call failed (non-2xx response, timeout, connection
+            error, etc.) — surfaced as a clean Bad Gateway rather than
+            leaking a raw httpx exception into FastAPI's generic 500
+            handler, since this route is a proxy to an external service.
     """
     access_token = await _get_valid_access_token(db, UUID(hc_id))
 
-    async with make_http_client() as client:
-        resp = await client.get(
-            _CALENDAR_EVENTS_URL,
-            params={
-                "singleEvents": "true",
-                "orderBy": "startTime",
-                "timeMin": time_min,
-                "timeMax": time_max,
-            },
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    started = time.monotonic()
+    logger = get_logger(request_id="")
 
-    return [_map_google_calendar_event(item) for item in data.get("items", [])]
+    def _log(outcome: str, **extra: Any) -> None:
+        logger.info(
+            "google_calendar_api_call",
+            operation="list_events",
+            hc_id=hc_id,
+            outcome=outcome,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            **extra,
+        )
+
+    async with make_http_client() as client:
+        try:
+            resp = await client.get(
+                _CALENDAR_EVENTS_URL,
+                params={
+                    "singleEvents": "true",
+                    "orderBy": "startTime",
+                    "timeMin": time_min,
+                    "timeMax": time_max,
+                },
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPError as exc:
+            # Covers both a non-2xx response (HTTPStatusError, via
+            # raise_for_status above) and lower-level transport failures
+            # (timeout, connection error). Either way, log it and convert
+            # to a deliberate 502 rather than let the raw httpx exception
+            # propagate into FastAPI's generic 500 handler.
+            _log("error")
+            raise HTTPException(status_code=502, detail="calendar_events_fetch_failed") from exc
+
+    items = data.get("items", [])
+    _log("success", event_count=len(items))
+    return [_map_google_calendar_event(item) for item in items]
