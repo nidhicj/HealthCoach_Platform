@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.action_items import router as action_items_router
+from src.api.calendar import router as calendar_router
 from src.api.scheduler import router as scheduler_router
 from src.api.diet_charts import router as diet_charts_router
 from src.api.supplements import router as supplements_router
@@ -86,6 +87,7 @@ app.include_router(me_router)
 app.include_router(diet_charts_router)
 app.include_router(supplements_router)
 app.include_router(scheduler_router)
+app.include_router(calendar_router)
 
 
 @app.get("/health", include_in_schema=False)
