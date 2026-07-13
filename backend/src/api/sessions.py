@@ -9,6 +9,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
+from src.api.calendar import _fetch_calendar_event
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
 from src.db.models import ActionItem, Brief, Client, ClientFile, Mom, Session
 from src.lib.email import send_action_items_email
@@ -52,6 +53,10 @@ class SessionPatch(BaseModel):
     notes_internal: str | None = None
     session_notes: str | None = None
     meeting_url: str | None = None
+
+
+class CalendarLinkRequest(BaseModel):
+    google_event_id: str | None
 
 
 class MomCreate(BaseModel):
@@ -243,6 +248,59 @@ async def patch_session(
             except Exception as exc:
                 logger.warn("session_notes_s3_mirror_failed", session_id=str(session_id), error=str(exc))
 
+    return SessionOut.model_validate(sess)
+
+
+@router.post("/{session_id}/calendar-link")
+async def link_calendar_event(
+    session_id: UUID,
+    body: CalendarLinkRequest,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> SessionOut:
+    """Attach (or detach) a Google Calendar event to this session.
+
+    `google_event_id: null` unlinks — clears `google_calendar_event_id` and
+    leaves `meeting_url` untouched (it may hold a manually-entered link or a
+    prior Zoom URL that this endpoint has no business erasing).
+
+    A non-null `google_event_id` is never trusted as-is: the event is
+    re-fetched server-side via `_fetch_calendar_event` (using the calling
+    HC's own Google Calendar token) before anything is persisted, so a
+    client cannot forge a `hangout_link` for a session it doesn't actually
+    have on that HC's calendar.
+
+    Raises:
+        HTTPException(404): session not found or not owned by this HC.
+        HTTPException(422): the fetched event has no Google Meet link —
+            the session is left unmodified.
+        HTTPException(409, 502): via `_fetch_calendar_event` /
+            `_get_valid_access_token` (calendar not connected, reauth
+            required, or the Google API call itself failed).
+    """
+    sess = await _get_owned_session(db, session_id, hc_id)
+
+    if body.google_event_id is None:
+        sess.google_calendar_event_id = None
+        await db.flush()
+        await db.commit()
+        return SessionOut.model_validate(sess)
+
+    event = await _fetch_calendar_event(db, hc_id, body.google_event_id)
+    if not event.hangout_link:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Selected event has no Google Meet link. Add one in Calendar, "
+                "or create a new event with Meet enabled."
+            ),
+        )
+
+    sess.google_calendar_event_id = event.id
+    sess.meeting_url = event.hangout_link
+    await db.flush()
+    await db.commit()
     return SessionOut.model_validate(sess)
 
 

@@ -336,3 +336,52 @@ async def create_calendar_event(
 
     _log("success")
     return _map_google_calendar_event(data)
+
+
+async def _fetch_calendar_event(db: AsyncSession, hc_id: str, event_id: str) -> CalendarEventOut:
+    """Fetch a single Google Calendar event by id for the HC's primary calendar.
+
+    Proxy for Google's events.get. Internal helper shared with sessions.py's
+    POST /api/sessions/{id}/calendar-link (Task 15), which re-fetches an
+    event server-side using the calling HC's own token rather than trusting
+    any client-supplied event data (e.g. a Meet link) before persisting it.
+
+    Raises:
+        HTTPException(409, detail="calendar_not_connected" /
+            "calendar_reauth_required"): via `_get_valid_access_token`.
+        HTTPException(502, detail="calendar_event_fetch_failed"): Google's
+            events.get call failed (non-2xx response — including 404 for an
+            unknown/deleted event id — timeout, connection error, etc.) —
+            surfaced as a clean Bad Gateway rather than leaking a raw httpx
+            exception into FastAPI's generic 500 handler, since this route
+            is a proxy to an external service.
+    """
+    access_token = await _get_valid_access_token(db, UUID(hc_id))
+
+    started = time.monotonic()
+    logger = get_logger(request_id="")
+
+    def _log(outcome: str, **extra: Any) -> None:
+        logger.info(
+            "google_calendar_api_call",
+            operation="get_event",
+            hc_id=hc_id,
+            outcome=outcome,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            **extra,
+        )
+
+    async with make_http_client() as client:
+        try:
+            resp = await client.get(
+                f"{_CALENDAR_EVENTS_URL}/{event_id}",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPError as exc:
+            _log("error")
+            raise HTTPException(status_code=502, detail="calendar_event_fetch_failed") from exc
+
+    _log("success")
+    return _map_google_calendar_event(data)
