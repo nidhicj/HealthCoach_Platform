@@ -14,6 +14,7 @@ import {
 } from "@/lib/api/calendar";
 import { MonthGrid } from "@/components/calendar/MonthGrid";
 import { WeekGrid } from "@/components/calendar/WeekGrid";
+import { CreateEventForm } from "@/components/calendar/CreateEventForm";
 
 // 6 weeks x 7 days — mirrors MonthGrid's own fixed-height grid, so the events
 // we fetch cover exactly the leading/trailing days it actually renders.
@@ -185,12 +186,14 @@ export function CalendarView({ onSelectEvent }: { onSelectEvent: (event: Calenda
       </div>
 
       {showCreateForm && (
-        <div className="flex items-center justify-between rounded-lg border border-dashed border-border p-4 font-sans text-sm text-muted-foreground">
-          {/* TODO(PHASE-01e Task 13): replace with <CreateEventForm onCreated={...} onCancel={...} /> */}
-          <span>Event creation lands in a follow-up task.</span>
-          <Button variant="outline" size="sm" onClick={() => setShowCreateForm(false)}>
-            Close
-          </Button>
+        <div className="rounded-lg border border-dashed border-border p-4">
+          <CreateEventForm
+            onCreated={(event) => {
+              setShowCreateForm(false);
+              onSelectEvent(event);
+            }}
+            onCancel={() => setShowCreateForm(false)}
+          />
         </div>
       )}
 
