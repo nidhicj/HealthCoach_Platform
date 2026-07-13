@@ -107,4 +107,34 @@ describe("CreateEventForm", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(createCalendarEvent).not.toHaveBeenCalled();
   });
+
+  it("shows a validation error and does NOT call createCalendarEvent when end time equals start time", async () => {
+    const user = userEvent.setup();
+    const onCreated = vi.fn();
+
+    render(<CreateEventForm onCreated={onCreated} onCancel={vi.fn()} />);
+    await user.type(screen.getByLabelText(/title/i), "Client check-in");
+    fireEvent.change(screen.getByLabelText(/start/i), { target: { value: "2026-07-15T09:00" } });
+    fireEvent.change(screen.getByLabelText(/end/i), { target: { value: "2026-07-15T09:00" } });
+    await user.click(screen.getByRole("button", { name: /create event/i }));
+
+    expect(await screen.findByText("End time must be after start time.")).toBeInTheDocument();
+    expect(createCalendarEvent).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("shows a validation error and does NOT call createCalendarEvent when end time is before start time", async () => {
+    const user = userEvent.setup();
+    const onCreated = vi.fn();
+
+    render(<CreateEventForm onCreated={onCreated} onCancel={vi.fn()} />);
+    await user.type(screen.getByLabelText(/title/i), "Client check-in");
+    fireEvent.change(screen.getByLabelText(/start/i), { target: { value: "2026-07-15T10:00" } });
+    fireEvent.change(screen.getByLabelText(/end/i), { target: { value: "2026-07-15T09:00" } });
+    await user.click(screen.getByRole("button", { name: /create event/i }));
+
+    expect(await screen.findByText("End time must be after start time.")).toBeInTheDocument();
+    expect(createCalendarEvent).not.toHaveBeenCalled();
+    expect(onCreated).not.toHaveBeenCalled();
+  });
 });

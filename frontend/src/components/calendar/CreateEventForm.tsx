@@ -32,10 +32,19 @@ export function CreateEventForm({
     setError(null);
     setSubmitting(true);
     try {
+      const startDate = new Date(start);
+      const endDate = new Date(end);
+
+      if (endDate <= startDate) {
+        setError("End time must be after start time.");
+        setSubmitting(false);
+        return;
+      }
+
       const event = await createCalendarEvent({
         summary: title.trim(),
-        start: new Date(start).toISOString(),
-        end: new Date(end).toISOString(),
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
         add_meet: addMeet,
       });
       onCreated(event);
