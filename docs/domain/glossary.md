@@ -133,9 +133,24 @@
 
 ---
 
+## Macro calculator terms
+
+**Macro Calculator** — HC-facing tool for computing target daily protein/carbs/fat/fibre/calories for a client from a formula the HC defines, rather than a fixed app-provided method. Part A of `Unit_005_MacroDrivenDietCharts`.
+
+**Formula Preset** — an HC-authored, named, reusable set of formulas (intermediate values + macro outputs). Saved once, applied across any client.
+
+**Base variable** — a client biometric value the calculator can reference: `weight`, `target_weight`, `height`, `waist`, `hip`, `neck`, `activity_level` (new `clients.demographics` keys), plus `age` (derived from `dob`) and `gender` (existing keys).
+
+**Derived value** — a named intermediate value computed by one formula in a preset (e.g. BMR, TDEE) and referenced by later formulas in the same preset. This chaining is what makes layered, real-world nutrition methods expressible without repeating arithmetic across every macro.
+
+**Macro target** — the final computed daily protein/carbs/fat/fibre grams + total kcal for a client, produced by running a preset against that client's current base variables. Stored in `client_macro_targets`, one current row per client (no history in v1).
+
+---
+
 ## Changelog
 
 | Date | Change |
 |---|---|
 | 2026-04-28 | Fresh draft from current ADR-0001 + HC cycle spec. MERGE-REQUIRED with existing repo file. |
 | 2026-05-05 | Added "Session data terms" section: `session_notes`, `session_notes.txt` (S3 mirror), `client_files`, `is_zoom_summary` flag — per PHASE-05 §B11. |
+| 2026-07-08 | Added "Macro calculator terms" section: Macro Calculator, Formula Preset, Base variable, Derived value, Macro target — per `Unit_005_MacroDrivenDietCharts/SPEC-0001-agnostic-macro-calculator.md`. |
