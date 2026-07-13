@@ -258,6 +258,7 @@ async def link_calendar_event(
     claims: HcClaimsDep,
     hc_id: TenantDep,
     db: DbDep,
+    request: Request,
 ) -> SessionOut:
     """Attach (or detach) a Google Calendar event to this session.
 
@@ -287,7 +288,9 @@ async def link_calendar_event(
         await db.commit()
         return SessionOut.model_validate(sess)
 
-    event = await _fetch_calendar_event(db, hc_id, body.google_event_id)
+    event = await _fetch_calendar_event(
+        db, hc_id, body.google_event_id, getattr(request.state, "request_id", "")
+    )
     if not event.hangout_link:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

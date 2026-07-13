@@ -15,7 +15,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,7 +69,7 @@ async def get_calendar_status(
     )
 
 
-async def _get_valid_access_token(db: AsyncSession, hc_user_id: UUID) -> str:
+async def _get_valid_access_token(db: AsyncSession, hc_user_id: UUID, request_id: str = "") -> str:
     """Return a valid Google Calendar access token for hc_user_id.
 
     Single chokepoint used by every route that calls the real Google Calendar
@@ -94,7 +94,7 @@ async def _get_valid_access_token(db: AsyncSession, hc_user_id: UUID) -> str:
     real-world concurrency at this chokepoint becomes a cost/quota concern.
     """
     started = time.monotonic()
-    logger = get_logger(request_id="")
+    logger = get_logger(request_id=request_id)
 
     def _log(outcome: str) -> None:
         logger.info(
@@ -199,6 +199,7 @@ async def list_calendar_events(
     claims: HcClaimsDep,
     hc_id: TenantDep,
     db: DbDep,
+    request: Request,
     time_min: str,
     time_max: str,
 ) -> list[CalendarEventOut]:
@@ -215,10 +216,11 @@ async def list_calendar_events(
             leaking a raw httpx exception into FastAPI's generic 500
             handler, since this route is a proxy to an external service.
     """
-    access_token = await _get_valid_access_token(db, UUID(hc_id))
+    request_id = getattr(request.state, "request_id", "")
+    access_token = await _get_valid_access_token(db, UUID(hc_id), request_id)
 
     started = time.monotonic()
-    logger = get_logger(request_id="")
+    logger = get_logger(request_id=request_id)
 
     def _log(outcome: str, **extra: Any) -> None:
         logger.info(
@@ -271,6 +273,7 @@ async def create_calendar_event(
     claims: HcClaimsDep,
     hc_id: TenantDep,
     db: DbDep,
+    request: Request,
 ) -> CalendarEventOut:
     """Proxy Google Calendar's events.insert for the HC's primary calendar.
 
@@ -290,10 +293,11 @@ async def create_calendar_event(
             leaking a raw httpx exception into FastAPI's generic 500
             handler, since this route is a proxy to an external service.
     """
-    access_token = await _get_valid_access_token(db, UUID(hc_id))
+    request_id = getattr(request.state, "request_id", "")
+    access_token = await _get_valid_access_token(db, UUID(hc_id), request_id)
 
     started = time.monotonic()
-    logger = get_logger(request_id="")
+    logger = get_logger(request_id=request_id)
 
     def _log(outcome: str, **extra: Any) -> None:
         logger.info(
@@ -338,7 +342,9 @@ async def create_calendar_event(
     return _map_google_calendar_event(data)
 
 
-async def _fetch_calendar_event(db: AsyncSession, hc_id: str, event_id: str) -> CalendarEventOut:
+async def _fetch_calendar_event(
+    db: AsyncSession, hc_id: str, event_id: str, request_id: str = ""
+) -> CalendarEventOut:
     """Fetch a single Google Calendar event by id for the HC's primary calendar.
 
     Proxy for Google's events.get. Internal helper shared with sessions.py's
@@ -356,10 +362,10 @@ async def _fetch_calendar_event(db: AsyncSession, hc_id: str, event_id: str) -> 
             exception into FastAPI's generic 500 handler, since this route
             is a proxy to an external service.
     """
-    access_token = await _get_valid_access_token(db, UUID(hc_id))
+    access_token = await _get_valid_access_token(db, UUID(hc_id), request_id)
 
     started = time.monotonic()
-    logger = get_logger(request_id="")
+    logger = get_logger(request_id=request_id)
 
     def _log(outcome: str, **extra: Any) -> None:
         logger.info(

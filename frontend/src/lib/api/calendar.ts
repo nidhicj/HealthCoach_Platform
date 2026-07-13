@@ -52,10 +52,7 @@ export async function listCalendarEvents(
   return z.array(CalendarEventSchema).parse(await res.json());
 }
 
-// NOTE: the backend endpoint this calls (POST /api/calendar/events) is not
-// implemented yet — it lands in PHASE-01e Task 12. This wrapper is written
-// now (per Task 8's brief) so Task 13's create-event form has it available;
-// it will 404 until Task 12 ships.
+// Backend endpoint: POST /api/calendar/events (PHASE-01e Task 12).
 export async function createCalendarEvent(input: {
   summary: string;
   start: string;
