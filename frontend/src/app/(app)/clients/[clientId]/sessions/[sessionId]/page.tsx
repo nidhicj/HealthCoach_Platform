@@ -380,37 +380,43 @@ export function NotesTab({
                 href={session.meeting_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-1 rounded-full bg-primary px-4 py-1.5 font-sans text-xs font-bold text-primary-foreground"
+                className="mt-1 rounded-full bg-primary px-5 py-2 font-sans text-sm font-bold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
               >
                 {session.google_calendar_event_title
                   ? `Join the call — ${session.google_calendar_event_title}`
                   : "Join call →"}
               </a>
-              {session.google_calendar_event_id && (
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">via Google Calendar</Badge>
+              {/* Secondary actions cluster: kept visually tighter together (gap-2)
+                  than their gap-4 offset from the primary "Join call" action above,
+                  so the block reads as one clear CTA plus a group of related,
+                  lower-priority link-management actions (PHASE-01f Task 6). */}
+              <div className="mt-1 flex flex-col items-center gap-2">
+                {session.google_calendar_event_id && (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">via Google Calendar</Badge>
+                    <button
+                      onClick={handleUnlinkCalendarEvent}
+                      disabled={unlinking}
+                      className="font-sans text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:opacity-50"
+                    >
+                      {unlinking ? "Unlinking…" : "Unlink"}
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-center gap-4">
                   <button
-                    onClick={handleUnlinkCalendarEvent}
-                    disabled={unlinking}
-                    className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+                    onClick={() => { setLinkDraft(session.meeting_url ?? ""); setEditingLink(true); }}
+                    className="font-sans text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                   >
-                    {unlinking ? "Unlinking…" : "Unlink"}
+                    Edit link
+                  </button>
+                  <button
+                    onClick={() => { setCalendarLinkError(null); setShowCalendarPicker(true); }}
+                    className="font-sans text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                  >
+                    Choose from Google Calendar →
                   </button>
                 </div>
-              )}
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => { setLinkDraft(session.meeting_url ?? ""); setEditingLink(true); }}
-                  className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
-                >
-                  Edit link
-                </button>
-                <button
-                  onClick={() => { setCalendarLinkError(null); setShowCalendarPicker(true); }}
-                  className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
-                >
-                  Choose from Google Calendar →
-                </button>
               </div>
               {calendarLinkError && !showCalendarPicker && (
                 <p className="font-sans text-xs text-destructive">{calendarLinkError}</p>
@@ -423,13 +429,13 @@ export function NotesTab({
               </p>
               <button
                 onClick={() => { setLinkDraft(""); setEditingLink(true); }}
-                className="mt-1 rounded-full border border-border bg-background px-4 py-1.5 font-sans text-xs text-foreground hover:border-primary"
+                className="mt-1 rounded-full border border-border bg-background px-5 py-2 font-sans text-sm font-semibold text-foreground transition-colors hover:border-primary hover:bg-muted/40"
               >
                 + Add meeting link
               </button>
               <button
                 onClick={() => { setCalendarLinkError(null); setShowCalendarPicker(true); }}
-                className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+                className="font-sans text-sm font-medium text-foreground underline-offset-4 hover:underline"
               >
                 Choose from Google Calendar →
               </button>
