@@ -1,13 +1,15 @@
-"""HC-facing calendar-data endpoints (PHASE-01e Task 5, Task 6).
+"""HC-facing calendar-data endpoints (PHASE-01e Task 5, Task 6, Task 7).
 
 Distinct from the OAuth-flow routes in src/auth/router.py (connect/callback),
 which manage the Google OAuth handshake itself. This router exposes read-only
-status about an HC's Google Calendar connection for the Settings UI, and
-(Task 6) the internal `_get_valid_access_token` chokepoint that later tasks
-(7, 12, 15) call before making any real Google Calendar API request.
+status about an HC's Google Calendar connection for the Settings UI, the
+internal `_get_valid_access_token` chokepoint (Task 6) that later tasks
+(7, 12, 15) call before making any real Google Calendar API request, and
+(Task 7) a read-only proxy for the HC's upcoming Google Calendar events.
 """
 import time
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -19,9 +21,12 @@ from src.api.deps import DbDep, HcClaimsDep, TenantDep
 from src.auth.calendar_oauth import CalendarReauthRequired, refresh_calendar_access_token
 from src.config import get_settings
 from src.db.models import GoogleCalendarConnection
+from src.lib.http import make_http_client
 from src.telemetry.log import get_logger
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
+
+_CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 
 # Refresh proactively if the stored token expires within this window, so a
 # borderline-valid token doesn't die mid-request against the real Google API.
@@ -149,3 +154,71 @@ async def _get_valid_access_token(db: AsyncSession, hc_user_id: UUID) -> str:
 
     _log("refreshed")
     return new_access_token
+
+
+class CalendarEventOut(BaseModel):
+    id: str
+    summary: str
+    start: str
+    end: str
+    hangout_link: str | None
+    html_link: str
+    location: str | None
+
+
+def _flatten_google_event_time(value: dict[str, Any]) -> str:
+    """Flatten Google's start/end shape to a single ISO string.
+
+    A timed event is `{"dateTime": "2026-07-12T09:00:00+05:30", "timeZone":
+    "..."}`; an all-day event is `{"date": "2026-07-12"}` (no `dateTime`).
+    This endpoint's flat response shape has one `start`/`end` string field,
+    so all-day events surface their date-only string rather than a
+    synthesized midnight timestamp — the frontend only displays this and
+    does not currently need to distinguish timed vs. all-day here.
+    """
+    return value.get("dateTime") or value.get("date") or ""
+
+
+def _map_google_calendar_event(item: dict[str, Any]) -> CalendarEventOut:
+    return CalendarEventOut(
+        id=item["id"],
+        summary=item.get("summary", ""),
+        start=_flatten_google_event_time(item.get("start", {})),
+        end=_flatten_google_event_time(item.get("end", {})),
+        hangout_link=item.get("hangoutLink"),
+        html_link=item.get("htmlLink", ""),
+        location=item.get("location"),
+    )
+
+
+@router.get("/events")
+async def list_calendar_events(
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+    time_min: str,
+    time_max: str,
+) -> list[CalendarEventOut]:
+    """Proxy Google Calendar's events.list for the HC's primary calendar.
+
+    Read-only: does not write anything to our DB beyond whatever
+    `_get_valid_access_token` itself persists (token refresh). Event data
+    is not cached or stored here.
+    """
+    access_token = await _get_valid_access_token(db, UUID(hc_id))
+
+    async with make_http_client() as client:
+        resp = await client.get(
+            _CALENDAR_EVENTS_URL,
+            params={
+                "singleEvents": "true",
+                "orderBy": "startTime",
+                "timeMin": time_min,
+                "timeMax": time_max,
+            },
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    return [_map_google_calendar_event(item) for item in data.get("items", [])]
