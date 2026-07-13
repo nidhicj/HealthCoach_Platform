@@ -12,6 +12,7 @@ from src.lib.http import make_http_client
 
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 _CALENDAR_SCOPES = "openid email profile https://www.googleapis.com/auth/calendar.events"
 
 
@@ -94,6 +95,25 @@ async def exchange_code_for_calendar_tokens(
         expires_in=data["expires_in"],
         scope=data.get("scope", _CALENDAR_SCOPES),
     )
+
+
+async def fetch_calendar_account_email(access_token: str) -> str:
+    """Look up the Google account email tied to a Calendar access_token.
+
+    `exchange_code_for_calendar_tokens`'s response never includes an email —
+    Google's token endpoint doesn't return one. A `GoogleCalendarConnection`
+    row needs a human-readable `google_account_email` (shown in Settings, used
+    to detect "wrong account connected"), so the Calendar connect flow makes
+    its own lightweight userinfo lookup rather than re-deriving it from the
+    separate login flow in oauth.py (whose id_token is not obtained here).
+    """
+    async with make_http_client() as client:
+        resp = await client.get(
+            _GOOGLE_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        resp.raise_for_status()
+        return str(resp.json()["email"])
 
 
 async def refresh_calendar_access_token(
