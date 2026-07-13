@@ -40,6 +40,7 @@ class SessionOut(BaseModel):
     ended_at: datetime | None
     zoom_meeting_id: str | None
     meeting_url: str | None
+    google_calendar_event_id: str | None
     notes_internal: str | None
     session_notes: str | None
     created_at: datetime
