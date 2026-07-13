@@ -84,6 +84,7 @@ describe("NotesTab — Google Calendar picker, real CalendarView, not-connected 
         onFilesChange={vi.fn()}
         onSessionChange={vi.fn()}
         onNext={vi.fn()}
+        clientFirstName="Asha"
       />,
     );
 

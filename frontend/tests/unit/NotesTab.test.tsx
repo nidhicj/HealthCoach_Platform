@@ -77,6 +77,7 @@ function renderNotesTab(session: SessionOut, onSessionChange = vi.fn()) {
       onFilesChange={vi.fn()}
       onSessionChange={onSessionChange}
       onNext={vi.fn()}
+      clientFirstName="Asha"
     />,
   );
 }

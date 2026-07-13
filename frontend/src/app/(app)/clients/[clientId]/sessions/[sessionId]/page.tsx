@@ -155,6 +155,7 @@ function CalendarPickerDialog({
   linking,
   linkingEventId,
   error,
+  defaultEventTitle,
 }: {
   onClose: () => void;
   onSelectEvent: (event: CalendarEvent) => void;
@@ -164,6 +165,9 @@ function CalendarPickerDialog({
   // other events are disabled (PHASE-01f Task 4).
   linkingEventId: string | null;
   error: string | null;
+  // Pre-computed initial value for CreateEventForm's title field, threaded
+  // down to CalendarView (PHASE-01f Task 5).
+  defaultEventTitle: string;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -179,7 +183,11 @@ function CalendarPickerDialog({
 
         {error && <p className="font-sans text-sm text-destructive">{error}</p>}
 
-        <CalendarView onSelectEvent={onSelectEvent} linkingEventId={linkingEventId} />
+        <CalendarView
+          onSelectEvent={onSelectEvent}
+          linkingEventId={linkingEventId}
+          defaultEventTitle={defaultEventTitle}
+        />
       </div>
     </div>
   );
@@ -194,6 +202,7 @@ export function NotesTab({
   onFilesChange,
   onSessionChange,
   onNext,
+  clientFirstName,
 }: {
   session: SessionOut;
   files: ClientFileOut[];
@@ -201,6 +210,9 @@ export function NotesTab({
   onFilesChange: (files: ClientFileOut[]) => void;
   onSessionChange: (session: SessionOut) => void;
   onNext: () => void;
+  // Used to pre-fill the "Choose from Google Calendar" → "Create event"
+  // form's title (PHASE-01f Task 5), e.g. "Session-3 with Asha".
+  clientFirstName: string;
 }) {
   const [notes, setNotes] = useState(session.notes_internal ?? "");
   const [notesFrozen, setNotesFrozen] = useState(false);
@@ -222,6 +234,9 @@ export function NotesTab({
   const [linkingEventId, setLinkingEventId] = useState<string | null>(null);
   const [calendarLinkError, setCalendarLinkError] = useState<string | null>(null);
   const [unlinking, setUnlinking] = useState(false);
+  // Default title for the "Create event" form when scheduling this session
+  // via Google Calendar, e.g. "Session-3 with Asha" (PHASE-01f Task 5).
+  const defaultEventTitle = `Session-${session.session_number} with ${clientFirstName}`;
 
   async function handleNotesSave() {
     setNotesSaving(true);
@@ -540,6 +555,7 @@ export function NotesTab({
           linking={linkingEventId !== null}
           linkingEventId={linkingEventId}
           error={calendarLinkError}
+          defaultEventTitle={defaultEventTitle}
         />
       )}
     </div>
@@ -975,6 +991,7 @@ export default function SessionPage() {
                   onFilesChange={setFiles}
                   onSessionChange={setSession}
                   onNext={() => setActiveTab("mom")}
+                  clientFirstName={(client?.full_name ?? "Client").split(" ")[0]}
                 />
               </TabsContent>
 

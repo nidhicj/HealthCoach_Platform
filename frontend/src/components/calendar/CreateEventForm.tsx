@@ -11,16 +11,22 @@ const FIELD_LABEL_CLASS = "font-sans text-xs font-bold uppercase tracking-widest
 export function CreateEventForm({
   onCreated,
   onCancel,
+  defaultTitle = "",
 }: {
   onCreated: (event: CalendarEvent) => void;
   onCancel: () => void;
+  // Initial value for the title field (e.g. "Session-3 with Asha"), computed
+  // by the caller from session/client context CreateEventForm otherwise has
+  // no knowledge of (PHASE-01f Task 5). The field stays a normal editable
+  // input — this only seeds its starting value.
+  defaultTitle?: string;
 }) {
   const titleId = useId();
   const startId = useId();
   const endId = useId();
   const meetId = useId();
 
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(defaultTitle);
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [addMeet, setAddMeet] = useState(true);

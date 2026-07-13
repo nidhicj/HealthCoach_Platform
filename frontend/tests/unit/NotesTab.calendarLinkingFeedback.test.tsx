@@ -116,6 +116,7 @@ function Harness() {
       onFilesChange={vi.fn()}
       onSessionChange={setSession}
       onNext={vi.fn()}
+      clientFirstName="Asha"
     />
   );
 }

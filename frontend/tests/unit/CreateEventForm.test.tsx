@@ -137,4 +137,37 @@ describe("CreateEventForm", () => {
     expect(createCalendarEvent).not.toHaveBeenCalled();
     expect(onCreated).not.toHaveBeenCalled();
   });
+
+  // PHASE-01f Task 5 — pre-filled title.
+  describe("defaultTitle", () => {
+    it("pre-fills the title input with defaultTitle on mount", () => {
+      render(<CreateEventForm onCreated={vi.fn()} onCancel={vi.fn()} defaultTitle="Session-3 with Asha" />);
+
+      expect(screen.getByLabelText(/title/i)).toHaveValue("Session-3 with Asha");
+    });
+
+    it("leaves the title blank when defaultTitle is not provided", () => {
+      render(<CreateEventForm onCreated={vi.fn()} onCancel={vi.fn()} />);
+
+      expect(screen.getByLabelText(/title/i)).toHaveValue("");
+    });
+
+    it("remains editable and submits the edited value instead of the default", async () => {
+      const user = userEvent.setup();
+      vi.mocked(createCalendarEvent).mockResolvedValue(makeEvent());
+
+      render(<CreateEventForm onCreated={vi.fn()} onCancel={vi.fn()} defaultTitle="Session-3 with Asha" />);
+
+      const titleInput = screen.getByLabelText(/title/i);
+      await user.clear(titleInput);
+      await user.type(titleInput, "Rescheduled sync");
+      fireEvent.change(screen.getByLabelText(/start/i), { target: { value: "2026-07-15T09:00" } });
+      fireEvent.change(screen.getByLabelText(/end/i), { target: { value: "2026-07-15T09:30" } });
+      await user.click(screen.getByRole("button", { name: /create event/i }));
+
+      expect(createCalendarEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ summary: "Rescheduled sync" }),
+      );
+    });
+  });
 });

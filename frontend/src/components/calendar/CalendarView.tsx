@@ -87,6 +87,7 @@ function ConnectPrompt({
 export function CalendarView({
   onSelectEvent,
   linkingEventId = null,
+  defaultEventTitle = "",
 }: {
   onSelectEvent: (event: CalendarEvent) => void;
   // Id of the event a caller (e.g. NotesTab's link-to-session flow) is
@@ -95,6 +96,11 @@ export function CalendarView({
   // caller owns this state since the in-flight request lives above
   // CalendarView, one level up from CalendarPickerDialog.
   linkingEventId?: string | null;
+  // Pre-computed initial value for CreateEventForm's title field (e.g.
+  // "Session-3 with Asha"), threaded straight through from whichever caller
+  // has session/client context (PHASE-01f Task 5). CalendarView itself has
+  // no knowledge of sessions/clients — it just passes this along.
+  defaultEventTitle?: string;
 }) {
   const [status, setStatus] = useState<CalendarStatus | null>(null);
   const [statusError, setStatusError] = useState(false);
@@ -252,6 +258,7 @@ export function CalendarView({
               onSelectEvent(event);
             }}
             onCancel={() => setShowCreateForm(false)}
+            defaultTitle={defaultEventTitle}
           />
         </div>
       )}
