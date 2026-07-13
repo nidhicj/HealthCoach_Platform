@@ -86,4 +86,67 @@ describe("WeekGrid", () => {
     expect(onSelectEvent).toHaveBeenCalledTimes(1);
     expect(onSelectEvent).toHaveBeenCalledWith(mondayEvent);
   });
+
+  it("clusters a transitive overlap chain (A-B overlap, B-C overlap, A-C do not) into one 3-way equal-width split", () => {
+    // Thursday: A 9:00-9:40, B 9:30-10:10, C 10:00-10:40.
+    // A/B overlap 9:30-9:40, B/C overlap 10:00-10:10, A/C do not overlap at all.
+    // The clustering algorithm is transitive (merges via shared cluster end),
+    // so all three must still land in a single 3-way cluster, not two separate
+    // 2-way pairs.
+    const chainA = makeEvent({
+      id: "e-chain-a",
+      summary: "Chain A",
+      start: "2026-01-08T09:00:00",
+      end: "2026-01-08T09:40:00",
+    });
+    const chainB = makeEvent({
+      id: "e-chain-b",
+      summary: "Chain B",
+      start: "2026-01-08T09:30:00",
+      end: "2026-01-08T10:10:00",
+    });
+    const chainC = makeEvent({
+      id: "e-chain-c",
+      summary: "Chain C",
+      start: "2026-01-08T10:00:00",
+      end: "2026-01-08T10:40:00",
+    });
+
+    const onSelectEvent = vi.fn();
+    render(
+      <WeekGrid
+        weekStart={weekStart}
+        events={[chainA, chainB, chainC]}
+        onSelectEvent={onSelectEvent}
+      />,
+    );
+
+    const dayColumns = screen.getAllByTestId("day-column");
+    const thursdayColumn = dayColumns.find((el) => el.getAttribute("data-date") === "2026-01-08");
+    expect(thursdayColumn).toBeTruthy();
+
+    const chainAButton = within(thursdayColumn!).getByRole("button", { name: "Chain A" });
+    const chainBButton = within(thursdayColumn!).getByRole("button", { name: "Chain B" });
+    const chainCButton = within(thursdayColumn!).getByRole("button", { name: "Chain C" });
+
+    // Equal 3-way width split (1/3 * 100 in floating point), not a 2-way 50%
+    // split — proves the cluster merged all three rather than pairing A/B and
+    // leaving C alone, or vice versa.
+    expect(chainAButton.style.width).toBe("33.33333333333333%");
+    expect(chainBButton.style.width).toBe("33.33333333333333%");
+    expect(chainCButton.style.width).toBe("33.33333333333333%");
+
+    // Distinct left offsets in start-time order: A, B, C.
+    expect(chainAButton.style.left).toBe("0%");
+    expect(chainBButton.style.left).toBe("33.33333333333333%");
+    expect(chainCButton.style.left).toBe("66.66666666666666%");
+
+    // Vertical position still reflects each event's own start/end time.
+    expect(chainAButton.style.top).toBe("540px");
+    expect(chainAButton.style.height).toBe("40px");
+    expect(chainBButton.style.top).toBe("570px");
+    expect(chainBButton.style.height).toBe("40px");
+    expect(chainCButton.style.top).toBe("600px");
+    expect(chainCButton.style.height).toBe("40px");
+  });
 });
