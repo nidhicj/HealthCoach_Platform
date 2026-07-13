@@ -1,10 +1,16 @@
 """Unit tests for EncryptedJSON TypeDecorator. Per task 1 of PHASE-01e."""
-import os
-
 import pytest
 from cryptography.fernet import Fernet
 
 from src.db.encrypted_json import EncryptedJSON
+
+
+@pytest.fixture(autouse=True)
+def _clear_settings_cache():
+    """Fixture to guarantee cache cleanup after each test, even on assertion failure."""
+    yield
+    from src.config import get_settings
+    get_settings.cache_clear()
 
 
 def test_default_settings_key_is_demographics(monkeypatch):
@@ -22,9 +28,6 @@ def test_default_settings_key_is_demographics(monkeypatch):
     encrypted = col.process_bind_param({"a": 1}, None)
     assert col.process_result_value(encrypted, None) == {"a": 1}
 
-    # Clear cache after test to prevent cache pollution to later tests
-    get_settings.cache_clear()
-
 
 def test_custom_settings_key_round_trips(monkeypatch):
     """Verify that a custom settings_key parameter works correctly."""
@@ -37,9 +40,6 @@ def test_custom_settings_key_round_trips(monkeypatch):
     col = EncryptedJSON(settings_key="google_calendar_encryption_key")
     encrypted = col.process_bind_param({"token": "abc"}, None)
     assert col.process_result_value(encrypted, None) == {"token": "abc"}
-
-    # Clear cache after test to prevent cache pollution to later tests
-    get_settings.cache_clear()
 
 
 def test_cross_key_decrypt_fails_gracefully(monkeypatch):
@@ -63,9 +63,6 @@ def test_cross_key_decrypt_fails_gracefully(monkeypatch):
 
     # Cross-key decryption should fail gracefully and return None
     assert result is None
-
-    # Clear cache after test to prevent cache pollution to later tests
-    get_settings.cache_clear()
 
 
 def test_none_values_pass_through():
@@ -93,6 +90,3 @@ def test_fallback_key_used_when_env_empty(monkeypatch):
     encrypted = col.process_bind_param({"data": "test"}, None)
     result = col.process_result_value(encrypted, None)
     assert result == {"data": "test"}
-
-    # Clear cache after test to prevent cache pollution to later tests
-    get_settings.cache_clear()
