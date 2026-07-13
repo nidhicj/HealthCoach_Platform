@@ -15,6 +15,7 @@ export const SessionOutSchema = z.object({
   zoom_meeting_id: z.string().nullable(),
   meeting_url: z.string().nullable(),
   google_calendar_event_id: z.string().nullable(),
+  google_calendar_event_title: z.string().nullable(),
   notes_internal: z.string().nullable(),
   session_notes: z.string().nullable(),
   created_at: z.string(),

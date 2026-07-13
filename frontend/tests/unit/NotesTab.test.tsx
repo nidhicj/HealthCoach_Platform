@@ -60,6 +60,7 @@ function makeSession(overrides: Partial<SessionOut> = {}): SessionOut {
     zoom_meeting_id: null,
     meeting_url: null,
     google_calendar_event_id: null,
+    google_calendar_event_title: null,
     notes_internal: null,
     session_notes: null,
     created_at: "2026-07-01T00:00:00Z",
@@ -203,5 +204,36 @@ describe("NotesTab — Google Calendar linking (PHASE-01e Task 16)", () => {
 
     expect(await screen.findByText("Link calendar event failed: 500")).toBeInTheDocument();
     expect(onSessionChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("NotesTab — Join call button title (PHASE-01f Task 2)", () => {
+  it("shows 'Join the call — <title>' when google_calendar_event_title is set", () => {
+    renderNotesTab(
+      makeSession({
+        meeting_url: "https://meet.google.com/abc-defg-hij",
+        google_calendar_event_id: "evt-1",
+        google_calendar_event_title: "1:1 with Priya",
+      }),
+    );
+
+    expect(
+      screen.getByRole("link", { name: "Join the call — 1:1 with Priya" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Join call →" })).not.toBeInTheDocument();
+  });
+
+  it("falls back to plain 'Join call →' when google_calendar_event_title is null (manual link)", () => {
+    renderNotesTab(
+      makeSession({
+        meeting_url: "https://zoom.us/j/123",
+        google_calendar_event_title: null,
+      }),
+    );
+
+    expect(screen.getByRole("link", { name: "Join call →" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /Join the call —/ }),
+    ).not.toBeInTheDocument();
   });
 });

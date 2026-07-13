@@ -354,7 +354,9 @@ export function NotesTab({
                 rel="noopener noreferrer"
                 className="mt-1 rounded-full bg-primary px-4 py-1.5 font-sans text-xs font-bold text-primary-foreground"
               >
-                Join call →
+                {session.google_calendar_event_title
+                  ? `Join the call — ${session.google_calendar_event_title}`
+                  : "Join call →"}
               </a>
               {session.google_calendar_event_id && (
                 <div className="flex items-center gap-2">
