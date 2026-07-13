@@ -84,7 +84,18 @@ function ConnectPrompt({
   );
 }
 
-export function CalendarView({ onSelectEvent }: { onSelectEvent: (event: CalendarEvent) => void }) {
+export function CalendarView({
+  onSelectEvent,
+  linkingEventId = null,
+}: {
+  onSelectEvent: (event: CalendarEvent) => void;
+  // Id of the event a caller (e.g. NotesTab's link-to-session flow) is
+  // currently linking, or null when no link request is in flight. Threaded
+  // straight through to whichever grid is active (PHASE-01f Task 4) — the
+  // caller owns this state since the in-flight request lives above
+  // CalendarView, one level up from CalendarPickerDialog.
+  linkingEventId?: string | null;
+}) {
   const [status, setStatus] = useState<CalendarStatus | null>(null);
   const [statusError, setStatusError] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -250,9 +261,9 @@ export function CalendarView({ onSelectEvent }: { onSelectEvent: (event: Calenda
       ) : eventsLoading || events === null ? (
         <Skeleton className="h-64 w-full" />
       ) : viewMode === "month" ? (
-        <MonthGrid month={anchor} events={events} onSelectEvent={onSelectEvent} />
+        <MonthGrid month={anchor} events={events} onSelectEvent={onSelectEvent} linkingEventId={linkingEventId} />
       ) : (
-        <WeekGrid weekStart={weekStart} events={events} onSelectEvent={onSelectEvent} />
+        <WeekGrid weekStart={weekStart} events={events} onSelectEvent={onSelectEvent} linkingEventId={linkingEventId} />
       )}
     </div>
   );

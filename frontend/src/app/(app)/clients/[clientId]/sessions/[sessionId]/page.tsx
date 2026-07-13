@@ -153,11 +153,16 @@ function CalendarPickerDialog({
   onClose,
   onSelectEvent,
   linking,
+  linkingEventId,
   error,
 }: {
   onClose: () => void;
   onSelectEvent: (event: CalendarEvent) => void;
   linking: boolean;
+  // Id of the specific event currently being linked, or null. Threaded down
+  // to CalendarView so the matching event shows a visible busy state while
+  // other events are disabled (PHASE-01f Task 4).
+  linkingEventId: string | null;
   error: string | null;
 }) {
   return (
@@ -174,7 +179,7 @@ function CalendarPickerDialog({
 
         {error && <p className="font-sans text-sm text-destructive">{error}</p>}
 
-        <CalendarView onSelectEvent={onSelectEvent} />
+        <CalendarView onSelectEvent={onSelectEvent} linkingEventId={linkingEventId} />
       </div>
     </div>
   );
@@ -210,7 +215,11 @@ export function NotesTab({
   const [savingLink, setSavingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [showCalendarPicker, setShowCalendarPicker] = useState(false);
-  const [linkingCalendarEvent, setLinkingCalendarEvent] = useState(false);
+  // Id of the specific calendar event currently being linked, or null when no
+  // link request is in flight (PHASE-01f Task 4). Replaces a plain boolean so
+  // CalendarPickerDialog/CalendarView can show per-event busy feedback rather
+  // than just a generic "linking" state.
+  const [linkingEventId, setLinkingEventId] = useState<string | null>(null);
   const [calendarLinkError, setCalendarLinkError] = useState<string | null>(null);
   const [unlinking, setUnlinking] = useState(false);
 
@@ -241,7 +250,11 @@ export function NotesTab({
   }
 
   async function handleSelectCalendarEvent(event: CalendarEvent) {
-    setLinkingCalendarEvent(true);
+    // Guard against a second click racing the first — ignore selections while
+    // one is already in flight (the grids also disable other events visually,
+    // but this is the authoritative guard).
+    if (linkingEventId !== null) return;
+    setLinkingEventId(event.id);
     setCalendarLinkError(null);
     try {
       const updated = await linkCalendarEvent(session.id, event.id);
@@ -250,7 +263,7 @@ export function NotesTab({
     } catch (err) {
       setCalendarLinkError(err instanceof Error ? err.message : "Failed to link calendar event.");
     } finally {
-      setLinkingCalendarEvent(false);
+      setLinkingEventId(null);
     }
   }
 
@@ -524,7 +537,8 @@ export function NotesTab({
         <CalendarPickerDialog
           onClose={() => setShowCalendarPicker(false)}
           onSelectEvent={handleSelectCalendarEvent}
-          linking={linkingCalendarEvent}
+          linking={linkingEventId !== null}
+          linkingEventId={linkingEventId}
           error={calendarLinkError}
         />
       )}

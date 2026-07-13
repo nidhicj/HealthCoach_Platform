@@ -188,6 +188,46 @@ describe("CalendarView", () => {
     expect(listCalendarEvents).toHaveBeenNthCalledWith(2, prevMin, prevMax);
   });
 
+  // PHASE-01f Task 4 — CalendarView forwards linkingEventId to the active grid
+  // so the specific event being linked can show a visible busy state.
+  it("forwards linkingEventId to MonthGrid so the matching event is visibly busy and others are disabled", async () => {
+    vi.mocked(getCalendarStatus).mockResolvedValue(makeStatus({ connected: true, needs_reauth: false }));
+    const linkingEvent = makeEvent({ id: "e-linking", summary: "Linking target" });
+    const otherEvent = makeEvent({ id: "e-other", summary: "Other target" });
+    vi.mocked(listCalendarEvents).mockResolvedValue([linkingEvent, otherEvent]);
+
+    render(<CalendarView onSelectEvent={vi.fn()} linkingEventId="e-linking" />);
+
+    const linkingButton = await screen.findByRole("button", { name: "Linking target" });
+    const otherButton = screen.getByRole("button", { name: "Other target" });
+
+    expect(linkingButton).toHaveAttribute("aria-busy", "true");
+    expect(linkingButton).toBeDisabled();
+    expect(otherButton).not.toHaveAttribute("aria-busy", "true");
+    expect(otherButton).toBeDisabled();
+  });
+
+  it("forwards linkingEventId to WeekGrid so the matching event is visibly busy and others are disabled", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getCalendarStatus).mockResolvedValue(makeStatus({ connected: true, needs_reauth: false }));
+    const linkingEvent = makeEvent({ id: "e-linking", summary: "Linking target" });
+    const otherEvent = makeEvent({ id: "e-other", summary: "Other target" });
+    vi.mocked(listCalendarEvents).mockResolvedValue([linkingEvent, otherEvent]);
+
+    render(<CalendarView onSelectEvent={vi.fn()} linkingEventId="e-linking" />);
+
+    await screen.findByRole("button", { name: "Linking target" });
+    await user.click(screen.getByRole("tab", { name: "Week" }));
+
+    const linkingButton = await screen.findByRole("button", { name: "Linking target" });
+    const otherButton = screen.getByRole("button", { name: "Other target" });
+
+    expect(linkingButton).toHaveAttribute("aria-busy", "true");
+    expect(linkingButton).toBeDisabled();
+    expect(otherButton).not.toHaveAttribute("aria-busy", "true");
+    expect(otherButton).toBeDisabled();
+  });
+
   it("navigation: switching view mode after navigating away from today preserves the anchor", async () => {
     const user = userEvent.setup();
     vi.mocked(getCalendarStatus).mockResolvedValue(makeStatus({ connected: true, needs_reauth: false }));

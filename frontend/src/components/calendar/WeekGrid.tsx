@@ -68,10 +68,16 @@ export function WeekGrid({
   weekStart,
   events,
   onSelectEvent,
+  linkingEventId = null,
 }: {
   weekStart: Date;
   events: CalendarEvent[];
   onSelectEvent: (event: CalendarEvent) => void;
+  // Id of the event currently being linked (PHASE-01f Task 4), or null when
+  // no link request is in flight. The matching event shows a visible busy
+  // state; while any link request is in flight, all events are disabled to
+  // guard against a second click racing the first.
+  linkingEventId?: string | null;
 }) {
   const days = eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) });
 
@@ -122,18 +128,27 @@ export function WeekGrid({
                   style={{ top: hour * PIXELS_PER_HOUR, height: PIXELS_PER_HOUR }}
                 />
               ))}
-              {positioned.map(({ event, top, height, left, width }) => (
-                <button
-                  key={event.id}
-                  type="button"
-                  onClick={() => onSelectEvent(event)}
-                  className="absolute overflow-hidden rounded bg-primary/10 px-1.5 py-0.5 text-left font-sans text-xs text-foreground hover:bg-primary/20"
-                  style={{ top, height, left, width }}
-                  title={event.summary}
-                >
-                  {event.summary}
-                </button>
-              ))}
+              {positioned.map(({ event, top, height, left, width }) => {
+                const isLinking = linkingEventId === event.id;
+                const linkingInFlight = linkingEventId !== null;
+                return (
+                  <button
+                    key={event.id}
+                    type="button"
+                    onClick={() => onSelectEvent(event)}
+                    disabled={linkingInFlight}
+                    aria-busy={isLinking}
+                    className={cn(
+                      "absolute overflow-hidden rounded bg-primary/10 px-1.5 py-0.5 text-left font-sans text-xs text-foreground hover:bg-primary/20",
+                      linkingInFlight && "opacity-60",
+                    )}
+                    style={{ top, height, left, width }}
+                    title={event.summary}
+                  >
+                    {event.summary}
+                  </button>
+                );
+              })}
             </div>
           );
         })}

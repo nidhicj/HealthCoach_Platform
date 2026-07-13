@@ -71,4 +71,52 @@ describe("MonthGrid", () => {
     expect(onSelectEvent).toHaveBeenCalledTimes(1);
     expect(onSelectEvent).toHaveBeenCalledWith(firstDayEvent);
   });
+
+  // PHASE-01f Task 4 — visible feedback while linking an event.
+  describe("linkingEventId", () => {
+    it("marks the specific event matching linkingEventId as busy, and leaves other events unmarked when linkingEventId is null", () => {
+      render(<MonthGrid month={month} events={events} onSelectEvent={vi.fn()} linkingEventId={null} />);
+
+      const firstDayButton = screen.getByRole("button", { name: "New Year Kickoff" });
+      const lastDayButton = screen.getByRole("button", { name: "Month End Review" });
+
+      expect(firstDayButton).not.toBeDisabled();
+      expect(firstDayButton).toHaveAttribute("aria-busy", "false");
+      expect(lastDayButton).not.toBeDisabled();
+      expect(lastDayButton).toHaveAttribute("aria-busy", "false");
+    });
+
+    it("shows a visibly busy state on the event matching linkingEventId, and disables (but still renders) other events", () => {
+      render(
+        <MonthGrid month={month} events={events} onSelectEvent={vi.fn()} linkingEventId="e-first" />,
+      );
+
+      const firstDayButton = screen.getByRole("button", { name: "New Year Kickoff" });
+      const lastDayButton = screen.getByRole("button", { name: "Month End Review" });
+
+      // The clicked event is visibly busy (spinner via aria-busy) and disabled.
+      expect(firstDayButton).toHaveAttribute("aria-busy", "true");
+      expect(firstDayButton).toBeDisabled();
+
+      // The other event remains visible but is now non-interactive — guards
+      // against a second click racing the first while a link request is
+      // in flight.
+      expect(lastDayButton).toBeInTheDocument();
+      expect(lastDayButton).not.toHaveAttribute("aria-busy", "true");
+      expect(lastDayButton).toBeDisabled();
+    });
+
+    it("clicking a disabled (non-busy) event while another is linking does not call onSelectEvent", async () => {
+      const user = userEvent.setup();
+      const onSelectEvent = vi.fn();
+      render(
+        <MonthGrid month={month} events={events} onSelectEvent={onSelectEvent} linkingEventId="e-first" />,
+      );
+
+      const lastDayButton = screen.getByRole("button", { name: "Month End Review" });
+      await user.click(lastDayButton);
+
+      expect(onSelectEvent).not.toHaveBeenCalled();
+    });
+  });
 });

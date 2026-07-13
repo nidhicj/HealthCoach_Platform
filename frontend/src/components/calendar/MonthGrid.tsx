@@ -9,10 +9,16 @@ export function MonthGrid({
   month,
   events,
   onSelectEvent,
+  linkingEventId = null,
 }: {
   month: Date; // any date within the month to display
   events: CalendarEvent[];
   onSelectEvent: (event: CalendarEvent) => void;
+  // Id of the event currently being linked (PHASE-01f Task 4), or null when
+  // no link request is in flight. The matching event shows a visible busy
+  // state; while any link request is in flight, all events are disabled to
+  // guard against a second click racing the first.
+  linkingEventId?: string | null;
 }) {
   const gridStart = startOfWeek(startOfMonth(month));
   const days = eachDayOfInterval({ start: gridStart, end: addDays(gridStart, GRID_CELL_COUNT - 1) });
@@ -52,17 +58,26 @@ export function MonthGrid({
               >
                 {format(day, "d")}
               </p>
-              {dayEvents.map((event) => (
-                <button
-                  key={event.id}
-                  type="button"
-                  onClick={() => onSelectEvent(event)}
-                  className="block w-full truncate rounded bg-primary/10 px-1.5 py-0.5 text-left font-sans text-xs text-foreground hover:bg-primary/20"
-                  title={event.summary}
-                >
-                  {event.summary}
-                </button>
-              ))}
+              {dayEvents.map((event) => {
+                const isLinking = linkingEventId === event.id;
+                const linkingInFlight = linkingEventId !== null;
+                return (
+                  <button
+                    key={event.id}
+                    type="button"
+                    onClick={() => onSelectEvent(event)}
+                    disabled={linkingInFlight}
+                    aria-busy={isLinking}
+                    className={cn(
+                      "block w-full truncate rounded bg-primary/10 px-1.5 py-0.5 text-left font-sans text-xs text-foreground hover:bg-primary/20",
+                      linkingInFlight && "opacity-60",
+                    )}
+                    title={event.summary}
+                  >
+                    {event.summary}
+                  </button>
+                );
+              })}
             </div>
           );
         })}

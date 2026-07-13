@@ -149,4 +149,72 @@ describe("WeekGrid", () => {
     expect(chainCButton.style.top).toBe("600px");
     expect(chainCButton.style.height).toBe("40px");
   });
+
+  // PHASE-01f Task 4 — visible feedback while linking an event.
+  describe("linkingEventId", () => {
+    const otherDayEvent = makeEvent({
+      id: "e-other",
+      summary: "Other Event",
+      start: "2026-01-06T09:00:00",
+      end: "2026-01-06T10:00:00",
+    });
+    const linkingEvents = [mondayEvent, otherDayEvent];
+
+    it("marks the specific event matching linkingEventId as busy, and leaves other events unmarked when linkingEventId is null", () => {
+      render(
+        <WeekGrid weekStart={weekStart} events={linkingEvents} onSelectEvent={vi.fn()} linkingEventId={null} />,
+      );
+
+      const mondayButton = screen.getByRole("button", { name: "Morning Sync" });
+      const otherButton = screen.getByRole("button", { name: "Other Event" });
+
+      expect(mondayButton).not.toBeDisabled();
+      expect(mondayButton).toHaveAttribute("aria-busy", "false");
+      expect(otherButton).not.toBeDisabled();
+      expect(otherButton).toHaveAttribute("aria-busy", "false");
+    });
+
+    it("shows a visibly busy state on the event matching linkingEventId, and disables (but still renders) other events", () => {
+      render(
+        <WeekGrid
+          weekStart={weekStart}
+          events={linkingEvents}
+          onSelectEvent={vi.fn()}
+          linkingEventId="e-monday"
+        />,
+      );
+
+      const mondayButton = screen.getByRole("button", { name: "Morning Sync" });
+      const otherButton = screen.getByRole("button", { name: "Other Event" });
+
+      // The clicked event is visibly busy (spinner via aria-busy) and disabled.
+      expect(mondayButton).toHaveAttribute("aria-busy", "true");
+      expect(mondayButton).toBeDisabled();
+
+      // The other event remains visible but is now non-interactive — guards
+      // against a second click racing the first while a link request is
+      // in flight.
+      expect(otherButton).toBeInTheDocument();
+      expect(otherButton).not.toHaveAttribute("aria-busy", "true");
+      expect(otherButton).toBeDisabled();
+    });
+
+    it("clicking a disabled (non-busy) event while another is linking does not call onSelectEvent", async () => {
+      const user = userEvent.setup();
+      const onSelectEvent = vi.fn();
+      render(
+        <WeekGrid
+          weekStart={weekStart}
+          events={linkingEvents}
+          onSelectEvent={onSelectEvent}
+          linkingEventId="e-monday"
+        />,
+      );
+
+      const otherButton = screen.getByRole("button", { name: "Other Event" });
+      await user.click(otherButton);
+
+      expect(onSelectEvent).not.toHaveBeenCalled();
+    });
+  });
 });
