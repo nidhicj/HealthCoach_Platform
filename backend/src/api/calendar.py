@@ -76,6 +76,14 @@ async def _get_valid_access_token(db: AsyncSession, hc_user_id: UUID) -> str:
             already revoked, or Google rejected the refresh_token (the HC
             must reconnect via the OAuth connect flow). Frontend branches
             on this exact string — keep it stable.
+
+    Known limitation (deliberately deferred, PHASE-01e Task 6 review): no
+    row lock or per-hc_user_id dedup on the refresh path. Two concurrent
+    requests both seeing an expired token will both call Google's refresh
+    endpoint and both commit — the loser's write is simply overwritten, but
+    each caller still gets a valid access_token, so this is a duplicate
+    network call, not an incorrect result. Not fixed here; revisit if
+    real-world concurrency at this chokepoint becomes a cost/quota concern.
     """
     started = time.monotonic()
     logger = get_logger(request_id="")

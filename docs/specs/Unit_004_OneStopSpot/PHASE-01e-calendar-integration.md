@@ -489,7 +489,7 @@ Logic: load the session via the existing ownership-check helper (`_get_owned_ses
 | Encrypted token storage, separate key from `demographics` | Tasks 1, 2 |
 | Reauth handled explicitly, not a silent failure | Tasks 5, 6, 11 |
 
-**Deferred, deliberately**: client-facing calendar/meeting-link UI (blocked on OQ-7); ongoing sync between a linked event and `meeting_url` after link time (accepted drift, not solved here); Google OAuth app verification / moving off "Testing" publishing status (external, non-code, tracked as a known limitation — see SPEC decision).
+**Deferred, deliberately**: client-facing calendar/meeting-link UI (blocked on OQ-7); ongoing sync between a linked event and `meeting_url` after link time (accepted drift, not solved here); Google OAuth app verification / moving off "Testing" publishing status (external, non-code, tracked as a known limitation — see SPEC decision); no row lock/dedup on `_get_valid_access_token`'s refresh path (Task 6 review) — two concurrent requests for the same HC can both trigger a Google token refresh; each caller still gets a valid token, so this is a duplicate network call, not an incorrect result. Documented in a code comment on `_get_valid_access_token` (`backend/src/api/calendar.py`); revisit only if real-world concurrency at this chokepoint becomes a cost/quota concern.
 
 **Placeholder scan**: Tasks 3–4, 6–7, 9–13, 15–16 describe interfaces/behavior precisely but leave literal implementation code to the TDD-following implementer subagent (appropriate for this phase's size and novelty — not a placeholder, a deliberate level of specification, per subagent-driven-development's own model-tier guidance).
 
