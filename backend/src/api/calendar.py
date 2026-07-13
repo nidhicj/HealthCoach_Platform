@@ -124,6 +124,13 @@ async def _get_valid_access_token(db: AsyncSession, hc_user_id: UUID) -> str:
         await db.commit()
         _log("calendar_reauth_required")
         raise HTTPException(status_code=409, detail="calendar_reauth_required")
+    except Exception:
+        # Any other failure (Google 5xx, timeout, malformed token response,
+        # etc.) must still produce a structured log line — there is no
+        # global exception-logging middleware that would catch this
+        # otherwise. Re-raise unchanged; this only adds observability.
+        _log("error")
+        raise
 
     # Reassign (rather than mutate in place) so SQLAlchemy's change tracking
     # sees a new value on this EncryptedJSON column and re-encrypts on flush.

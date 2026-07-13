@@ -156,6 +156,15 @@ async def test_get_valid_access_token_refreshes_expired_token_and_updates_row(
     token = await calendar_module._get_valid_access_token(db, hc_user.id)
 
     assert token == "at-new-789"
+
+    # Force a real reload from the database (expire_on_commit=False means
+    # `conn` would otherwise still show the correct value even if the code
+    # had only mutated the in-memory dict in place — a plain EncryptedJSON
+    # column isn't wrapped in MutableDict, so SQLAlchemy wouldn't detect an
+    # in-place mutation and nothing would actually be persisted). This
+    # proves the encrypted column round-tripped through the DB.
+    await db.refresh(conn)
+
     assert conn.credentials["access_token"] == "at-new-789"
     assert conn.credentials["refresh_token"] == "rt-456"
     assert conn.access_token_expires_at > datetime.now(timezone.utc) + timedelta(minutes=50)
@@ -183,6 +192,37 @@ async def test_get_valid_access_token_marks_revoked_on_failed_refresh(
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail == "calendar_reauth_required"
     assert conn.revoked_at is not None
+
+
+@pytest.mark.asyncio
+async def test_get_valid_access_token_logs_and_reraises_on_unexpected_refresh_error(
+    hc_user: User, db: AsyncSession, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+):
+    """A non-CalendarReauthRequired failure (Google 5xx, timeout, malformed
+    response, etc.) must still emit the google_calendar_api_call log line and
+    must propagate the original exception unchanged (not be swallowed)."""
+    from src.api import calendar as calendar_module
+
+    async def _fake_refresh_raises_unexpected(*, refresh_token, client_id, client_secret):
+        raise RuntimeError("boom: simulated Google 5xx / malformed response")
+
+    monkeypatch.setattr(calendar_module, "refresh_calendar_access_token", _fake_refresh_raises_unexpected)
+
+    await _make_connection(
+        db, hc_user,
+        access_token_expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await calendar_module._get_valid_access_token(db, hc_user.id)
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines() if line]
+    matches = [line for line in lines if line["event"] == "google_calendar_api_call"]
+    assert len(matches) == 1
+    assert matches[0]["extra"]["operation"] == "get_valid_access_token"
+    assert matches[0]["extra"]["hc_id"] == str(hc_user.id)
+    assert matches[0]["extra"]["outcome"] == "error"
+    assert "latency_ms" in matches[0]["extra"]
 
 
 @pytest.mark.asyncio
