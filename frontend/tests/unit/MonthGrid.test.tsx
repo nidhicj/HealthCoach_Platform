@@ -118,5 +118,33 @@ describe("MonthGrid", () => {
 
       expect(onSelectEvent).not.toHaveBeenCalled();
     });
+
+    it("gives the busy (clicked) event a visibly different className than a merely-blocked sibling — not just identical dimming", () => {
+      render(
+        <MonthGrid month={month} events={events} onSelectEvent={vi.fn()} linkingEventId="e-first" />,
+      );
+
+      const firstDayButton = screen.getByRole("button", { name: "New Year Kickoff" });
+      const lastDayButton = screen.getByRole("button", { name: "Month End Review" });
+
+      // The two rendered classNames must not be identical — proves the
+      // busy target and the blocked sibling get distinct visual treatment
+      // rather than both being dimmed the same way.
+      expect(firstDayButton.className).not.toBe(lastDayButton.className);
+
+      // The busy target is not dimmed like a blocked sibling, and carries
+      // its own distinct busy styling (ring highlight).
+      expect(firstDayButton.className).not.toContain("opacity-60");
+      expect(firstDayButton.className).toContain("ring-2");
+
+      // The blocked sibling is dimmed and carries no busy ring.
+      expect(lastDayButton.className).toContain("opacity-60");
+      expect(lastDayButton.className).not.toContain("ring-2");
+
+      // The busy target also renders a visible spinner (not present on the
+      // blocked sibling).
+      expect(firstDayButton.querySelector("svg.animate-spin")).not.toBeNull();
+      expect(lastDayButton.querySelector("svg.animate-spin")).toBeNull();
+    });
   });
 });

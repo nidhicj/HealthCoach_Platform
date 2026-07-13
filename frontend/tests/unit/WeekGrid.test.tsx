@@ -216,5 +216,38 @@ describe("WeekGrid", () => {
 
       expect(onSelectEvent).not.toHaveBeenCalled();
     });
+
+    it("gives the busy (clicked) event a visibly different className than a merely-blocked sibling — not just identical dimming", () => {
+      render(
+        <WeekGrid
+          weekStart={weekStart}
+          events={linkingEvents}
+          onSelectEvent={vi.fn()}
+          linkingEventId="e-monday"
+        />,
+      );
+
+      const mondayButton = screen.getByRole("button", { name: "Morning Sync" });
+      const otherButton = screen.getByRole("button", { name: "Other Event" });
+
+      // The two rendered classNames must not be identical — proves the
+      // busy target and the blocked sibling get distinct visual treatment
+      // rather than both being dimmed the same way.
+      expect(mondayButton.className).not.toBe(otherButton.className);
+
+      // The busy target is not dimmed like a blocked sibling, and carries
+      // its own distinct busy styling (ring highlight).
+      expect(mondayButton.className).not.toContain("opacity-60");
+      expect(mondayButton.className).toContain("ring-2");
+
+      // The blocked sibling is dimmed and carries no busy ring.
+      expect(otherButton.className).toContain("opacity-60");
+      expect(otherButton.className).not.toContain("ring-2");
+
+      // The busy target also renders a visible spinner (not present on the
+      // blocked sibling).
+      expect(mondayButton.querySelector("svg.animate-spin")).not.toBeNull();
+      expect(otherButton.querySelector("svg.animate-spin")).toBeNull();
+    });
   });
 });

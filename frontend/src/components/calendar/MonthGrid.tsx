@@ -1,4 +1,5 @@
 import { addDays, eachDayOfInterval, format, isSameDay, isSameMonth, startOfMonth, startOfWeek } from "date-fns";
+import { Loader2Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@/lib/api/calendar";
 
@@ -69,12 +70,21 @@ export function MonthGrid({
                     disabled={linkingInFlight}
                     aria-busy={isLinking}
                     className={cn(
-                      "block w-full truncate rounded bg-primary/10 px-1.5 py-0.5 text-left font-sans text-xs text-foreground hover:bg-primary/20",
-                      linkingInFlight && "opacity-60",
+                      "flex w-full items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-left font-sans text-xs text-foreground hover:bg-primary/20",
+                      // The clicked event: full opacity + a visible busy
+                      // indicator (ring + spinner), distinct from siblings
+                      // merely blocked by the in-flight guard below.
+                      isLinking && "bg-primary/20 ring-2 ring-inset ring-primary",
+                      // Siblings while another event is linking: dimmed to
+                      // show they're temporarily blocked, not the target.
+                      linkingInFlight && !isLinking && "opacity-60",
                     )}
                     title={event.summary}
                   >
-                    {event.summary}
+                    {isLinking && (
+                      <Loader2Icon className="size-3 shrink-0 animate-spin text-primary" aria-hidden="true" />
+                    )}
+                    <span className="truncate">{event.summary}</span>
                   </button>
                 );
               })}
