@@ -10,6 +10,8 @@ export default function ClientHomePage() {
   const router = useRouter();
   const [items, setItems] = useState<ActionItemOut[] | null>(null);
   const [error, setError] = useState(false);
+  const [toggleError, setToggleError] = useState(false);
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     listMyActionItems()
@@ -26,9 +28,33 @@ export default function ClientHomePage() {
   }, [router]);
 
   async function handleToggle(item: ActionItemOut) {
-    const nextStatus = item.status === "completed" ? "open" : "completed";
-    const updated = await patchMyActionItem(item.id, { status: nextStatus });
-    setItems((prev) => prev?.map((i) => (i.id === updated.id ? updated : i)) ?? prev);
+    // Guard against double-click: if already pending, do nothing.
+    if (pendingIds.has(item.id)) {
+      return;
+    }
+
+    setPendingIds((prev) => new Set(prev).add(item.id));
+    setToggleError(false);
+
+    try {
+      const nextStatus = item.status === "completed" ? "open" : "completed";
+      const updated = await patchMyActionItem(item.id, { status: nextStatus });
+      setItems((prev) => prev?.map((i) => (i.id === updated.id ? updated : i)) ?? prev);
+    } catch (err) {
+      // A 403 here means the client's token became invalid mid-session.
+      if (err instanceof Error && err.message.includes("403")) {
+        router.replace("/sign-in");
+        return;
+      }
+      // Any other error: show inline feedback.
+      setToggleError(true);
+    } finally {
+      setPendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+    }
   }
 
   const openItems = (items ?? []).filter((i) => i.status !== "completed");
@@ -42,6 +68,12 @@ export default function ClientHomePage() {
       {error && (
         <p className="font-sans text-sm text-destructive">
           Couldn&rsquo;t load your action items. Try refreshing.
+        </p>
+      )}
+
+      {toggleError && (
+        <p className="font-sans text-sm text-destructive">
+          Couldn&rsquo;t update that action item. Try again.
         </p>
       )}
 
@@ -70,8 +102,13 @@ export default function ClientHomePage() {
                   </p>
                 )}
               </div>
-              <Button size="sm" variant="outline" onClick={() => handleToggle(item)}>
-                Mark done
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleToggle(item)}
+                disabled={pendingIds.has(item.id)}
+              >
+                {pendingIds.has(item.id) ? "Updating…" : "Mark done"}
               </Button>
             </li>
           ))}
