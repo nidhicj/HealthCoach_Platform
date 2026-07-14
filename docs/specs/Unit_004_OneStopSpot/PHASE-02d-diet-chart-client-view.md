@@ -241,7 +241,7 @@ git commit -m "feat(me): frontend wrapper for diet-chart-sends (PHASE-02d Task 2
 
 - [ ] **Step 3.1: Add the nav link**
 
-In `frontend/src/app/me/layout.tsx`, add alongside the existing `/me/checkins`/`/me/chat` links:
+`frontend/src/app/me/layout.tsx` ships (PHASE-02a) with no nav links at all — only the "Tapas" wordmark. If PHASE-02b and/or 02c have already shipped by the time this task runs, they'll have added `/me/checkins`/`/me/chat` links; add this one alongside whatever's already there. If 02d runs before 02b/02c (this plan's header notes it doesn't depend on them), this is the *first* nav link in the file — add it as the sole entry, same markup, and whichever of 02b/02c/02d lands next adds its own link alongside the ones already present rather than assuming a fixed set:
 
 ```tsx
           <Link href="/me/diet-chart" className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground">
