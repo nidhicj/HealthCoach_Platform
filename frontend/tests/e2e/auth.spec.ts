@@ -80,4 +80,29 @@ test.describe("auth flows", () => {
       page.getByRole("button", { name: /continue with google/i }),
     ).toBeVisible({ timeout: 10000 });
   });
+
+  test("/auth/callback with a client-role refresh lands on /me", async ({ page }) => {
+    await page.route(/localhost:8000\/api\//, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/api/auth/refresh") {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ access_token: "fake-client-token", token_type: "bearer", role: "client" }),
+        });
+      }
+      if (url.pathname === "/api/me/action-items") {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ items: [], next_cursor: null }),
+        });
+      }
+      return route.fulfill({ status: 404, body: "" });
+    });
+    await page.goto("/auth/callback");
+    await expect(
+      page.getByRole("heading", { name: /your action items/i }),
+    ).toBeVisible({ timeout: 10000 });
+  });
 });
