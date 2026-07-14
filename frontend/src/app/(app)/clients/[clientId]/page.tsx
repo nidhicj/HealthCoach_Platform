@@ -8,7 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getClient, patchClient, type ClientDetailOut, type HealthMetric } from "@/lib/api/clients";
+import { getClient, patchClient, createInvite, type ClientDetailOut, type HealthMetric } from "@/lib/api/clients";
 import { listSessions, type SessionOut } from "@/lib/api/sessions";
 import { listActionItems, patchActionItem, type ActionItemOut } from "@/lib/api/actionItems";
 import {
@@ -148,6 +148,10 @@ export default function ClientDetailPage() {
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [demoSaving, setDemoSaving] = useState(false);
   const [demoSaveError, setDemoSaveError] = useState<string | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
 
   useEffect(() => {
     if (!clientId) return;
@@ -177,6 +181,30 @@ export default function ClientDetailPage() {
       .then(setTemplates)
       .catch(() => {}); // non-fatal — generate button just stays disabled
   }, [clientId]);
+
+  async function handleInvite() {
+    setInviteLoading(true);
+    setInviteError(null);
+    setInviteCopied(false);
+    try {
+      const result = await createInvite(clientId);
+      setInviteUrl(result.invite_url);
+    } catch {
+      setInviteError("Could not create invite link. Please try again.");
+    } finally {
+      setInviteLoading(false);
+    }
+  }
+
+  async function handleCopyInvite() {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setInviteCopied(true);
+    } catch {
+      setInviteError("Could not copy link. Please copy it manually.");
+    }
+  }
 
   async function toggleItem(id: string, markComplete: boolean) {
     if (markComplete) {
@@ -980,6 +1008,45 @@ export default function ClientDetailPage() {
                   <span className="font-medium">{client!.demographics.emergency_contact}</span>
                 </div>
               )}
+
+              <div className="space-y-2 border-t border-border pt-4">
+                <button
+                  type="button"
+                  disabled={inviteLoading}
+                  onClick={handleInvite}
+                  className={cn(
+                    buttonVariants({ variant: "accent", size: "sm" }),
+                    "disabled:opacity-50",
+                  )}
+                >
+                  {inviteLoading ? "Generating…" : "Invite to portal"}
+                </button>
+                {inviteError && (
+                  <p className="font-sans text-xs text-destructive">{inviteError}</p>
+                )}
+                {inviteUrl && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <input
+                        readOnly
+                        value={inviteUrl}
+                        onFocus={(e) => e.currentTarget.select()}
+                        className="w-full rounded-md border border-border bg-background/80 px-3 py-1.5 font-sans text-xs text-foreground outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCopyInvite}
+                        className="font-sans text-xs text-primary underline-offset-4 hover:underline whitespace-nowrap"
+                      >
+                        {inviteCopied ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
+                    <p className="font-sans text-xs text-muted-foreground">
+                      Share this link with the client to complete their first sign-in.
+                    </p>
+                  </div>
+                )}
+              </div>
             </section>
           </div>
         </>
