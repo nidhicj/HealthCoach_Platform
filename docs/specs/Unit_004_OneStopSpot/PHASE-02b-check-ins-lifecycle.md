@@ -265,10 +265,11 @@ git commit -m "feat(check-ins): shared get-or-create-pending helper + nullable s
 
 - [ ] **Step 3.1: Write the failing tests**
 
+Add to `backend/tests/integration/test_check_ins.py`, in a new `# ── POST /api/clients/{id}/check-ins/request ──` section. `_make_client` is already defined at module scope in this exact file (line 12) — call it directly, no import needed:
+
 ```python
 @pytest.mark.asyncio
-async def test_hc_can_request_check_in(http_client, hc_headers, hc_user):
-    from tests.integration.conftest import _make_client
+async def test_hc_can_request_check_in(http_client, hc_headers):
     client = await _make_client(http_client, hc_headers)
 
     r = await http_client.post(f"/api/clients/{client['id']}/check-ins/request", headers=hc_headers)
@@ -281,7 +282,6 @@ async def test_hc_can_request_check_in(http_client, hc_headers, hc_user):
 
 @pytest.mark.asyncio
 async def test_hc_cannot_request_second_check_in_while_one_pending(http_client, hc_headers):
-    from tests.integration.conftest import _make_client
     client = await _make_client(http_client, hc_headers)
 
     r1 = await http_client.post(f"/api/clients/{client['id']}/check-ins/request", headers=hc_headers)
@@ -293,14 +293,11 @@ async def test_hc_cannot_request_second_check_in_while_one_pending(http_client, 
 
 @pytest.mark.asyncio
 async def test_request_check_in_cross_tenant_returns_404(http_client, hc_headers, hc2_headers):
-    from tests.integration.conftest import _make_client
     client = await _make_client(http_client, hc_headers)
 
     r = await http_client.post(f"/api/clients/{client['id']}/check-ins/request", headers=hc2_headers)
     assert r.status_code == 404
 ```
-
-(If `test_check_ins.py` has no local `_make_client` helper already, check `test_client_integration.py`'s version — reuse the existing convention rather than writing a third copy.)
 
 - [ ] **Step 3.2: Run — confirm failure**
 
@@ -534,6 +531,8 @@ Expected: FAIL — function doesn't exist
 
 - [ ] **Step 5.3: Write the failing integration test**
 
+Uses this repo's existing `client_rec` fixture (`backend/tests/integration/conftest.py:172`) — already linked to `hc_user`/`client_user` (so `user_id` is set); the tests set `client_rec.email` inline, matching the same inline-mutation style `test_me.py`'s `_make_mom_sent` helper already uses for `client.email`:
+
 ```python
 # backend/tests/integration/test_scheduler.py (new file)
 from unittest.mock import patch
@@ -545,19 +544,9 @@ from src.config import get_settings
 
 @pytest.mark.asyncio
 async def test_scheduled_tasks_creates_reminder_for_eligible_client_on_saturday(
-    http_client, hc_headers, db,
+    http_client, client_rec, db,
 ):
-    from tests.integration.conftest import _make_client
-    client = await _make_client(http_client, hc_headers)
-    # Link the client to a user + email so it's reminder-eligible
-    import sqlalchemy as sa
-    from src.db.models import Client, User
-    user = User(email="client@example.com", google_sub="g-1", role="client")
-    db.add(user)
-    await db.flush()
-    row = (await db.execute(sa.select(Client).where(Client.id == client["id"]))).scalar_one()
-    row.user_id = user.id
-    row.email = "client@example.com"
+    client_rec.email = "client@example.com"
     await db.flush()
     await db.commit()
 
@@ -586,21 +575,31 @@ async def test_scheduled_tasks_skips_reminder_on_non_saturday(http_client):
 
 
 @pytest.mark.asyncio
-async def test_scheduled_tasks_skips_client_with_existing_pending_request(http_client, hc_headers, db):
-    from tests.integration.conftest import _make_client
-    client = await _make_client(http_client, hc_headers)
-    import sqlalchemy as sa
-    from src.db.models import Client, User
-    user = User(email="client2@example.com", google_sub="g-2", role="client")
-    db.add(user)
-    await db.flush()
-    row = (await db.execute(sa.select(Client).where(Client.id == client["id"]))).scalar_one()
-    row.user_id = user.id
-    row.email = "client2@example.com"
+async def test_scheduled_tasks_skips_client_with_no_linked_user(http_client, client_rec, db):
+    client_rec.email = "client3@example.com"
+    client_rec.user_id = None  # not yet onboarded to the app
     await db.flush()
     await db.commit()
 
-    await http_client.post(f"/api/clients/{client['id']}/check-ins/request", headers=hc_headers)
+    with patch("src.api.scheduler._is_saturday_ist", return_value=True), \
+         patch("src.api.scheduler.send_check_in_reminder_email") as mock_email:
+        r = await http_client.post(
+            "/internal/scheduled-tasks",
+            headers={"X-Scheduler-Token": get_settings().scheduler_secret},
+        )
+    assert r.status_code == 200
+    mock_email.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_scheduled_tasks_still_emails_client_with_existing_pending_request(
+    http_client, hc_headers, client_rec, db,
+):
+    client_rec.email = "client2@example.com"
+    await db.flush()
+    await db.commit()
+
+    await http_client.post(f"/api/clients/{client_rec.id}/check-ins/request", headers=hc_headers)
 
     with patch("src.api.scheduler._is_saturday_ist", return_value=True), \
          patch("src.api.scheduler.send_check_in_reminder_email") as mock_email:
@@ -611,7 +610,7 @@ async def test_scheduled_tasks_skips_client_with_existing_pending_request(http_c
     assert r.status_code == 200
     # Already has a pending row — still gets emailed (nudge), but no second row created
     mock_email.assert_called_once()
-    count_r = await http_client.get(f"/api/clients/{client['id']}/check-ins", headers=hc_headers)
+    count_r = await http_client.get(f"/api/clients/{client_rec.id}/check-ins", headers=hc_headers)
     assert len(count_r.json()["items"]) == 1
 ```
 
@@ -771,14 +770,14 @@ Run: `cd frontend && npx vitest run tests/unit/me-api.test.ts tests/unit/checkIn
 
 - [ ] **Step 6.3: Implement**
 
-In `frontend/src/lib/api/checkIns.ts`, update `CheckInOutSchema` (find and edit in place — likely currently declares `payload: z.record(z.unknown())` non-nullable):
+In `frontend/src/lib/api/checkIns.ts`, update `CheckInOutSchema` (currently declares `payload: z.record(z.string(), z.unknown())` non-nullable, no `requested_at` field):
 
 ```ts
 export const CheckInOutSchema = z.object({
   id: z.string(),
   client_id: z.string(),
   hc_user_id: z.string(),
-  payload: z.record(z.unknown()).nullable(),
+  payload: z.record(z.string(), z.unknown()).nullable(),
   requested_at: z.string().nullable(),
   sentiment_flag: z.string().nullable(),
   created_at: z.string(),
