@@ -36,6 +36,7 @@ _COOKIE_NAME = "refresh_token"
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    role: str
 
 
 def _set_refresh_cookie(response: Response, raw_token: str) -> None:
@@ -353,7 +354,7 @@ async def refresh_token_endpoint(
         private_key=settings.jwt_private_key,
     )
     _set_refresh_cookie(response, new_raw)
-    return TokenResponse(access_token=access_token)
+    return TokenResponse(access_token=access_token, role=user.role)
 
 
 @router.post("/logout")
