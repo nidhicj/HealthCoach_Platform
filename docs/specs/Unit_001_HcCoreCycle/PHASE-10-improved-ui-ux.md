@@ -257,14 +257,14 @@ None recorded. (To be updated as phase ships.)
 ## 5. Source docs consulted
 
 - `docs/specs/Unit_001_HcCoreCycle/PHASE-06-frontend.md` — existing screen set (noted: deployed app diverges — has diet charts, supplements, kanban that post-date this doc)
-- `parivarthan-ui-spec-detailed.md` — marketable UI spec (superseded by this phase for Groups A and B; Group C/demo-data out of scope)
+- `tapas-ui-spec-detailed.md` — marketable UI spec (superseded by this phase for Groups A and B; Group C/demo-data out of scope)
 - `frontend/src/app/(app)/dashboard/page.tsx` — current dashboard implementation
 - `frontend/src/app/(app)/clients/[clientId]/page.tsx` — current client detail implementation
 - `frontend/src/app/(app)/clients/[clientId]/sessions/[sessionId]/page.tsx` — current session page
 - `frontend/src/app/(app)/layout.tsx` — nav structure
 - `backend/src/api/clients.py` — confirmed `ClientOut` fields and stubs in `ClientDetailOut`
 - `backend/src/api/sessions.py` — confirmed `SessionOut` fields
-- `parivarthan-landing-spine.md` — copy source for all six landing page sections; claim verification table derived from §"VERIFY before publishing" block
+- `tapas-landing-spine.md` — copy source for all six landing page sections; claim verification table derived from §"VERIFY before publishing" block
 - `frontend/src/app/(public)/sign-in/page.tsx` — existing sign-in page (CTA target for both landing page buttons)
 
 ---
@@ -293,7 +293,7 @@ None recorded. (To be updated as phase ships.)
 
   - [ ] `/` shows landing page for unauthenticated visitors (no redirect to `/dashboard`)
   - [ ] `/` redirects to `/dashboard` for a visitor with a valid session cookie
-  - [ ] Nav: "Parivarthan" wordmark visible; "Sign in →" links to `/sign-in`
+  - [ ] Nav: "Tapas" wordmark visible; "Sign in →" links to `/sign-in`
   - [ ] Hero: diet chart card renders (Priya S., 5 meal rows, total kcal, "Generated from your template" tag)
   - [ ] "Get started" button (Marigold) links to `/sign-in`
   - [ ] No WhatsApp, UPI, or proof claims appear anywhere on the page

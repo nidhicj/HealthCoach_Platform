@@ -15,7 +15,7 @@ No calendar event content (attendee emails, unrelated titles) is ever persisted 
 ## Global Constraints
 
 - Python ≥ 3.12, FastAPI ≥ 0.115, SQLAlchemy ≥ 2.0, Pydantic ≥ 2.7
-- Tests hit a real PostgreSQL DB (`parivarthan_test`) — no mocking the DB. Mock **Google's HTTP responses** (via `httpx`'s `MockTransport` or `respx`/monkeypatching `make_http_client`, matching whatever pattern `backend/tests` already uses for `oauth.py`'s tests — check `backend/tests/unit/test_oauth.py` or similar before choosing) — never make real calls to Google in tests.
+- Tests hit a real PostgreSQL DB (`tapas_test`) — no mocking the DB. Mock **Google's HTTP responses** (via `httpx`'s `MockTransport` or `respx`/monkeypatching `make_http_client`, matching whatever pattern `backend/tests` already uses for `oauth.py`'s tests — check `backend/tests/unit/test_oauth.py` or similar before choosing) — never make real calls to Google in tests.
 - Activate the Python env with `source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate` before running backend commands.
 - OAuth scope for Calendar: exactly `openid email profile https://www.googleapis.com/auth/calendar.events` — least-privilege (not the broader `.../auth/calendar` scope).
 - The existing HC login flow (`/api/auth/google/*`) and the Client flow (`/api/auth/client/*`) are **not modified in any way** by this phase. Calendar connection is a new, separate, additive action an already-logged-in HC takes.

@@ -23,13 +23,13 @@
 
 P6 builds the HC console — every screen the pilot HC needs to run the full core cycle through a browser, against the existing backend API surface from P0–P5. **No backend changes in this phase.**
 
-The phase also adopts the **Poshini Agasthya brand identity** as Parivarthan's MVP design language (decision §3.1 below). Per-HC theming is explicitly deferred until paying customers — for the pilot, the brand is hardcoded into the design tokens layer.
+The phase also adopts the **Poshini Agasthya brand identity** as Tapas's MVP design language (decision §3.1 below). Per-HC theming is explicitly deferred until paying customers — for the pilot, the brand is hardcoded into the design tokens layer.
 
 Three things ship alongside the screens to make UI/UX rigour observable rather than aspirational:
 
 - **`frontend/theme.yaml`** — single source of truth for design tokens (colours, font weights, spacing scale, motion durations and easings). A small build script compiles it to `tailwind.config.ts` and `globals.css` CSS variables, so runtime convention stays standard.
 - **`/dev/motion-lab`** — dev-only route demonstrating every motion primitive on the actual brand. SoJo opens it locally before any real screen is built and signs off on the motion feel. Stripped from production builds via `NEXT_PUBLIC_DEV_ROUTES` env gate.
-- **`.claude/skills/parivarthan-frontend.md`** — repo-scoped skill encoding the brand guide rules, motion system, banned patterns, and screen-level checklist. Claude Code reads this every time it touches a frontend file. The skill is the "no botched UI/UX" mechanism: the rules are versioned, reviewable by SoJo, and self-applied by the agent before any screen is claimed done.
+- **`.claude/skills/tapas-frontend.md`** — repo-scoped skill encoding the brand guide rules, motion system, banned patterns, and screen-level checklist. Claude Code reads this every time it touches a frontend file. The skill is the "no botched UI/UX" mechanism: the rules are versioned, reviewable by SoJo, and self-applied by the agent before any screen is claimed done.
 
 **Not in scope**: client-facing screens (clients have `/api/me` and auth in P5 but no UI; deferred to a later phase), per-HC theming system (deferred until User #2 onboarding milestone from ADR-0001), backend changes of any kind, mobile-native app (responsive web only per build-plan), illustrations or photography (typography-led per brand guide), dark mode (deferred — Parchment is the base, no dark variant in MVP), real-time updates / websockets (deferred — polling on demand is fine at pilot scale).
 
@@ -142,7 +142,7 @@ Route group `(dev)` is rendered only when `process.env.NEXT_PUBLIC_DEV_ROUTES ==
 
 ### 2.5 Screens — what each one shows
 
-- **Sign-in (`/sign-in`)**: Centered card. Fraunces 900 wordmark "Parivarthan" (the only Marigold accent on this screen — under the wordmark). Manrope 400 tagline. One Moss Shadow button: "Continue with Google". Hits `/api/auth/google/start`.
+- **Sign-in (`/sign-in`)**: Centered card. Fraunces 900 wordmark "Tapas" (the only Marigold accent on this screen — under the wordmark). Manrope 400 tagline. One Moss Shadow button: "Continue with Google". Hits `/api/auth/google/start`.
 - **Dashboard (`/dashboard`)**: Three sections, prose-led, no charts. **Today** (today's sessions; click → session view), **Recent clients** (last 5 with status), **Pending action items** (across clients, with overdue surfaced first). Empty states use Fraunces statement copy ("No sessions today. Quiet morning.") rather than illustrations. The Marigold goes on the primary empty-state CTA (e.g., "New session" when `Today` is empty), once per screen.
 - **Client list (`/clients`)**: Table-style list with Manrope 700 column headers (eyebrow style, all-caps, letter-spaced) and Fraunces 700 client names. One Moss Shadow "New client" button in the header. No Marigold here — Marigold reserved for empty state.
 - **Client detail (`/clients/[clientId]`)**: Two-column on desktop, stacked on mobile. Left: client meta (Manrope), session history list (Fraunces names + dates). Right: AST card (open items / missed items / status summary / triage flags). One Marigold accent line under the client's name (per brand guide rule "divider lines beneath the headline").
@@ -184,7 +184,7 @@ Single-page route showing every primitive with controls SoJo can interact with. 
 
 This page is the *artifact* SoJo opens to judge motion. Sign-off on the lab gates progression to real screen builds.
 
-### 2.8 `.claude/skills/parivarthan-frontend.md` — the brand-rules skill
+### 2.8 `.claude/skills/tapas-frontend.md` — the brand-rules skill
 
 Repo-scoped skill that Claude Code reads before touching any frontend file. Content shape:
 
@@ -269,7 +269,7 @@ Once SoJo has walked the §6 verification checklist and signed off, Claude Code 
 
 (Resolved in the planning conversation, not pre-decided in any prior ADR. Recording here so they're auditable.)
 
-**3.1 Brand-as-design-language for MVP** — Poshini Agasthya's brand identity (Parchment, Moss Shadow, Dark Ink, Marigold; Fraunces, Manrope) is hardcoded as Parivarthan's design language for the pilot. No theme provider, no per-HC theming. Re-evaluate at the User #2 onboarding milestone from ADR-0001.
+**3.1 Brand-as-design-language for MVP** — Poshini Agasthya's brand identity (Parchment, Moss Shadow, Dark Ink, Marigold; Fraunces, Manrope) is hardcoded as Tapas's design language for the pilot. No theme provider, no per-HC theming. Re-evaluate at the User #2 onboarding milestone from ADR-0001.
 
 **3.2 `theme.yaml` as token source of truth** — single editable YAML drives the design tokens, compiled to Tailwind theme + CSS variables via a build script. Justification: matches the repo's existing `llm_config.yaml` precedent for tweakable runtime config; runtime files stay standard Tailwind/CSS; one source of truth.
 
@@ -342,7 +342,7 @@ These translations are made by Claude with SoJo's standing approval; they may be
 - [ ] `theme.yaml` change → run build script → tokens flow through correctly to a rendered screen (smoke check)
 - [ ] All Playwright tests passing in both browsers
 - [ ] All Vitest unit tests passing
-- [ ] `.claude/skills/parivarthan-frontend.md` written, content matches §2.8 above
+- [ ] `.claude/skills/tapas-frontend.md` written, content matches §2.8 above
 - [ ] `.claude/mcp_servers.json` written, Playwright MCP configured
 - [ ] `frontend/.env.example` documents `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_DEV_ROUTES`
 - [ ] In a production build, `/dev/motion-lab` returns 404
@@ -369,7 +369,7 @@ After 6.1 and 6.2 are signed off:
 Known carry-overs that downstream phases inherit:
 
 - **`frontend/theme.yaml` + build script** — the pattern is reusable for any future styling needs. Future phases adding screens should add tokens to `theme.yaml`, never hand-edit Tailwind config or globals.
-- **`.claude/skills/parivarthan-frontend.md`** — every future frontend phase reads this. P7+ frontend work that violates the skill's rules without an explicit decision logged here is a rule-1 (laziness) failure.
+- **`.claude/skills/tapas-frontend.md`** — every future frontend phase reads this. P7+ frontend work that violates the skill's rules without an explicit decision logged here is a rule-1 (laziness) failure.
 - **`.claude/mcp_servers.json` Playwright entry** — P8 (observability) and P9 (smoke gate) can reuse this MCP for production-config visual checks against staging.
 - **API client structure (`frontend/src/lib/api/*`)** — every new endpoint added in P7+ extends this layer; never call `fetch` directly from a component.
 - **Auth pattern (`fetchWithAuth`, in-memory access token, silent refresh)** — locked in. P7+ uses this; the pattern is not relitigated unless ADR-0005 is updated.

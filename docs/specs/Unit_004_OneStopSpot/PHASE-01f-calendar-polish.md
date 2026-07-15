@@ -18,7 +18,7 @@ A sixth reported symptom — "Join call" leads to a Google Meet room that loops 
 ## Global Constraints
 
 - Python ≥ 3.12, FastAPI ≥ 0.115, SQLAlchemy ≥ 2.0, Pydantic ≥ 2.7
-- Tests hit a real PostgreSQL DB (`parivarthan_test`) — no mocking the DB. Mock Google's HTTP responses only.
+- Tests hit a real PostgreSQL DB (`tapas_test`) — no mocking the DB. Mock Google's HTTP responses only.
 - Activate the Python env with `source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate` before running backend commands.
 - The new persisted title field follows the exact same migration/model/schema conventions as `google_calendar_event_id` (PHASE-01e Task 14) — plain `sa.Text()`, no dialect import needed.
 - No other calendar event content (attendees, description, location) gets persisted — this plan adds exactly one new field (title), nothing more.

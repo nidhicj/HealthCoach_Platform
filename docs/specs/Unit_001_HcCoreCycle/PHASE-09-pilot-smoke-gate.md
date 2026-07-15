@@ -116,7 +116,7 @@ P9 is the go/no-go gate before the pilot HC goes live. It proves that all the pi
 - **Buildpacks cannot build Python/uv projects.** The GCP "Connect to repo" auto-trigger uses buildpacks which expect `requirements.txt`. Any uv-managed project needs a `cloudbuild.yaml` with explicit Docker steps.
 - **Secrets in Secret Manager are NOT automatically available to Cloud Run.** They must be explicitly mounted via `--update-secrets` flags on the service, and on every deploy command. The `cloudbuild.yaml` deploy step must include all `--update-secrets` flags.
 - **Placeholder values in secrets crash the app on startup.** `SENTRY_DSN=XXXXXXX` passed the `if not dsn` guard but failed Sentry SDK's DSN parser. Always wrap third-party SDK init calls in `try/except` when the config may be a placeholder. Or set secrets to truly empty string.
-- **GitHub Actions CI/CD was never the deployed approach.** `.github/workflows/deploy.yml` deploys to `parivarthan-api` which was deleted. The actual CI/CD path is Cloud Build trigger → `cloudbuild.yaml` → Cloud Run. The Actions workflow is dead code.
+- **GitHub Actions CI/CD was never the deployed approach.** `.github/workflows/deploy.yml` deploys to `tapas-api` which was deleted. The actual CI/CD path is Cloud Build trigger → `cloudbuild.yaml` → Cloud Run. The Actions workflow is dead code.
 - **`run.app` is in the Public Suffix List — frontend and backend are cross-site.** When both services are on `*.run.app`, the browser treats them as different registrable domains (cross-site), not same-site. This breaks `SameSite=Lax` and `SameSite=None; Secure` cookies in Firefox (Total Cookie Protection) and Safari (ITP). Chrome masks the bug because it hasn't enabled partitioned cookies by default yet. **Always verify sign-in works in Firefox and Safari before calling auth "done."** Fix: BFF proxy (Next.js Route Handler) so all browser requests are same-origin — cookie stays on the frontend domain.
 - **ADR deployment assumptions must be verified against the actual hosting environment.** ADR-0005 was written for Cloudflare Pages + Workers (same eTLD+1). When deployment moved to Cloud Run, the cookie strategy assumption was silently violated. Architecture decisions that depend on deployment topology should be re-reviewed when the topology changes.
 
@@ -149,7 +149,7 @@ P9 is the go/no-go gate before the pilot HC goes live. It proves that all the pi
 
 **A-actual-1: GCP APIs and secrets** — APIs already enabled (`run.googleapis.com`, `cloudbuild.googleapis.com`, `secretmanager.googleapis.com`, `artifactregistry.googleapis.com`). All 15 secrets created in Secret Manager via `gcloud secrets create`. Confirmed with `gcloud secrets list`.
 
-**A-actual-2: Cloud Run service created via GCP Console "Connect to repo"** — Used the Cloud Run Console UI to create the service and connect it directly to GitHub repo `nidhicj/HealthCoach_Platform`. This automatically created a Cloud Build trigger (`rmgpgab-hc-platform-asia-south1-nidhicj-HealthCoach-Platformrvi`). Service name: `hc-platform` (not `parivarthan-backend` as planned). Region: `asia-south1`.
+**A-actual-2: Cloud Run service created via GCP Console "Connect to repo"** — Used the Cloud Run Console UI to create the service and connect it directly to GitHub repo `nidhicj/HealthCoach_Platform`. This automatically created a Cloud Build trigger (`rmgpgab-hc-platform-asia-south1-nidhicj-HealthCoach-Platformrvi`). Service name: `hc-platform` (not `tapas-backend` as planned). Region: `asia-south1`.
 
 **A-actual-3: Trigger used buildpacks — failed** — The auto-created trigger used `gcr.io/k8s-skaffold/pack` (buildpacks) which cannot build a Python/uv project (expects `requirements.txt`). First CI deploy at 12:36 UTC produced `gcr.io/cloudrun/placeholder` image. Service was unreachable.
 
@@ -175,7 +175,7 @@ P9 is the go/no-go gate before the pilot HC goes live. It proves that all the pi
 **What was NOT done in Part A** (superseded by actual approach):
 - GitHub Actions Workload Identity Federation (Task A1.3, A1.4) — not needed; Cloud Build trigger uses compute service account directly
 - `github-actions-deployer` service account — not created; Cloud Build uses `296472807958-compute@developer.gserviceaccount.com` which already has `roles/secretmanager.secretAccessor`
-- `.github/workflows/deploy.yml` update (Task A4) — the existing workflow deploys to deleted service `parivarthan-api`. It is now dead code. Leave in place but do not rely on it.
+- `.github/workflows/deploy.yml` update (Task A4) — the existing workflow deploys to deleted service `tapas-api`. It is now dead code. Leave in place but do not rely on it.
 
 ---
 
@@ -197,10 +197,10 @@ gcloud services enable \
 
 **Step A1.2 — Create Artifact Registry repository**
 ```bash
-gcloud artifacts repositories create parivarthan \
+gcloud artifacts repositories create tapas \
   --repository-format=docker \
   --location=asia-south1 \
-  --description="Parivarthan backend images"
+  --description="Tapas backend images"
 ```
 
 **Step A1.3 — Create service account for GitHub Actions**
@@ -239,7 +239,7 @@ gcloud projects add-iam-policy-binding $YOUR_GCP_PROJECT_ID \
 **Step A1.4 — Configure Workload Identity Federation (GitHub Actions → GCP, no long-lived key)**
 ```bash
 PROJECT_ID="$YOUR_GCP_PROJECT_ID"
-REPO="your-github-org/parivarthan_platform"   # e.g. NidhiJoshi/parivarthan_platform
+REPO="your-github-org/tapas_platform"   # e.g. NidhiJoshi/tapas_platform
 
 # Create pool
 gcloud iam workload-identity-pools create github-pool \
@@ -304,7 +304,7 @@ gcloud secrets list --format="value(name)" | sort
 **Step A1.6 — Note your project ID and confirm Cloud Run service name**
 ```bash
 gcloud config get-value project   # confirm project ID
-# Service will be named: parivarthan-backend
+# Service will be named: tapas-backend
 # Region: asia-south1
 ```
 
@@ -430,14 +430,14 @@ node_modules/
 **Step A3.3 — Test the Docker build locally**
 ```bash
 cd backend
-docker build -t parivarthan-backend:local .
+docker build -t tapas-backend:local .
 ```
 Expected: build completes, no errors. Image size should be ~400–600 MB.
 
 **Step A3.4 — Test the container starts**
 ```bash
 # Requires a .env at backend/.env with valid DATABASE_URL etc.
-docker run --rm -p 8080:8080 --env-file .env parivarthan-backend:local
+docker run --rm -p 8080:8080 --env-file .env tapas-backend:local
 ```
 Expected: uvicorn logs appear, `http://localhost:8080/healthz` returns `{"status": "ok"}`.
 
@@ -487,7 +487,7 @@ jobs:
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          service: parivarthan-backend
+          service: tapas-backend
           region: asia-south1
           source: ./backend
           flags: >-
@@ -521,7 +521,7 @@ jobs:
         run: echo "Deployed to ${{ steps.deploy.outputs.url }}"
 ```
 
-> **How `source:` works**: `deploy-cloudrun@v2` with `source:` triggers a Cloud Build job that builds the Dockerfile, pushes the image to Artifact Registry (`asia-south1-docker.pkg.dev/PROJECT/parivarthan/backend`), and deploys to Cloud Run. No `docker build` in the GitHub runner needed.
+> **How `source:` works**: `deploy-cloudrun@v2` with `source:` triggers a Cloud Build job that builds the Dockerfile, pushes the image to Artifact Registry (`asia-south1-docker.pkg.dev/PROJECT/tapas/backend`), and deploys to Cloud Run. No `docker build` in the GitHub runner needed.
 
 > **`secrets:` field**: tells Cloud Run to pull values from GCP Secret Manager at startup and inject them as environment variables. The `SERVICE_ACCOUNT` must have `roles/secretmanager.secretAccessor` (set in Task A1.3).
 
@@ -566,7 +566,7 @@ Expected: build succeeds, Cloud Run service URL appears in the "Print deployed U
 **Step A5.3 — Confirm the service is live**
 ```bash
 # Get the URL
-gcloud run services describe parivarthan-backend \
+gcloud run services describe tapas-backend \
   --region asia-south1 \
   --format="value(status.url)"
 
@@ -579,7 +579,7 @@ Expected: `{"status": "ok"}`
 
 Once the service is confirmed live, check off item 1.1 in Part B Task 1:
 ```
-- [x] **1.1** Cloud Run service deployed. URL: https://parivarthan-backend-XXXX-el.a.run.app
+- [x] **1.1** Cloud Run service deployed. URL: https://tapas-backend-XXXX-el.a.run.app
 ```
 
 ---
@@ -755,7 +755,7 @@ steps:
       - --image=asia-south1-docker.pkg.dev/t-replica-361407/cloud-run-source-deploy/hc-platform-backend:$COMMIT_SHA
       - --region=asia-south1
       - --allow-unauthenticated
-      - --add-cloudsql-instances=t-replica-361407:asia-south1:parivarthan-db
+      - --add-cloudsql-instances=t-replica-361407:asia-south1:tapas-db
       - --update-secrets=DATABASE_URL=DATABASE_URL:latest
       - --update-secrets=JWT_PRIVATE_KEY=JWT_PRIVATE_KEY:latest
       - --update-secrets=JWT_PUBLIC_KEY=JWT_PUBLIC_KEY:latest
@@ -893,7 +893,7 @@ dev/
 Requires the `NEXT_PUBLIC_API_URL` build arg. Use the existing backend URL for the test:
 
 ```bash
-cd /path/to/parivarthan_platform   # repo root
+cd /path/to/tapas_platform   # repo root
 docker build \
   -f frontend/Dockerfile \
   --build-arg NEXT_PUBLIC_API_URL=https://hc-platform-296472807958.asia-south1.run.app \
@@ -1027,7 +1027,7 @@ gcloud builds submit \
 
 > This runs `backend/cloudbuild.yaml` which calls `gcloud run deploy hc-platform-backend` — creates the new service.
 >
-> **Wait:** Cloud SQL (`parivarthan-db`) must exist before this deploy lands, because `--add-cloudsql-instances` references it. If Cloud SQL isn't provisioned yet, remove `--add-cloudsql-instances` from `backend/cloudbuild.yaml` temporarily, deploy, then add it back after Task 6.
+> **Wait:** Cloud SQL (`tapas-db`) must exist before this deploy lands, because `--add-cloudsql-instances` references it. If Cloud SQL isn't provisioned yet, remove `--add-cloudsql-instances` from `backend/cloudbuild.yaml` temporarily, deploy, then add it back after Task 6.
 
 - [ ] **Step 5.3 — Verify new backend is live**
 
@@ -1093,7 +1093,7 @@ git push origin main
   No proxy needed — connect directly from your local machine:
 
   ```bash
-  cd /mnt/hdd/yourProjects/OnGoing/Poshini/parivarthan_platform
+  cd /mnt/hdd/yourProjects/OnGoing/Poshini/tapas_platform
   source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
   DATABASE_URL="postgresql+asyncpg://postgres:[YOUR-PASSWORD]@db.[PROJECT-REF].supabase.co:5432/postgres" \
     alembic -c backend/alembic.ini upgrade head
@@ -1233,7 +1233,7 @@ Production smoke test — run after every production deploy.
 Tests: Cloud Run up, Supabase connectivity, scheduler auth.
 
 Usage:
-    API_BASE_URL=https://parivarthan-backend-xyz.asia-south1.run.app \
+    API_BASE_URL=https://tapas-backend-xyz.asia-south1.run.app \
     HC_ACCESS_TOKEN=<token from browser devtools> \
     SCHEDULER_SECRET=<value from .env> \
     python scripts/smoke-test.py
@@ -1371,7 +1371,7 @@ Per ADR-0002: Cloudflare platform features apply to the Pages frontend layer, no
 
 P7's GitHub Actions workflow (`.github/workflows/scheduler.yml`) needs two secrets to fire against production:
 
-- `API_BASE_URL` — the production Cloud Run service URL (e.g. `https://parivarthan-backend-xyz.asia-south1.run.app`)
+- `API_BASE_URL` — the production Cloud Run service URL (e.g. `https://tapas-backend-xyz.asia-south1.run.app`)
 - `SCHEDULER_SECRET` — must match the `SCHEDULER_SECRET` Cloud Run env var exactly
 
 **Step 4.1 — Add secrets**:
@@ -1593,7 +1593,7 @@ git commit -m "docs(p9): phase plan + verification checklist"
 | # | Unknown | How SoJo answers |
 |---|---|---|
 | CM1 | Is production infrastructure provisioned? | Walk Task 1 checklist; note any "no" items |
-| CM2 | Production Cloud Run service URL | From GCP Console → Cloud Run → parivarthan-backend → URL |
+| CM2 | Production Cloud Run service URL | From GCP Console → Cloud Run → tapas-backend → URL |
 | CM3 | Production SENTRY_DSN | From Sentry → your project → Settings → Client Keys |
 | CM4 | Pilot HC identity and Google account email | SoJo confirms |
 | CM5 | RDS connection method (direct from local, or bastion?) | Depends on RDS security group config |

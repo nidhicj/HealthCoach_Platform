@@ -19,8 +19,8 @@
 
 - Python ≥ 3.12, FastAPI ≥ 0.115, SQLAlchemy ≥ 2.0, Pydantic ≥ 2.7
 - Activate the Python env with `source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate` before backend commands
-- Backend tests hit a real PostgreSQL DB (`parivarthan_test`) — no DB mocking
-- After the migration lands, run `alembic upgrade head` against `parivarthan_dev` too (not just `parivarthan_test`, which rebuilds fresh every test run and would hide drift)
+- Backend tests hit a real PostgreSQL DB (`tapas_test`) — no DB mocking
+- After the migration lands, run `alembic upgrade head` against `tapas_dev` too (not just `tapas_test`, which rebuilds fresh every test run and would hide drift)
 - `sentiment_flag`/existing `flag_check_in` HC endpoint behavior is completely untouched
 - Follow this app's existing Tailwind/design-token conventions exactly (see PHASE-02a's Global Constraints for the specific classes/components already in use)
 - No signed-URL/attachment work in this plan — that's PHASE-02c
@@ -98,9 +98,9 @@ Expected: applies cleanly, no errors
 
 Run: `cd backend && alembic upgrade head` again against dev per this repo's convention:
 ```bash
-DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/parivarthan_dev alembic upgrade head
+DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas_dev alembic upgrade head
 ```
-Expected: applies cleanly against `parivarthan_dev` too
+Expected: applies cleanly against `tapas_dev` too
 
 - [ ] **Step 1.5: Commit**
 

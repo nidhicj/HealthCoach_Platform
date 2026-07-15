@@ -18,7 +18,7 @@ No client-facing routes exist anywhere in the frontend today (confirmed: only `(
 
 - Python ≥ 3.12, FastAPI ≥ 0.115, SQLAlchemy ≥ 2.0, Pydantic ≥ 2.7
 - Activate the Python env with `source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate` before running backend commands
-- Backend tests hit a real PostgreSQL DB (`parivarthan_test`) — no mocking the DB
+- Backend tests hit a real PostgreSQL DB (`tapas_test`) — no mocking the DB
 - This plan does **not** touch `frontend/src/app/(app)/layout.tsx` or any other existing HC-facing route — an HC-side symmetric role-guard (redirecting a client who wanders onto `/dashboard`) is real defense-in-depth but is genuinely adjacent work, not the named bug; flagged as a suggested follow-up in Self-review, not built here
 - Follow existing frontend conventions exactly: Tailwind + this app's own design tokens (`font-heading`, `font-sans`, `text-primary`, `text-muted-foreground` etc. — visible throughout `(app)/layout.tsx` and `settings/sessions/page.tsx`), `@/components/ui/button` for buttons, no default styling from a UI library
 - Follow existing backend conventions exactly: `ClientClaimsDep`/`TenantDep`/`DbDep` from `src/api/deps.py`, tenant-scoped 404-not-403 on cross-tenant access (already the pattern in `src/api/me.py`)

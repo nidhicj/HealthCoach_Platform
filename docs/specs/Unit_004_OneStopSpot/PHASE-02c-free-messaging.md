@@ -19,7 +19,7 @@
 - Python ≥ 3.12, FastAPI ≥ 0.115, SQLAlchemy ≥ 2.0, Pydantic ≥ 2.7
 - Activate the Python env with `source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate` before backend commands
 - Backend tests hit a real PostgreSQL DB — no DB mocking; mock `s3_put`/`s3_get` exactly as `test_file_upload.py` already does (`patch("src.api.messages.s3_put", new_callable=AsyncMock)`)
-- After the migration, run `alembic upgrade head` against `parivarthan_dev` too, not just `parivarthan_test`
+- After the migration, run `alembic upgrade head` against `tapas_dev` too, not just `tapas_test`
 - Messages are immutable once sent — no PATCH/DELETE endpoint of any kind in this plan, matching D-25 exactly
 - Every API module in this codebase defines its own private `_get_owned_client` helper rather than importing a shared one (confirmed convention: `clients.py`, `supplements.py`, `diet_charts.py` each have their own identical copy) — `messages.py` follows the same convention, don't refactor this into a shared helper as part of this plan
 
@@ -106,7 +106,7 @@ Add `ClientMessage` to `backend/src/db/models/__init__.py`'s exports (check the 
 
 ```bash
 cd backend && alembic upgrade head
-DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/parivarthan_dev alembic upgrade head
+DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas_dev alembic upgrade head
 ```
 
 - [ ] **Step 1.5: Commit**
