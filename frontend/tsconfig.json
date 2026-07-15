@@ -35,8 +35,8 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts",
-    "/dev/shm/parivarthan-next/types/**/*.ts",
-    "/dev/shm/parivarthan-next/dev/types/**/*.ts"
+    "/dev/shm/tapas-next/types/**/*.ts",
+    "/dev/shm/tapas-next/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"
