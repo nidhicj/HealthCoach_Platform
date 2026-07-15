@@ -63,14 +63,12 @@ cloudRunLogs/
 docs/technical-rundown.html
 random.py
 
-parivarthan-ui-spec-detailed.md
 image.png
 .playwright-mcp/*
 .playwright-mcp/
 .playwright-mcp/
 landing-full.png
 .gitignore
-parivarthan-landing-spine.md
 UNIT004-concept-01.png
 UNIT004-concept-02.png
 UNIT004-concept-03.png
