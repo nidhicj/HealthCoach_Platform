@@ -6,8 +6,8 @@ from datetime import datetime, timedelta, timezone
 from jose import ExpiredSignatureError, JWTError, jwt
 
 _ALGORITHM = "ES256"
-_ISSUER = "https://api.parivarthan.com"
-_AUDIENCE = "parivarthan-api"
+_ISSUER = "https://api.tapas.com"
+_AUDIENCE = "tapas-api"
 _ACCESS_TTL_SECONDS = 15 * 60  # 15 minutes
 
 

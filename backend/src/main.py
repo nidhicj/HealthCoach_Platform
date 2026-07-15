@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="Parivarthan API",
+    title="Tapas API",
     version=get_settings().app_version,
     lifespan=lifespan,
 )

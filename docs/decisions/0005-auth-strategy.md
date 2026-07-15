@@ -95,8 +95,8 @@ Access token claim shape:
 
 ```json
 {
-  "iss": "https://api.parivarthan.com",
-  "aud": "parivarthan-api",
+  "iss": "https://api.tapas.com",
+  "aud": "tapas-api",
   "sub": "<user_uuid>",
   "role": "hc | client | admin",
   "hc_id": "<hc_user_uuid>",
