@@ -320,10 +320,10 @@ cd backend && alembic upgrade head
 
 **Why Docker, not system Postgres:** system `apt upgrade` silently creates new PG clusters on different ports (5432 → 5433 → …), breaking `DATABASE_URL` without warning. The pinned Docker image (`postgres:17.4` in `docker-compose.yml`) is immune to this. Update the pin only when PG 17 reaches EOL (November 2029).
 
-The `parivarthan_test` database must be created manually on first start (it is not auto-created by the image):
+The `tapas_test` database must be created manually on first start (it is not auto-created by the image):
 
 ```bash
-docker exec parivarthan_platform-postgres-1 psql -U postgres -c "CREATE DATABASE parivarthan_test;"
+docker exec tapas_platform-postgres-1 psql -U postgres -c "CREATE DATABASE tapas_test;"
 ```
 
 ---
