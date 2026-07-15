@@ -1,4 +1,4 @@
-"""Async DB + HTTP fixtures for integration tests. Uses parivarthan_test database."""
+"""Async DB + HTTP fixtures for integration tests. Uses tapas_test database."""
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -50,7 +50,7 @@ from src.db.models import Client, Session, User
 def db_url() -> str:
     url = os.environ.get(
         "TEST_DATABASE_URL",
-        "postgresql://postgres:localdevpassword@localhost:5432/parivarthan_test",
+        "postgresql://postgres:localdevpassword@localhost:5432/tapas_test",
     )
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
