@@ -1,4 +1,4 @@
-# ADR-0008: Custom Domain via Cloudflare Worker Reverse Proxy
+# ADR-0009: Custom Domain via Cloudflare Worker Reverse Proxy
 
 **Status**: Accepted
 **Date**: 2026-07-12

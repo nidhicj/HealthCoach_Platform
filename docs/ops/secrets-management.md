@@ -4,7 +4,7 @@
 
 > **Maturity**: MVP-stage. Tighten as scale and team size grow.
 
-> **Known stale content (2026-07-12)**: this entire document was written for the original Cloudflare Workers backend (`pywrangler secret put`, AWS RDS/S3) and was never updated for the GCP Cloud Run + Secret Manager migration (ADR-0001, 2026-06-19). Only the `API_BASE_URL`/`FRONTEND_URL` inventory rows and the "GCP Secret Manager — worked example" subsection under Rotation procedure (both added 2026-07-12, ADR-0008) reflect actual current mechanics. Everything else — the Storage rules section, "Adding a new secret," local dev setup (`pywrangler dev`), and the rest of the inventory table — describes the retired Cloudflare Workers process and needs a full pass. Flagged as an out-of-scope follow-up, not fixed here.
+> **Known stale content (2026-07-12)**: this entire document was written for the original Cloudflare Workers backend (`pywrangler secret put`, AWS RDS/S3) and was never updated for the GCP Cloud Run + Secret Manager migration (ADR-0001, 2026-06-19). Only the `API_BASE_URL`/`FRONTEND_URL` inventory rows and the "GCP Secret Manager — worked example" subsection under Rotation procedure (both added 2026-07-12, ADR-0009) reflect actual current mechanics. Everything else — the Storage rules section, "Adding a new secret," local dev setup (`pywrangler dev`), and the rest of the inventory table — describes the retired Cloudflare Workers process and needs a full pass. Flagged as an out-of-scope follow-up, not fixed here.
 
 ---
 
@@ -22,8 +22,8 @@ Every secret the platform uses. If you add a new one, add it here in the same co
 | `SENTRY_DSN` | Backend (observability) | Cloudflare Secret | Rotate on suspected leak only | Per-environment DSN (prototype vs scale) |
 | `EXTERNAL_SCHEDULER_TOKEN` | Backend (scheduler endpoints) | Cloudflare Secret AND scheduler (GitHub Actions or EasyCron) | **DECIDE**: rotation policy. Default: every 180 days | Shared secret in `X-Scheduler-Token` header |
 | `ZOOM_WEBHOOK_SECRET` (if/when Zoom integration ships) | Backend (webhook verification) | Cloudflare Secret | Rotate on suspected leak only | Out of MVP scope per `specs/Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` |
-| `API_BASE_URL` | Backend (`backend/src/auth/router.py`) — builds the Google OAuth `redirect_uri` for all 3 flows (HC login, Calendar connect, Client invite) | **GCP Secret Manager** (current, accurate — not Cloudflare) | Update only when the frontend's public hostname changes | Value: `https://app.tapas.fitness` as of ADR-0008. Despite the name, this is the **frontend's** public URL, not the backend's — historical naming from before the BFF-proxy redesign, see ADR-0005 §Amendment 2026-06-24 |
-| `FRONTEND_URL` | Backend (`backend/src/main.py`) — CORS `allow_origins` | **GCP Secret Manager** (current, accurate — not Cloudflare) | Same cadence as `API_BASE_URL` — should always match it | Value: `https://app.tapas.fitness` as of ADR-0008 |
+| `API_BASE_URL` | Backend (`backend/src/auth/router.py`) — builds the Google OAuth `redirect_uri` for all 3 flows (HC login, Calendar connect, Client invite) | **GCP Secret Manager** (current, accurate — not Cloudflare) | Update only when the frontend's public hostname changes | Value: `https://app.tapas.fitness` as of ADR-0009. Despite the name, this is the **frontend's** public URL, not the backend's — historical naming from before the BFF-proxy redesign, see ADR-0005 §Amendment 2026-06-24 |
+| `FRONTEND_URL` | Backend (`backend/src/main.py`) — CORS `allow_origins` | **GCP Secret Manager** (current, accurate — not Cloudflare) | Same cadence as `API_BASE_URL` — should always match it | Value: `https://app.tapas.fitness` as of ADR-0009 |
 
 ---
 
@@ -59,7 +59,7 @@ For any secret:
 
 ### GCP Secret Manager — worked example (`API_BASE_URL` / `FRONTEND_URL`, 2026-07-12)
 
-The generic procedure above is written for the (retired) Cloudflare Secrets model. Here's what actually rotating a GCP Secret Manager–backed secret looks like, using the ADR-0008 custom-domain cutover as the concrete example:
+The generic procedure above is written for the (retired) Cloudflare Secrets model. Here's what actually rotating a GCP Secret Manager–backed secret looks like, using the ADR-0009 custom-domain cutover as the concrete example:
 
 ```bash
 # 1. Stage the new value
@@ -132,5 +132,5 @@ For a new dev (or new machine):
 
 | Date | Change | Reason |
 |---|---|---|
-| 2026-07-12 | Added `API_BASE_URL`/`FRONTEND_URL` inventory rows (GCP Secret Manager, current values `https://app.tapas.fitness`) and a real GCP Secret Manager worked-example rotation procedure. Flagged the rest of this doc as stale Cloudflare-Workers-era content (full rewrite out of scope). | ADR-0008 custom-domain cutover — these two secrets were actually rotated as part of that change. |
+| 2026-07-12 | Added `API_BASE_URL`/`FRONTEND_URL` inventory rows (GCP Secret Manager, current values `https://app.tapas.fitness`) and a real GCP Secret Manager worked-example rotation procedure. Flagged the rest of this doc as stale Cloudflare-Workers-era content (full rewrite out of scope). | ADR-0009 custom-domain cutover — these two secrets were actually rotated as part of that change. |
 | 2026-04-28 | Initial template. | Secrets inventory needs to exist before any are created. |

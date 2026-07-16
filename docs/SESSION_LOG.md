@@ -13,13 +13,13 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 - Added `cloudflare/domain-proxy/` (`wrangler.toml` + `worker.js`) — a version-controlled Cloudflare Worker that reverse-proxies `app.tapas.fitness` to `hc-platform-frontend`, rewriting the Host header. Deployed via `npx wrangler deploy`. Verified stable (8/8 requests returning real Next.js content, not the Google 404).
 - Confirmed 6 `redirect_uri` call sites in `backend/src/auth/router.py` (HC login, Calendar connect/callback, Client invite login) all build from the single `settings.api_base_url` — one secret change moves all of them.
 - Google Cloud Console updated: `tapas.fitness` added to Authorized domains; all 3 new redirect URIs added; old `.run.app` URIs kept during transition.
-- Rotated `API_BASE_URL`/`FRONTEND_URL` GCP secrets to `https://app.tapas.fitness`, forced new `hc-platform-backend` revision (`hc-platform-backend-00013-29l`). One real user was already signed in via the old `.run.app` URL at cutover time — assessed and confirmed unaffected (cookie already set on the old origin, normal usage doesn't depend on these secrets); full risk assessment + rollback commands documented in ADR-0008 "Cutover risk notes and rollback."
+- Rotated `API_BASE_URL`/`FRONTEND_URL` GCP secrets to `https://app.tapas.fitness`, forced new `hc-platform-backend` revision (`hc-platform-backend-00013-29l`). One real user was already signed in via the old `.run.app` URL at cutover time — assessed and confirmed unaffected (cookie already set on the old origin, normal usage doesn't depend on these secrets); full risk assessment + rollback commands documented in ADR-0009 "Cutover risk notes and rollback."
 - Verified post-cutover: CORS allows `https://app.tapas.fitness`, `redirect_uri` correctly builds to the custom domain across all 3 OAuth flows, old `.run.app` frontend still serves 200 (existing session unaffected), scheduler endpoint (bypasses BFF/domain entirely) unaffected.
 - SoJo confirmed full real-browser sign-in (Google OAuth end-to-end, session persists, mock data visible after reload) working on **Firefox and Chrome**. Safari still pending — SoJo to check later. Note: Firefox was the higher-priority browser here (Total Cookie Protection was the actual failure mode ADR-0005's BFF proxy exists to fix); Chrome largely masked the original bug even pre-migration.
 - Non-issue investigated and closed: SoJo's desktop Chrome autocompleted `app.tapas.fitness` → bare `tapas.fitness` (Porkbun parking page) in the address bar. Confirmed server-side via curl this was not a redirect or routing bug (both hostnames return independent 200s, no server-side link between them); confirmed via Incognito window it was local Chrome address-bar history/autocomplete on that one profile, not an infra issue.
 
 **Decided** (link ADRs):
-- **ADR-0008 (new)**: Cloudflare Worker chosen over Cloudflare Origin Rules (Enterprise-only), Cloud Run native Domain Mapping (unsupported region), and a GCP Load Balancer + Serverless NEG (cost, ~$18+/mo not justified at pilot scale). Firebase Hosting (previously the documented plan in `PHASE-09-pilot-smoke-gate.md` §B.7) also considered and not chosen — superseded, corrective note added there.
+- **ADR-0009 (new)**: Cloudflare Worker chosen over Cloudflare Origin Rules (Enterprise-only), Cloud Run native Domain Mapping (unsupported region), and a GCP Load Balancer + Serverless NEG (cost, ~$18+/mo not justified at pilot scale). Firebase Hosting (previously the documented plan in `PHASE-09-pilot-smoke-gate.md` §B.7) also considered and not chosen — superseded, corrective note added there.
 - **ADR-0005 amended**: `API_BASE_URL`/`FRONTEND_URL` now `https://app.tapas.fitness` (was raw Cloud Run URL) — mechanism (BFF proxy, cookies, CORS) unchanged, only the hostname.
 - `docs/diagrams/0001-system-architecture.md` updated (Cloudflare Worker layer added, line-151 WAF/rate-limiting placeholder resolved — still not configured, flagged as a real gap, not solved by this Worker).
 - `docs/ops/deployment.md` and `docs/ops/secrets-management.md` corrected (both still described the retired Cloudflare Pages / Cloudflare Secrets model from before the Cloud Run migration; secrets-management.md full rewrite still flagged as an out-of-scope follow-up beyond the two rows touched here).
@@ -34,7 +34,7 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 - Cloudflare account already authenticated locally via `wrangler login` (OAuth token present) — no fresh login needed for future Worker redeploys on this machine.
 
 **Open questions for SoJo**:
-- None blocking. Cloudflare Workers' 100k req/day free-tier ceiling is a future trigger to revisit (ADR-0008 "Things to revisit"), not a current concern at pilot scale.
+- None blocking. Cloudflare Workers' 100k req/day free-tier ceiling is a future trigger to revisit (ADR-0009 "Things to revisit"), not a current concern at pilot scale.
 
 ---
 
