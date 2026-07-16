@@ -678,6 +678,8 @@ This must happen before the frontend is deployed (nothing is yet pointing at the
 
 ### B.7 Migration path to Firebase Hosting (future — custom domain stage)
 
+> **Superseded 2026-07-12**: the custom-domain migration described below (Firebase Hosting) was **not** the approach taken. The actual custom-domain solution is a Cloudflare Worker reverse proxy fixing Cloud Run's Host-header routing — see `docs/decisions/0008-custom-domain-cloudflare-worker.md`. This section is left in place as a historical record of the originally planned approach; do not follow it.
+
 When a custom domain is ready:
 
 1. `firebase init hosting` — add Firebase to the project

@@ -72,9 +72,9 @@ The strategy below specifies every choice that "owned implementation" leaves ope
 
 Standard Google OAuth 2.0 Authorization Code grant. PKCE (RFC 7636) added on the frontend even though the backend exchanges the code — PKCE costs nothing to add, prevents authorization-code interception attacks if anything leaks via referer/logs/etc., and is current best practice for any client where an attacker might observe the redirect URL. State parameter (anti-CSRF) is mandatory.
 
-Redirect URI: `${API_BASE_URL}/api/auth/google/callback`. Whitelisted in Google Cloud Console. **After §Amendment 2026-06-24**: `API_BASE_URL` is the *frontend* Cloud Run URL — Google redirects the browser to the Next.js BFF, which proxies the callback to the backend.
+Redirect URI: `${API_BASE_URL}/api/auth/google/callback`. Whitelisted in Google Cloud Console. **After §Amendment 2026-06-24**: `API_BASE_URL` is the *frontend* Cloud Run URL — Google redirects the browser to the Next.js BFF, which proxies the callback to the backend. **After §Amendment 2026-07-12 (custom domain)**: that frontend URL is `https://app.tapas.fitness`, fronted by a Cloudflare Worker — see ADR-0009.
 
-Scopes requested: `openid email profile` only. No Drive, no Calendar — those are future integrations, ask separately when needed.
+Scopes requested: `openid email profile` only. No Drive, no Calendar — those are future integrations, ask separately when needed. **After §Amendment 2026-07-12**: Calendar is that "ask separately" moment — HCs can additionally grant `https://www.googleapis.com/auth/calendar.events` via a separate, incremental-consent action, not through this login flow. This login flow's scopes are unchanged.
 
 ### 2. JWT signing: ES256 (ECDSA P-256)
 
@@ -301,9 +301,38 @@ Cascade-on-delete from `users` is correct: DPDP deletion of a user wipes all the
 
 ---
 
+## Amendment: 2026-07-12 — Incremental Google Calendar scope (Unit_004 F6 extension, D-30)
+
+**What changed**: Unit_004's F6 (session meeting links) is being extended to let HCs connect their Google Calendar (full month/week view, pick/create events with a Meet link, per `docs/specs/Unit_004_OneStopSpot/PHASE-01e-calendar-integration.md`). This is the "ask separately when needed" moment §1 already flagged.
+
+**Resolution**: A new, separate, additive OAuth action — not a change to the existing login flow.
+
+- New scope requested, only via this new action: `https://www.googleapis.com/auth/calendar.events` (least-privilege — not the broader `.../auth/calendar` scope). Uses Google's incremental-authorization pattern (`include_granted_scopes=true`, `prompt=consent` to force a fresh refresh token).
+- New routes: `GET /api/auth/google/calendar/connect` (HC-only), `GET /api/auth/google/calendar/callback` (public redirect target). Both live in `backend/src/auth/router.py` alongside the existing `/google/*` HC routes. The existing `/google/*` login routes and the entirely separate `/client/*` routes are **not modified**.
+- **Critical gap this amendment introduces, not resolves**: Google OAuth tokens were never persisted anywhere before this (§1/§5 confirm the existing login flow fetches userinfo and discards both access and refresh tokens). A new table, `google_calendar_connections`, stores them — Fernet-encrypted, under a **separate** encryption key from `clients.demographics` (ADR-0007), so a breach of one key doesn't expose the other. `EncryptedJSON` (`backend/src/db/encrypted_json.py`) is generalized to take a settings-key parameter to support this, with the `demographics` default preserved exactly.
+- Reuses the existing `_state_store` PKCE mechanism noted as a known follow-up under the 2026-06-24 amendment (in-memory, multi-instance unsafe) — this amendment does not fix that pre-existing gap, just adds a second consumer of it. Still accepted at pilot scale.
+
+**Known, unresolved limitation**: while the Google OAuth app remains in "Testing" publishing status (true today — no `tapas.health` domain or public privacy policy yet for Google's verification process), Google issues refresh tokens that expire after **7 days** for test users. Connected HCs will need to reconnect weekly until verification is completed. This is external to the codebase and tracked in SPEC-0001 D-30, not fixable in code.
+
+**Sections updated in this ADR**: §1 (scopes note).
+
+---
+
+## Amendment: 2026-07-12 — Custom domain (`app.tapas.fitness`)
+
+**What changed**: `API_BASE_URL` and `FRONTEND_URL` now point to `https://app.tapas.fitness`, replacing the raw `hc-platform-frontend-*.run.app` Cloud Run URL. See ADR-0009 for the full decision record (why a Cloudflare Worker reverse proxy, not Cloudflare's native Origin Rules [Enterprise-only] or Cloud Run's native Domain Mapping [unsupported in `asia-south1`]).
+
+**Resolution**: purely a value change on secrets already described in §1 — "Redirect URI: `${API_BASE_URL}/api/auth/google/callback`... `API_BASE_URL` is the frontend Cloud Run URL." The *mechanism* (BFF proxy, cookie handling, CORS) is unchanged; only the hostname the frontend is reachable at changes. All six `redirect_uri` call sites in `backend/src/auth/router.py` (HC login, Calendar connect/callback, Client invite login) read from the same `settings.api_base_url`, so they move together with the one secret update — no code change.
+
+**Sections updated in this ADR**: §1 (redirect URI note now points at ADR-0009 for the domain layer in front of it).
+
+---
+
 ## Changelog
 
 | Date       | Change         | Reason                                            |
 | ---------- | -------------- | ------------------------------------------------- |
+| 2026-07-12 | Amendment: incremental Google Calendar OAuth scope for Unit_004 F6 extension. Section updated: §1. New §Amendment block added. | F6 extended to real Google Calendar integration (D-30); Calendar scope was explicitly deferred in the original ADR ("ask separately when needed"). |
+| 2026-07-12 | Amendment: custom domain `app.tapas.fitness` replaces raw Cloud Run URL for `API_BASE_URL`/`FRONTEND_URL`. Section referenced: §1. New §Amendment block added. | ADR-0009 — Cloud Run's raw `.run.app` URL isn't a suitable public-facing domain; Cloudflare Worker now fronts it. |
 | 2026-06-24 | Amendment: BFF proxy pattern replaces cross-origin cookie strategy. Sections updated: §Context, §1, §5, §9. New §Amendment block added. | `run.app` in PSL → cross-site deployment → Firefox/Safari block third-party cookies. |
 | 2026-04-29 | Initial draft. | Required by build-plan P2; defines auth strategy. |
