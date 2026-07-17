@@ -33,7 +33,7 @@ def test_create_and_decode_access_token() -> None:
     assert claims.sub == str(user_id)
     assert claims.role == "hc"
     assert claims.hc_id == str(hc_id)
-    assert claims.iss == "https://api.parivarthan.com"
+    assert claims.iss == "https://api.tapas.com"
 
 
 def test_expired_token_raises() -> None:

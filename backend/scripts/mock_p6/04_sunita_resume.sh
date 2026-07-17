@@ -25,7 +25,7 @@ require_ids
 source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
 cd "$(dirname "$0")/../.."
 
-DB="postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev"
+DB="postgresql://postgres:localdevpassword@localhost:5432/tapas_dev"
 
 echo "======================================================="
 echo "  Sunita Rao — RESUME from S7"

@@ -27,7 +27,7 @@ test.describe("auth flows", () => {
 
   test("/sign-in renders wordmark, tagline, and Google button", async ({ page }) => {
     await page.goto("/sign-in");
-    const wordmark = page.getByRole("heading", { name: /parivarthan/i });
+    const wordmark = page.getByRole("heading", { name: /tapas/i });
     await expect(wordmark).toBeVisible();
     const btn = page.getByRole("button", { name: /continue with google/i });
     await expect(btn).toBeVisible();

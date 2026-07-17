@@ -10,7 +10,7 @@ from src.main import app
 @pytest.mark.asyncio
 async def test_request_emits_start_log_line(capsys: pytest.CaptureFixture[str]) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.get("/healthz")
+        await client.get("/health")
     lines = [json.loads(l) for l in capsys.readouterr().out.strip().splitlines() if l]
     events = [l["event"] for l in lines]
     assert "request.start" in events
@@ -21,7 +21,7 @@ async def test_request_emits_end_log_line_with_status_and_ms(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        await client.get("/healthz")
+        await client.get("/health")
     lines = [json.loads(l) for l in capsys.readouterr().out.strip().splitlines() if l]
     end = next((l for l in lines if l["event"] == "request.end"), None)
     assert end is not None
@@ -35,5 +35,5 @@ async def test_request_id_header_echoed_in_response(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.get("/healthz", headers={"X-Request-ID": "test-req-123"})
+        resp = await client.get("/health", headers={"X-Request-ID": "test-req-123"})
     assert resp.headers["x-request-id"] == "test-req-123"

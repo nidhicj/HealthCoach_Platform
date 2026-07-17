@@ -24,7 +24,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 require_ids
-DB="postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev"
+DB="postgresql://postgres:localdevpassword@localhost:5432/tapas_dev"
 
 echo "======================================================="
 echo "  Ravi Kumar — 5-Session Weight Loss Journey"

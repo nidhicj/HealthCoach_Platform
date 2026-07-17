@@ -320,7 +320,7 @@ Remove the test route after verification. Do not commit it.
 Connect to local dev DB and run each query. Expected: queries execute without error. At pilot pre-launch, results may be empty rows — that is acceptable (empty ≠ broken). Verify syntax is correct and no `column does not exist` errors.
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev
 ```
 Then paste each query from `docs/decisions/0006-observability.md §8`.
 
