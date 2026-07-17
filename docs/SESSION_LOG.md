@@ -4,6 +4,154 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-07-12 — Custom domain (app.tapas.fitness) via Cloudflare Worker
+
+**Done**:
+- Bought `tapas.fitness` at Porkbun, pointed nameservers at Cloudflare, DNS `CNAME app → hc-platform-frontend-296472807958.asia-south1.run.app` (proxied).
+- Diagnosed `app.tapas.fitness` 404: Cloudflare proxies correctly but forwards the original `Host: app.tapas.fitness` header; Cloud Run's front door routes purely by Host header and doesn't recognize it.
+- Ruled out (verified live, not assumed) both "native" fixes: Cloudflare Origin Rules Host-header override is Enterprise-plan only; Cloud Run's native Domain Mapping doesn't support `asia-south1`.
+- Added `cloudflare/domain-proxy/` (`wrangler.toml` + `worker.js`) — a version-controlled Cloudflare Worker that reverse-proxies `app.tapas.fitness` to `hc-platform-frontend`, rewriting the Host header. Deployed via `npx wrangler deploy`. Verified stable (8/8 requests returning real Next.js content, not the Google 404).
+- Confirmed 6 `redirect_uri` call sites in `backend/src/auth/router.py` (HC login, Calendar connect/callback, Client invite login) all build from the single `settings.api_base_url` — one secret change moves all of them.
+- Google Cloud Console updated: `tapas.fitness` added to Authorized domains; all 3 new redirect URIs added; old `.run.app` URIs kept during transition.
+- Rotated `API_BASE_URL`/`FRONTEND_URL` GCP secrets to `https://app.tapas.fitness`, forced new `hc-platform-backend` revision (`hc-platform-backend-00013-29l`). One real user was already signed in via the old `.run.app` URL at cutover time — assessed and confirmed unaffected (cookie already set on the old origin, normal usage doesn't depend on these secrets); full risk assessment + rollback commands documented in ADR-0009 "Cutover risk notes and rollback."
+- Verified post-cutover: CORS allows `https://app.tapas.fitness`, `redirect_uri` correctly builds to the custom domain across all 3 OAuth flows, old `.run.app` frontend still serves 200 (existing session unaffected), scheduler endpoint (bypasses BFF/domain entirely) unaffected.
+- SoJo confirmed full real-browser sign-in (Google OAuth end-to-end, session persists, mock data visible after reload) working on **Firefox and Chrome**. Safari still pending — SoJo to check later. Note: Firefox was the higher-priority browser here (Total Cookie Protection was the actual failure mode ADR-0005's BFF proxy exists to fix); Chrome largely masked the original bug even pre-migration.
+- Non-issue investigated and closed: SoJo's desktop Chrome autocompleted `app.tapas.fitness` → bare `tapas.fitness` (Porkbun parking page) in the address bar. Confirmed server-side via curl this was not a redirect or routing bug (both hostnames return independent 200s, no server-side link between them); confirmed via Incognito window it was local Chrome address-bar history/autocomplete on that one profile, not an infra issue.
+
+**Decided** (link ADRs):
+- **ADR-0009 (new)**: Cloudflare Worker chosen over Cloudflare Origin Rules (Enterprise-only), Cloud Run native Domain Mapping (unsupported region), and a GCP Load Balancer + Serverless NEG (cost, ~$18+/mo not justified at pilot scale). Firebase Hosting (previously the documented plan in `PHASE-09-pilot-smoke-gate.md` §B.7) also considered and not chosen — superseded, corrective note added there.
+- **ADR-0005 amended**: `API_BASE_URL`/`FRONTEND_URL` now `https://app.tapas.fitness` (was raw Cloud Run URL) — mechanism (BFF proxy, cookies, CORS) unchanged, only the hostname.
+- `docs/diagrams/0001-system-architecture.md` updated (Cloudflare Worker layer added, line-151 WAF/rate-limiting placeholder resolved — still not configured, flagged as a real gap, not solved by this Worker).
+- `docs/ops/deployment.md` and `docs/ops/secrets-management.md` corrected (both still described the retired Cloudflare Pages / Cloudflare Secrets model from before the Cloud Run migration; secrets-management.md full rewrite still flagged as an out-of-scope follow-up beyond the two rows touched here).
+
+**Pending / next session**:
+- Safari sign-in check — SoJo to do when convenient. Firefox + Chrome already confirmed working end-to-end.
+- Old `.run.app` OAuth redirect URIs: keep during transition, remove only after Safari is also confirmed (and ideally a few days of stability).
+- Found but not fixed: `.github/workflows/deploy.yml` deploys a differently-named, seemingly-orphaned Cloud Run service (`parivarthan-api`, not `hc-platform-backend`) — pushing to `main` does not reliably redeploy the real backend service. Flagged for a separate follow-up.
+
+**Context the next session needs**:
+- Worker deploy is manual (`cd cloudflare/domain-proxy && npx wrangler login && npx wrangler deploy`), not yet CI-automated.
+- Cloudflare account already authenticated locally via `wrangler login` (OAuth token present) — no fresh login needed for future Worker redeploys on this machine.
+
+**Open questions for SoJo**:
+- None blocking. Cloudflare Workers' 100k req/day free-tier ceiling is a future trigger to revisit (ADR-0009 "Things to revisit"), not a current concern at pilot scale.
+
+---
+
+## 2026-07-06/07-10 — Unit_004 One Stop Spot: spec rebuild + PHASE-01/01c/01d shipped
+
+**Branch**: `feature/unit-004-one-stop-spot` (reused fresh off `main` per phase, merged locally after each; not pushed to `origin`)
+
+**Spec work:**
+- `docs/specs/Unit_004_OneStopSpot/SPEC-0001-one-stop-spot.md` fully re-brainstormed from scratch, grounded against actual code (not the original stale draft). Resolved a real architectural conflict: original draft assumed a never-expiring client URL-token model (D-5/D-7); codebase already had Google OAuth + client-JWT auth built (`ADR-0005 §8`, `backend/src/api/me.py`) — OAuth model confirmed as source of truth (D-14).
+- F1 (client-facing send after session) redefined: client never sees the Session Review/MOM verbatim, only finalized action items + a short HC-composed message (D-10–D-13). Single-button Freeze→Send pattern, corrected mid-build after an unjustified two-button Save/Freeze split was caught (D-29).
+- F8 (diet chart client view) added: snapshot-on-Send model, working chart stays mutable and private (D-16–D-19).
+- F2/F3 restructured to 2-tab client detail (Summary, Chat) with three filtered views inside Chat (D-20 supersedes earlier 3-tab D-6); check-in storage extended not duplicated (D-21); notification model made cross-cutting (D-24): HC never proactively pinged, client always emailed on HC action.
+- F6 (meeting link) locked in HC-side only, scoped XS, no third-party API — free-text `meeting_url` field.
+- Diagrams: `docs/diagrams/0004-client-facing-flow.md` (flowchart + sequence + ER), documenting the auth-model resolution.
+- Committed: `d82a8a7` "docs(unit-004): add PHASE-01 spec/plan and client-facing flow diagram."
+
+**Shipped and merged to `main`:**
+- **PHASE-01** — action items delivery. `moms.action_items_draft` JSONB, `POST /mom/freeze` (all-or-nothing validation), `POST /mom/send` repurposed to require `{"message": str}` + `reviewed` status, emails real `ActionItem` rows via new `backend/src/lib/email.py` (Resend). Frontend: structured action-items editor, single Save button gated by `window.confirm()`.
+- **PHASE-01c** — diet chart send. New `DietChartSend` model + `POST /api/clients/{client_id}/diet-chart/send`, reuses existing chart helpers unchanged. Frontend: Send-to-client button + confirm dialog.
+- **PHASE-01d** — meeting link (HC-side). `sessions.meeting_url` field, New-session form field, live-editable Join-call button on session detail.
+
+**Bugs found and fixed during TDD execution (9 total, incl. 2 only visible at final whole-branch review):**
+- Freeze endpoint could 500 on bad `action_items_draft` items — added all-or-nothing validation (user confirmed this should fail clean, not silently).
+- Lost `disabled={!sessionReviewText.trim()}` guard on Save (regression from MomTab rewrite) — restored.
+- Email subject line built from HTML-escaped names, corrupting real inbox display (e.g. `D&#x27;Souza`) — fixed to use raw values in the header.
+- Migration for `diet_chart_sends` relied on import-order side effect instead of an explicit `postgresql` dialect import — fixed to match repo convention.
+- Diet-chart-send success message could be hidden by a later failed send (shared conditional) — rendered independently.
+- Meeting-link Cancel button had no in-flight-save guard, race could silently apply a "cancelled" edit — added `disabled={savingLink}`.
+- **Whole-branch review only**: `draft_mom` had no status guard, allowing redraft-after-freeze to duplicate `ActionItem` rows and bypass the "no resend" guarantee — fixed with a 409 guard. No UI path existed to send an already-frozen-but-unsent review after a page reload — added conditional Send button.
+
+**Open / carried forward:**
+- Google Calendar/Meet API integration for F6 — discussed but **not resolved or documented yet**. Proposed direction: narrow date-scoped event picker tied to the session's `scheduled_at`, storing a direct Calendar-event reference (not a full calendar view/iframe). Awaiting confirmation this matches what was pictured.
+- OQ-7 (client-facing route scheme) still open — blocks PHASE-02 (client portal + Chat tab).
+- `main` is ahead of `origin/main` and has not been pushed (not requested).
+- Preflight discipline lapsed twice this session (once mid-brainstorm, once after a long subagent-orchestration stretch) — both called out directly by SoJo; pattern and fix logged in memory (`feedback_always_preflight.md`).
+
+---
+
+## 2026-07-08 — Macro Calc Realm: Unit_005 created, agnostic macro calculator spec'd
+
+**No code changes — brainstorm + spec only.** Done on `feature/unit-004-one-stop-spot` (pre-existing branch); this is Unit_005 work, not Unit_004 — flagged as an open item below.
+
+**What happened:**
+- Brainstormed a fully formula-agnostic macro calculator (protein/carbs/fat/fibre/kcal) as a deliberate niche differentiator — most competitor HC platforms hardcode a fixed formula dropdown (Mifflin-St Jeor, Katch-McArdle, etc.); this lets each HC define, name, and reuse their own method instead.
+- Discovered mid-brainstorm the feature's real size: SoJo's intent is a 3-part pipeline — **Part A** Macro Calculator (this spec), **Part B** Recipe/Food Macro Library, **Part C** Wiring targets + library into the diet chart. Only Part A was designed this session; B and C are intentionally stubbed as future specs, not invented.
+- Verified (not assumed) two things by reading actual code/specs before designing around them: (1) `clients.health_metrics` and `clients.demographics` are both freeform, unenforced shapes — not reliable formula inputs as-is; (2) Unit_003 (Client Discovery Pipeline), even fully built, never persists structured biometric data — everything lands as free-text questionnaire responses or a narrative LLM brief. Conclusion: neither is a workaround-until-Unit_003-ships problem — dedicated structured fields are the correct permanent architecture.
+- Landed on extending the **existing gear-icon Demographics panel** (`clients/[clientId]/page.tsx` → `DemographicsForm`) with 7 new keys — `weight`, `target_weight`, `height`, `waist`, `hip`, `neck`, `activity_level` — reusing existing `dob`→age and `gender`. No migration needed (same `EncryptedJSON` `demographics` column).
+- Locked: no branching/conditional formula logic, but formulas **can chain** (reference earlier-computed named values, e.g. BMR → TDEE → macros) — this is what makes real-world layered methods expressible without duplicating arithmetic four times.
+- New Unit created: `Unit_005_MacroDrivenDietCharts`. Wrote `SPEC-0001-agnostic-macro-calculator.md` (Part A only, all 16 template sections, self-reviewed for placeholders/consistency — one inconsistency found and fixed: Actors table wrongly implied targets are HC-editable, corrected to read-only/recompute-only). Added 5 new terms to `docs/domain/glossary.md`.
+- New data model (not yet migrated — spec only): `macro_formula_presets` (HC's reusable named formula sets), `client_macro_targets` (one current computed target per client, no history in v1).
+
+**Open items / follow-ups:**
+- This work happened on the `feature/unit-004-one-stop-spot` branch — consider a dedicated `feature/unit-005-*` branch before implementation starts.
+- SoJo to review `Unit_005_MacroDrivenDietCharts/SPEC-0001-agnostic-macro-calculator.md` before it moves to a PHASE plan / implementation.
+- Open questions logged in the spec itself: formula-authoring UI mechanism (expression bar vs. chip-builder), and whether `client_macro_targets` needs history/versioning post-pilot.
+- Part B (Recipe/Food Macro Library — likely IFCT-anchored, licensing unverified) and Part C (Wiring) not yet brainstormed.
+
+---
+
+## 2026-06-30/07-01 — P11 amendment + merge; P12 scoping
+
+**Branch**: `feature/unit-001-phase-12-google-calendar-dashboard` (created, empty)
+
+**P11 amendment (4 commits on top of original P11):**
+- `d820035` — Health Metrics card: `target` field added; 3-col table (Metric | Current | Target); fixed height, "▼ Show all N" overflow popover; Target input in edit mode
+- `744d516` — Dashboard client cards: circles (`w-16 h-16`) to right of client name; current/target display; unit once in label below circle
+- `e45c990` — Fix: null-safe `target` schema (`.nullish().transform`); `useCallback` for popover `onClose`; corrected overflow button label
+- `aef02d2` — `--color-section-fill-03: #DFE3E6` added to `tokens.generated.css` (was missing — Goal card and Diet chart had no fill); sheet backdrop blur removed; slide-over polish (`bg-section-fill-03`, `px-5` inset, `space-y-2` fields, `bg-background/80` inputs); circles `bg-section-fill-03` fill
+
+**P11 merged to main** — `72c5327`, 55/55 tests green, P11 branch deleted.
+
+**P12 scoping discussed:**
+- Scope: Google Calendar integration for HC + dashboard redesign to show HC's schedule
+- Pilot HC confirmed to use Google Calendar and is looking forward to this feature
+- Technical approach agreed: OAuth 2.0 → Calendar API (on-demand fetch for MVP) → dashboard "Today" strip with events matched to clients
+- Open question before speccing: how does pilot HC name her calendar events (affects client-matching heuristic)
+- No spec or implementation started — discussion only
+
+**Open items carried forward:**
+- Reseed mock data with P11 fields (`health_metrics`, `demographics`) — scripts at `backend/scripts/mock_p6/`
+- `health_metrics` encryption deferred (ADR-0007 §Consequences)
+- `a1b2c3d4e5f6` Alembic revision ID is hand-typed (minor hygiene, non-blocking)
+
+---
+
+## 2026-06-30 — Phase 10 fixes + Phase 11: Client Profile and Health Metrics
+
+**Branch**: `feature/unit-001-phase-11-client-profile-and-health-metrics` (ready to merge to `main`)
+
+**Phase 10 fixes landed in this session:**
+- `bg-section-fill-01` applied to Sessions + Open Items cards (replaced incorrect white)
+- Dashboard grid: `grid-cols-3` → `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` (responsive)
+- Journey stage: editable `<select>` on client detail page + backend `PATCH /api/clients/{id}` for `journey_stage`
+- Session Notes (tab): Save/Edit freeze pattern writing to `notes_internal`
+- Session Review tab (was "MOM editor"): single textarea, AI generation, Save/Edit freeze, "Send to client" button removed, `draftMom` now reads from `notes_internal` not `session_notes`
+- Three-colour card system: introduced `section_fill_03` token (`#DFE3E6`) for Goal + Diet chart cards; `section_fill_01` for Sessions/Open Items, `section_fill_02` for Supplements/Details
+
+**Phase 11 built:**
+- **Gear icon → demographics Sheet**: 8 optional demographic fields (DOB, gender, city, occupation, medical conditions, allergies, medications, emergency contact) in a slide-over. Only non-empty fields render in Details card.
+- **Health Metrics card**: HC defines custom metrics (name/value/unit), max 3 flagged for roster display. Save/Edit freeze pattern. Sits at 70% alongside Goal card (30%).
+- **Roster card**: up to 3 `display_on_card` metrics shown below stage badge on each client tile.
+- **Backend**: `demographics TEXT` (encrypted) + `health_metrics JSONB NOT NULL DEFAULT '[]'` columns on `clients`; Alembic migration; `PatchClientInput` + `ClientOut` + `ClientCreate` updated; max-3 validator.
+- **ADR-0007**: app-layer Fernet encryption for `demographics` column (DPDP / CLAUDE.md §9.5).
+
+**Security:** `demographics` PII (medical conditions, allergies, medications) encrypted at rest via SQLAlchemy `EncryptedJSON` TypeDecorator (Fernet AES-128-CBC + HMAC). Column is `TEXT` at DB layer; Python/Pydantic layer sees `dict[str, str] | None` transparently. Key: `DEMOGRAPHICS_ENCRYPTION_KEY` env var.
+
+**Commits on branch (9 total):**
+- `2bf190e` spec, `90197e7` backend, `0c0ce3f` frontend API, `2b701f7` client detail page, `04a39ce` roster metrics, `61bf782` review fixes, `808cbbb` ADR-0007, `cb68a65` encryption, `e01f318` decrypt logging + Cancel state
+
+**Open items / follow-ups:**
+- Reseed mock data for P11 (mock scripts at `backend/scripts/mock_p6/` still target local Postgres `parivarthan_dev` — data is intact)
+- `health_metrics` encryption deferred (ADR-0007 §Consequences — client-side filter would break if encrypted)
+- KMS migration when platform crosses regulatory audit or 10k data principals
+- `h` column (Alembic revision ID `a1b2c3d4e5f6` is hand-typed not auto-generated — minor hygiene, non-breaking)
+
+---
+
 ## 2026-06-24/25 — P9 Part B: Cross-browser auth fix + production verification + mock data migration
 
 **Done**:

@@ -1,5 +1,6 @@
 """HC session management endpoints, including MOMs and brief. All routes tenant-scoped."""
 from datetime import datetime, timezone
+from datetime import date as date_type
 from typing import Annotated
 from uuid import UUID
 
@@ -9,7 +10,8 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
-from src.db.models import Brief, Client, ClientFile, Mom, Session
+from src.db.models import ActionItem, Brief, Client, ClientFile, Mom, Session
+from src.lib.email import send_action_items_email
 from src.lib.s3 import _get_session_date_ist, build_session_file_key, s3_put
 from src.telemetry.log import get_logger
 
@@ -24,6 +26,7 @@ class SessionCreate(BaseModel):
     session_number: int
     scheduled_at: datetime
     zoom_meeting_id: str | None = None
+    meeting_url: str | None = None
     notes_internal: str | None = None
 
 
@@ -36,6 +39,7 @@ class SessionOut(BaseModel):
     started_at: datetime | None
     ended_at: datetime | None
     zoom_meeting_id: str | None
+    meeting_url: str | None
     notes_internal: str | None
     session_notes: str | None
     created_at: datetime
@@ -44,7 +48,9 @@ class SessionOut(BaseModel):
 
 
 class SessionPatch(BaseModel):
+    notes_internal: str | None = None
     session_notes: str | None = None
+    meeting_url: str | None = None
 
 
 class MomCreate(BaseModel):
@@ -58,6 +64,7 @@ class MomDraftRequest(BaseModel):
 class MomPatch(BaseModel):
     draft_text: str | None = None
     final_text: str | None = None
+    action_items_draft: list[dict] | None = None
     status: str | None = None
 
     @field_validator("status")
@@ -68,12 +75,17 @@ class MomPatch(BaseModel):
         return v
 
 
+class MomSendRequest(BaseModel):
+    message: str
+
+
 class MomOut(BaseModel):
     id: UUID
     session_id: UUID
     client_id: UUID
     draft_text: str
     final_text: str | None
+    action_items_draft: list[dict] | None
     status: str
     llm_call_id: UUID | None = None
     sent_at: datetime | None
@@ -118,6 +130,7 @@ async def create_session(
         session_number=body.session_number,
         scheduled_at=body.scheduled_at,
         zoom_meeting_id=body.zoom_meeting_id,
+        meeting_url=body.meeting_url,
         notes_internal=body.notes_internal,
     )
     db.add(session)
@@ -201,8 +214,12 @@ async def patch_session(
 ) -> SessionOut:
     logger = get_logger(request_id=getattr(request.state, "request_id", ""), hc_id=hc_id)
     sess = await _get_owned_session(db, session_id, hc_id)
+    if body.notes_internal is not None:
+        sess.notes_internal = body.notes_internal
     if body.session_notes is not None:
         sess.session_notes = body.session_notes
+    if body.meeting_url is not None:
+        sess.meeting_url = body.meeting_url
     await db.flush()
     await db.commit()
 
@@ -266,6 +283,44 @@ async def get_brief(
     return BriefOut.model_validate(brief)
 
 
+@router.post("/{session_id}/brief")
+async def regenerate_brief(
+    session_id: UUID,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> BriefOut:
+    sess = await _get_owned_session(db, session_id, hc_id)
+
+    existing = (await db.execute(
+        select(Brief).where(Brief.session_id == session_id)
+    )).scalar_one_or_none()
+    if existing is not None:
+        await db.delete(existing)
+        await db.flush()
+
+    from src.llm_service import generate_brief
+    brief_text, triage_flags, llm_call_id = await generate_brief(
+        db,
+        session_id=session_id,
+        hc_user_id=UUID(hc_id),
+        client_id=sess.client_id,
+    )
+
+    brief = Brief(
+        session_id=session_id,
+        hc_user_id=UUID(hc_id),
+        client_id=sess.client_id,
+        brief_text=brief_text,
+        triage_flags=triage_flags or [],
+        llm_call_id=llm_call_id,
+    )
+    db.add(brief)
+    await db.flush()
+    await db.commit()
+    return BriefOut.model_validate(brief)
+
+
 # ── MOM routes ─────────────────────────────────────────────────────────────────
 
 
@@ -279,12 +334,22 @@ async def draft_mom(
 ) -> MomOut:
     sess = await _get_owned_session(db, session_id, hc_id)
 
+    existing = (await db.execute(
+        select(Mom).where(Mom.session_id == session_id)
+    )).scalar_one_or_none()
+
+    if existing is not None and existing.status != "draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session review is already frozen and cannot be redrafted",
+        )
+
     # Persist session_notes to DB before LLM call — protects notes against timeout loss
     sess.session_notes = body.session_notes
     await db.flush()
 
     from src.llm_service import generate_mom_draft
-    draft_text, llm_call_id = await generate_mom_draft(
+    draft_text, action_items, llm_call_id = await generate_mom_draft(
         db,
         session_id=session_id,
         hc_user_id=UUID(hc_id),
@@ -292,23 +357,22 @@ async def draft_mom(
         session_notes=body.session_notes,
     )
 
-    existing = (await db.execute(
-        select(Mom).where(Mom.session_id == session_id)
-    )).scalar_one_or_none()
-
     if existing is None:
         mom = Mom(
             session_id=session_id,
             hc_user_id=UUID(hc_id),
             client_id=sess.client_id,
             draft_text=draft_text,
+            action_items_draft=action_items,
             llm_call_id=llm_call_id,
         )
         db.add(mom)
     else:
         existing.draft_text = draft_text
+        existing.action_items_draft = action_items
         existing.llm_call_id = llm_call_id
         existing.final_text = None
+        existing.status = "draft"
         existing.updated_at = datetime.now(timezone.utc)
         mom = existing
 
@@ -395,6 +459,9 @@ async def patch_mom(
                 )
         mom.final_text = body.final_text
 
+    if body.action_items_draft is not None:
+        mom.action_items_draft = body.action_items_draft
+
     if body.status is not None:
         mom.status = body.status
 
@@ -404,25 +471,127 @@ async def patch_mom(
     return MomOut.model_validate(mom)
 
 
-@router.post("/{session_id}/mom/send")
-async def send_mom(
+@router.post("/{session_id}/mom/freeze")
+async def freeze_mom(
     session_id: UUID,
     claims: HcClaimsDep,
     hc_id: TenantDep,
     db: DbDep,
 ) -> MomOut:
-    await _get_owned_session(db, session_id, hc_id)
+    sess = await _get_owned_session(db, session_id, hc_id)
     mom = await _get_session_mom(db, session_id)
 
-    if mom.status != "sent":
-        if mom.final_text is None:
-            mom.final_text = mom.draft_text
-        mom.status = "sent"
-        mom.sent_at = datetime.now(timezone.utc)
-        mom.updated_at = datetime.now(timezone.utc)
-        await db.flush()
-        await db.commit()
+    if mom.status != "draft":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="MOM must be in draft status to freeze",
+        )
 
+    draft_items = mom.action_items_draft or []
+
+    # Validate every item before creating any rows — a bad item anywhere in the
+    # list must reject the whole freeze, not partially apply it.
+    parsed_items: list[tuple[str, date_type | None]] = []
+    for idx, item in enumerate(draft_items):
+        raw_description = item.get("description") if isinstance(item, dict) else None
+        description = (raw_description or "").strip()
+        if not description:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Action item at index {idx} has a missing or empty description",
+            )
+
+        raw_due_date = item.get("due_date") if isinstance(item, dict) else None
+        due_date: date_type | None = None
+        if raw_due_date:
+            try:
+                due_date = date_type.fromisoformat(raw_due_date)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"Action item at index {idx} ('{description}') has an "
+                        f"invalid due_date: {raw_due_date!r}"
+                    ),
+                )
+
+        parsed_items.append((description, due_date))
+
+    for description, due_date in parsed_items:
+        db.add(ActionItem(
+            session_id=session_id,
+            client_id=sess.client_id,
+            hc_user_id=UUID(hc_id),
+            description=description,
+            due_date=due_date,
+        ))
+
+    mom.status = "reviewed"
+    mom.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.commit()
+    return MomOut.model_validate(mom)
+
+
+@router.post("/{session_id}/mom/send")
+async def send_mom(
+    session_id: UUID,
+    body: MomSendRequest,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> MomOut:
+    sess = await _get_owned_session(db, session_id, hc_id)
+    mom = await _get_session_mom(db, session_id)
+
+    if mom.status == "sent":
+        return MomOut.model_validate(mom)
+
+    if mom.status != "reviewed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="MOM must be frozen (reviewed) before it can be sent",
+        )
+
+    client = (await db.execute(
+        select(Client).where(Client.id == sess.client_id)
+    )).scalar_one_or_none()
+    if client is None or not client.email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Client has no email address on record. Add one in the client settings before sending.",
+        )
+
+    action_items = (await db.execute(
+        select(ActionItem).where(ActionItem.session_id == session_id)
+    )).scalars().all()
+
+    from src.db.models import User
+    hc = (await db.execute(
+        select(User).where(User.id == UUID(hc_id))
+    )).scalar_one_or_none()
+    coach_name = hc.display_name if (hc and hc.display_name) else "Your coach"
+
+    session_date = sess.scheduled_at.strftime("%-d %B %Y")
+
+    send_action_items_email(
+        to=client.email,
+        coach_name=coach_name,
+        client_name=client.full_name,
+        session_date=session_date,
+        action_items=[
+            {"description": item.description, "due_date": item.due_date.isoformat() if item.due_date else None}
+            for item in action_items
+        ],
+        message=body.message,
+    )
+
+    mom.status = "sent"
+    mom.sent_at = datetime.now(timezone.utc)
+    mom.sent_to_email = client.email
+    mom.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.commit()
     return MomOut.model_validate(mom)
 
 

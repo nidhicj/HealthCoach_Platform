@@ -3,7 +3,7 @@ import httpx
 
 from src.config import get_settings
 
-_UA = "parivarthan-backend/{version} (+https://github.com/poshini/parivarthan-platform)"
+_UA = "tapas-backend/{version} (+https://github.com/nidhicj/HealthCoach_Platform)"
 
 
 def make_http_client(**kwargs: object) -> httpx.AsyncClient:

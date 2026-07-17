@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -12,15 +13,18 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   getSession,
   getBrief,
+  generateBrief,
   getMom,
   draftMom,
   patchMom,
+  freezeMom,
   sendMom,
   endSession,
   patchSession,
   type SessionOut,
   type BriefOut,
   type MomOut,
+  type ActionItemDraft,
 } from "@/lib/api/sessions";
 import {
   listFiles,
@@ -29,6 +33,7 @@ import {
   type ClientFileOut,
 } from "@/lib/api/files";
 import { getClient, type ClientDetailOut } from "@/lib/api/clients";
+import { cn } from "@/lib/utils";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,12 +59,14 @@ function BriefTab({
   briefLoading,
   onRegenerate,
   regenerating,
+  onNext,
 }: {
   session: SessionOut;
   brief: BriefOut | null;
   briefLoading: boolean;
   onRegenerate: () => void;
   regenerating: boolean;
+  onNext: () => void;
 }) {
   const sessionDate = new Date(session.scheduled_at).toLocaleDateString("en-IN", {
     weekday: "long",
@@ -70,9 +77,18 @@ function BriefTab({
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h2 className="font-heading text-2xl font-black text-foreground">
-          Pre-session brief — M{String(session.session_number).padStart(3, "0")}, {sessionDate}
-        </h2>
+        <div className="flex items-start justify-between gap-4">
+          <h2 className="font-heading text-2xl font-black text-foreground">
+            Pre-session brief — M{String(session.session_number).padStart(3, "0")}, {sessionDate}
+          </h2>
+          <button
+            onClick={onNext}
+            className="shrink-0 rounded-md px-3 py-1.5 font-sans text-xs font-bold text-foreground"
+            style={{ backgroundColor: "var(--color-marigold)" }}
+          >
+            Next →
+          </button>
+        </div>
         <div className="h-0.5 w-10 bg-primary" aria-hidden />
       </div>
 
@@ -123,47 +139,60 @@ function BriefTab({
   );
 }
 
-// ── tab: Notes ────────────────────────────────────────────────────────────────
+// ── tab: Session ──────────────────────────────────────────────────────────────
 
 function NotesTab({
   session,
   files,
   filesLoading,
   onFilesChange,
+  onSessionChange,
+  onNext,
 }: {
   session: SessionOut;
   files: ClientFileOut[];
   filesLoading: boolean;
   onFilesChange: (files: ClientFileOut[]) => void;
+  onSessionChange: (session: SessionOut) => void;
+  onNext: () => void;
 }) {
-  const [notes, setNotes] = useState(session.session_notes ?? "");
-  const [saving, setSaving] = useState(false);
+  const [notes, setNotes] = useState(session.notes_internal ?? "");
+  const [notesFrozen, setNotesFrozen] = useState(false);
+  const [notesSaving, setNotesSaving] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [editingLink, setEditingLink] = useState(false);
+  const [linkDraft, setLinkDraft] = useState("");
+  const [savingLink, setSavingLink] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
 
-  const triggerSave = useCallback(
-    (value: string) => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(async () => {
-        setSaving(true);
-        try {
-          await patchSession(session.id, { session_notes: value });
-        } finally {
-          setSaving(false);
-        }
-      }, 800);
-    },
-    [session.id],
-  );
+  async function handleNotesSave() {
+    setNotesSaving(true);
+    try {
+      await patchSession(session.id, { notes_internal: notes });
+      setNotesFrozen(true);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setNotesSaving(false);
+    }
+  }
 
-  function handleNotesChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const val = e.target.value;
-    setNotes(val);
-    triggerSave(val);
+  async function handleSaveLink() {
+    setSavingLink(true);
+    setLinkError(null);
+    try {
+      const updated = await patchSession(session.id, { meeting_url: linkDraft.trim() });
+      onSessionChange(updated);
+      setEditingLink(false);
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : "Failed to save link.");
+    } finally {
+      setSavingLink(false);
+    }
   }
 
   async function handleFiles(incoming: FileList | null) {
@@ -203,260 +232,445 @@ function NotesTab({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-            Session notes
-          </h2>
-          {saving && (
-            <span className="font-sans text-xs text-muted-foreground">Saving…</span>
-          )}
-        </div>
-        <Textarea
-          value={notes}
-          onChange={handleNotesChange}
-          placeholder="Paste transcript, write observations, add context…"
-          className="min-h-64 font-sans text-sm leading-relaxed resize-y"
-        />
+    <div className="space-y-4">
+      {/* Tab header */}
+      <div className="flex items-center justify-between">
+        <h2 className="font-heading text-2xl font-black text-foreground">
+          Session
+        </h2>
+        <button
+          onClick={onNext}
+          className="rounded-md px-3 py-1.5 font-sans text-xs font-bold text-foreground"
+          style={{ backgroundColor: "var(--color-marigold)" }}
+        >
+          Next →
+        </button>
       </div>
 
-      <Separator />
+      {/* Two-column layout */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
 
-      <div className="space-y-4">
-        <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-          Files
-        </h2>
-
-        {/* Drop zone */}
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragOver(false);
-            handleFiles(e.dataTransfer.files);
-          }}
-          onClick={() => fileInputRef.current?.click()}
-          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-6 py-8 transition-colors duration-150 ${
-            dragOver ? "border-primary bg-muted" : "border-border hover:border-primary/50"
-          }`}
-        >
-          <p className="font-sans text-sm text-muted-foreground">
-            {uploading ? "Uploading…" : "Drop files here, or click to browse"}
-          </p>
-          <p className="font-sans text-xs text-muted-foreground">
-            .txt · .md · .pdf · .docx · max 25 MB
-          </p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".txt,.md,.pdf,.docx"
-            className="hidden"
-            onChange={(e) => handleFiles(e.target.files)}
-          />
+        {/* Left: Meet placeholder */}
+        <div className="flex min-h-[420px] flex-col items-center justify-center gap-4 rounded-xl border border-border bg-muted/20 p-10 text-center">
+          {editingLink ? (
+            <div className="w-full max-w-sm space-y-3">
+              <Input
+                type="url"
+                value={linkDraft}
+                onChange={(e) => setLinkDraft(e.target.value)}
+                placeholder="https://meet.google.com/…"
+                autoFocus
+              />
+              <div className="flex items-center justify-center gap-2">
+                <Button size="sm" onClick={handleSaveLink} disabled={savingLink}>
+                  {savingLink ? "Saving…" : "Save"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setEditingLink(false)} disabled={savingLink}>
+                  Cancel
+                </Button>
+              </div>
+              {linkError && <p className="font-sans text-xs text-destructive">{linkError}</p>}
+            </div>
+          ) : session.meeting_url ? (
+            <>
+              <p className="font-heading text-3xl font-black text-muted-foreground">
+                Meeting link
+              </p>
+              <a
+                href={session.meeting_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 rounded-full bg-primary px-4 py-1.5 font-sans text-xs font-bold text-primary-foreground"
+              >
+                Join call →
+              </a>
+              <button
+                onClick={() => { setLinkDraft(session.meeting_url ?? ""); setEditingLink(true); }}
+                className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
+              >
+                Edit link
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="font-heading text-3xl font-black text-muted-foreground">
+                No meeting link yet
+              </p>
+              <button
+                onClick={() => { setLinkDraft(""); setEditingLink(true); }}
+                className="mt-1 rounded-full border border-border bg-background px-4 py-1.5 font-sans text-xs text-foreground hover:border-primary"
+              >
+                + Add meeting link
+              </button>
+            </>
+          )}
         </div>
 
-        {uploadError && (
-          <p className="font-sans text-sm text-destructive">{uploadError}</p>
-        )}
+        {/* Right: Notes + Files */}
+        <div className="space-y-5">
 
-        {/* File list */}
-        {filesLoading ? (
+          {/* Session notes */}
           <div className="space-y-2">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-          </div>
-        ) : files.length > 0 ? (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {files.map((file) => (
-              <li
-                key={file.id}
-                className="flex items-center justify-between px-4 py-3"
-              >
-                <div>
-                  <p className="font-sans text-sm text-foreground">
-                    {file.original_filename}
-                    {file.is_zoom_summary && (
-                      <Badge variant="secondary" className="ml-2">
-                        Zoom summary
-                      </Badge>
-                    )}
-                  </p>
-                  <p className="font-sans text-xs text-muted-foreground">
-                    {formatBytes(file.size_bytes)}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDelete(file.id)}
-                  disabled={deletingId === file.id}
-                  className="text-destructive hover:text-destructive"
-                >
-                  {deletingId === file.id ? "Removing…" : "Remove"}
+            <div className="flex items-center justify-between">
+              <h3 className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                Session notes
+              </h3>
+              {notesFrozen ? (
+                <Button variant="outline" size="sm" onClick={() => setNotesFrozen(false)}>
+                  Edit
                 </Button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
+              ) : notesSaving ? (
+                <span className="font-sans text-xs text-muted-foreground">Saving…</span>
+              ) : (
+                <Button variant="secondary" size="sm" onClick={handleNotesSave}>
+                  Save
+                </Button>
+              )}
+            </div>
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              readOnly={notesFrozen}
+              placeholder="Paste transcript, write observations, add context…"
+              className={cn(
+                "min-h-40 font-sans text-sm leading-relaxed resize-y",
+                notesFrozen && "opacity-70 bg-muted/50",
+              )}
+            />
+          </div>
+
+          <Separator />
+
+          {/* Files */}
+          <div className="space-y-3">
+            <h3 className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              Files
+            </h3>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                handleFiles(e.dataTransfer.files);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-6 transition-colors duration-150 ${
+                dragOver ? "border-primary bg-muted" : "border-border hover:border-primary/50"
+              }`}
+            >
+              <p className="font-sans text-sm text-muted-foreground">
+                {uploading ? "Uploading…" : "Drop files here, or click to browse"}
+              </p>
+              <p className="font-sans text-xs text-muted-foreground">
+                .txt · .md · .pdf · .docx · max 25 MB
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".txt,.md,.pdf,.docx"
+                className="hidden"
+                onChange={(e) => handleFiles(e.target.files)}
+              />
+            </div>
+            {uploadError && (
+              <p className="font-sans text-sm text-destructive">{uploadError}</p>
+            )}
+            {filesLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : files.length > 0 ? (
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {files.map((file) => (
+                  <li key={file.id} className="flex items-center justify-between px-4 py-3">
+                    <div>
+                      <p className="font-sans text-sm text-foreground">
+                        {file.original_filename}
+                        {file.is_zoom_summary && (
+                          <Badge variant="secondary" className="ml-2">Zoom summary</Badge>
+                        )}
+                      </p>
+                      <p className="font-sans text-xs text-muted-foreground">
+                        {formatBytes(file.size_bytes)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(file.id)}
+                      disabled={deletingId === file.id}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      {deletingId === file.id ? "Removing…" : "Remove"}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// ── tab: MOM ─────────────────────────────────────────────────────────────────
+// ── tab: Session Review ───────────────────────────────────────────────────────
 
-function MomTab({
-  session,
+function SendDialog({
   mom,
-  onMomChange,
+  clientName,
+  coachName,
+  onSent,
+  onClose,
 }: {
-  session: SessionOut;
-  mom: MomOut | null;
-  onMomChange: (mom: MomOut) => void;
+  mom: MomOut;
+  clientName: string;
+  coachName: string;
+  onSent: (mom: MomOut) => void;
+  onClose: () => void;
 }) {
-  const [drafting, setDrafting] = useState(false);
+  const [message, setMessage] = useState(
+    `Hi ${clientName.split(" ")[0]}, here's what we're focusing on this week. Keep it up! — ${coachName}`,
+  );
   const [sending, setSending] = useState(false);
-  const [editedText, setEditedText] = useState<string>("");
-  const [saving, setSaving] = useState(false);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (mom?.final_text != null) {
-      setEditedText(mom.final_text);
-    } else if (mom?.draft_text) {
-      setEditedText(mom.draft_text);
-    }
-  }, [mom?.id]);
-
-  async function handleDraft() {
-    setDrafting(true);
-    try {
-      const result = await draftMom(session.id, session.session_notes ?? "");
-      onMomChange(result);
-      setEditedText(result.draft_text);
-    } finally {
-      setDrafting(false);
-    }
-  }
-
-  function handleEditChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const val = e.target.value;
-    setEditedText(val);
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      setSaving(true);
-      try {
-        const updated = await patchMom(session.id, { final_text: val });
-        onMomChange(updated);
-      } finally {
-        setSaving(false);
-      }
-    }, 800);
-  }
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSend() {
     setSending(true);
+    setError(null);
     try {
-      const result = await sendMom(session.id);
-      onMomChange(result);
+      const updated = await sendMom(mom.session_id, message);
+      onSent(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send.");
     } finally {
       setSending(false);
     }
   }
 
-  const isSent = mom?.status === "sent";
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg space-y-4 rounded-xl border border-border bg-background p-6">
+        <h3 className="font-heading text-xl font-black text-foreground">Send to client</h3>
+
+        <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-4">
+          <p className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+            Action items (read-only)
+          </p>
+          <ul className="space-y-1 font-sans text-sm">
+            {(mom.action_items_draft ?? []).map((item, i) => (
+              <li key={i}>
+                {item.description}
+                {item.due_date && <span className="text-muted-foreground"> (due {item.due_date})</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="space-y-1">
+          <Textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            className="min-h-32 font-sans text-sm"
+          />
+          <p className="font-sans text-xs text-muted-foreground">
+            This message isn&apos;t tracked as an action item.
+          </p>
+        </div>
+
+        {error && <p className="font-sans text-sm text-destructive">{error}</p>}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={sending}>
+            Cancel
+          </Button>
+          <Button variant="default" size="sm" onClick={handleSend} disabled={sending}>
+            {sending ? "Sending…" : "Send"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MomTab({
+  session,
+  mom,
+  onMomChange,
+  onSaved,
+}: {
+  session: SessionOut;
+  mom: MomOut | null;
+  onMomChange: (mom: MomOut) => void;
+  onSaved: (mom: MomOut) => void;
+}) {
+  const [drafting, setDrafting] = useState(false);
+  const [sessionReviewText, setSessionReviewText] = useState<string>("");
+  const [actionItems, setActionItems] = useState<ActionItemDraft[]>([]);
+  const [sessionReviewFrozen, setSessionReviewFrozen] = useState(false);
+  const [draftVisible, setDraftVisible] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (mom?.final_text != null) {
+      setSessionReviewText(mom.final_text);
+      setDraftVisible(true);
+    } else if (mom?.draft_text) {
+      setSessionReviewText(mom.draft_text);
+      setDraftVisible(true);
+    }
+    setActionItems(mom?.action_items_draft ?? []);
+    setSessionReviewFrozen(mom?.status !== "draft" && mom !== null);
+  }, [mom?.id, mom?.status]);
+
+  async function handleDraft() {
+    setDrafting(true);
+    setDraftVisible(false);
+    try {
+      const result = await draftMom(session.id, session.notes_internal ?? "");
+      onMomChange(result);
+      setSessionReviewText(result.draft_text);
+      setActionItems(result.action_items_draft ?? []);
+      setSessionReviewFrozen(false);
+    } finally {
+      setDrafting(false);
+      requestAnimationFrame(() => setDraftVisible(true));
+    }
+  }
+
+  async function handleSave() {
+    const confirmed = window.confirm(
+      "Once saved, this locks the review and creates your client's action items — you won't be able to edit it after. Continue?",
+    );
+    if (!confirmed) return;
+
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await patchMom(session.id, {
+        final_text: sessionReviewText,
+        action_items_draft: actionItems,
+      });
+      const frozen = await freezeMom(session.id);
+      onMomChange(frozen);
+      setSessionReviewFrozen(true);
+      onSaved(frozen);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save. Check the action items for anything unusual and try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function updateActionItem(index: number, description: string) {
+    setActionItems((prev) => prev.map((item, i) => (i === index ? { ...item, description } : item)));
+  }
+
+  function removeActionItem(index: number) {
+    setActionItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function addActionItem() {
+    setActionItems((prev) => [...prev, { description: "", due_date: null }]);
+  }
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-primary">
-          Minutes of meeting
+        <h2 className="font-heading text-2xl font-black text-foreground">
+          Session review
         </h2>
-        {mom && (
-          <Badge variant={isSent ? "secondary" : "outline"}>
-            {isSent ? "Sent" : mom.status.replace(/_/g, " ")}
-          </Badge>
-        )}
       </div>
 
       {mom === null ? (
         <div className="space-y-4">
           <p className="font-heading text-lg font-black text-muted-foreground">
-            No MOM yet. <em>Generate the draft first.</em>
+            No session review yet. <em>Generate the draft first.</em>
           </p>
           <Button variant="default" onClick={handleDraft} disabled={drafting}>
             {drafting ? "Generating draft…" : "Generate draft"}
           </Button>
         </div>
       ) : (
-        <div className="space-y-6">
-          {/* Two-pane on desktop, stacked on mobile */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            {/* Left: draft */}
-            <div className="space-y-2">
-              <p className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                AI draft
-              </p>
-              <div className="rounded-lg border border-border bg-muted/40 p-4">
-                <p className="font-sans text-sm leading-relaxed text-foreground whitespace-pre-line">
-                  {mom.draft_text}
+        <div className="space-y-4">
+          {drafting ? (
+            <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-4">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-4/6" />
+            </div>
+          ) : (
+            <Textarea
+              value={sessionReviewText}
+              onChange={(e) => setSessionReviewText(e.target.value)}
+              readOnly={sessionReviewFrozen}
+              placeholder="Edit the session review here…"
+              className={cn(
+                "min-h-64 font-sans text-sm leading-relaxed resize-y transition-opacity duration-200",
+                draftVisible ? (sessionReviewFrozen ? "opacity-70" : "opacity-100") : "opacity-0",
+                sessionReviewFrozen && "bg-muted/50",
+              )}
+            />
+          )}
+
+          {!sessionReviewFrozen && !drafting && (
+            <div className="space-y-2 rounded-lg border border-border p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                  Action items
+                </h3>
+                <p className="font-sans text-xs text-muted-foreground">
+                  Anything listed here will be tracked and shown to your client.
                 </p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDraft}
-                disabled={drafting || isSent}
-              >
-                {drafting ? "Regenerating…" : "Regenerate draft"}
+              {actionItems.map((item, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    value={item.description}
+                    onChange={(e) => updateActionItem(i, e.target.value)}
+                    className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-sans text-sm"
+                    placeholder="Action item description"
+                  />
+                  <button
+                    onClick={() => removeActionItem(i)}
+                    className="font-sans text-xs text-muted-foreground hover:text-destructive"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={addActionItem}>
+                + Add action item
               </Button>
             </div>
+          )}
 
-            {/* Right: editable final */}
+          {!sessionReviewFrozen && (
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
-                  Your version
-                </p>
-                {saving && (
-                  <span className="font-sans text-xs text-muted-foreground">
-                    Saving…
-                  </span>
-                )}
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleDraft} disabled={drafting}>
+                  {drafting ? "Regenerating…" : "Regenerate draft"}
+                </Button>
+                <Button variant="default" size="sm" onClick={handleSave} disabled={saving || drafting || !sessionReviewText.trim()}>
+                  {saving ? "Saving…" : "Save"}
+                </Button>
               </div>
-              <Textarea
-                value={editedText}
-                onChange={handleEditChange}
-                disabled={isSent}
-                placeholder="Edit the draft here before sending…"
-                className="min-h-64 font-sans text-sm leading-relaxed resize-y"
-              />
+              {saveError && (
+                <p className="font-sans text-sm text-destructive">{saveError}</p>
+              )}
             </div>
-          </div>
+          )}
 
-          {/* Send button — THE single Marigold on this screen */}
-          {!isSent ? (
-            <Button
-              variant="accent"
-              onClick={handleSend}
-              disabled={sending || !editedText.trim()}
-              className="view-transition-name-[mom-send]"
-            >
-              {sending ? "Sending…" : "Send to client"}
-            </Button>
-          ) : (
-            <p className="font-sans text-sm font-bold text-primary">
-              MOM sent to client.{" "}
-              {mom.sent_at &&
-                new Date(mom.sent_at).toLocaleDateString("en-IN", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                })}
-            </p>
+          {sessionReviewFrozen && mom.status === "reviewed" && (
+            <div className="space-y-2">
+              <Button variant="default" size="sm" onClick={() => onSaved(mom)}>
+                Send to client
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -482,6 +696,8 @@ export default function SessionPage() {
   const [loadError, setLoadError] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [activeTab, setActiveTab] = useState("brief");
+  const [sendDialogMom, setSendDialogMom] = useState<MomOut | null>(null);
 
   useEffect(() => {
     if (!clientId || !sessionId) return;
@@ -517,7 +733,9 @@ export default function SessionPage() {
     if (!sessionId) return;
     setRegenerating(true);
     try {
-      const result = await getBrief(sessionId);
+      const result = brief === null
+        ? await getBrief(sessionId)      // first generation: GET (creates if missing)
+        : await generateBrief(sessionId); // re-generation: POST (deletes + recreates)
       setBrief(result);
     } finally {
       setRegenerating(false);
@@ -598,13 +816,13 @@ export default function SessionPage() {
           <Separator />
 
           {/* Three-tab layout */}
-          <Tabs defaultValue="brief" className="space-y-0">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-0">
             {/* overflow-x-auto keeps the tab strip from expanding <html> width at 375px */}
             <div className="overflow-x-auto">
               <TabsList variant="line">
                 <TabsTrigger value="brief">Pre-session brief</TabsTrigger>
-                <TabsTrigger value="notes">In-session notes</TabsTrigger>
-                <TabsTrigger value="mom">MOM editor</TabsTrigger>
+                <TabsTrigger value="notes">Session</TabsTrigger>
+                <TabsTrigger value="mom">Session Review</TabsTrigger>
               </TabsList>
             </div>
 
@@ -616,6 +834,7 @@ export default function SessionPage() {
                   briefLoading={briefLoading}
                   onRegenerate={handleRegenerate}
                   regenerating={regenerating}
+                  onNext={() => setActiveTab("notes")}
                 />
               </TabsContent>
 
@@ -625,6 +844,8 @@ export default function SessionPage() {
                   files={files}
                   filesLoading={filesLoading}
                   onFilesChange={setFiles}
+                  onSessionChange={setSession}
+                  onNext={() => setActiveTab("mom")}
                 />
               </TabsContent>
 
@@ -633,10 +854,24 @@ export default function SessionPage() {
                   session={session!}
                   mom={mom}
                   onMomChange={setMom}
+                  onSaved={(savedMom) => setSendDialogMom(savedMom)}
                 />
               </TabsContent>
             </div>
           </Tabs>
+
+          {sendDialogMom && client && (
+            <SendDialog
+              mom={sendDialogMom}
+              clientName={client.full_name}
+              coachName="Your coach"
+              onSent={(updated) => {
+                setMom(updated);
+                setSendDialogMom(null);
+              }}
+              onClose={() => setSendDialogMom(null)}
+            />
+          )}
         </>
       )}
     </div>

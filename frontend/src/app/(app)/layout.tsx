@@ -11,7 +11,6 @@ type AuthState = "checking" | "authed" | "denied";
 
 const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/clients", label: "Clients" },
   { href: "/action-items", label: "Action Items" },
   { href: "/settings/diet-chart-templates", label: "Diet Charts" },
   { href: "/settings/sessions", label: "Settings" },
@@ -61,7 +60,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             href="/dashboard"
             className="shrink-0 font-heading text-lg font-black text-foreground"
           >
-            Parivarthan
+            Tapas
           </Link>
           {/* overflow-x-auto keeps nav from expanding <html> width on 375px screens */}
           <div className="flex min-w-0 flex-1 items-center justify-end gap-3 overflow-x-auto sm:gap-6">

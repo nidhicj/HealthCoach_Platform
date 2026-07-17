@@ -10,7 +10,7 @@ from sqlalchemy import and_, select
 
 from src.api.deps import DbDep, HcClaimsDep, TenantDep
 from src.db.models.clients import Client
-from src.db.models.content import ContentAssignment, DietChart
+from src.db.models.content import ContentAssignment, DietChart, DietChartSend
 
 router = APIRouter(tags=["diet-charts"])
 
@@ -35,6 +35,15 @@ class DietChartOut(BaseModel):
 
 class DietChartPatch(BaseModel):
     parameters: dict
+
+
+class DietChartSendOut(BaseModel):
+    id: UUID
+    client_id: UUID
+    chart_name: str
+    sent_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class PasteTemplateIn(BaseModel):
@@ -321,3 +330,27 @@ async def patch_client_diet_chart(
     await db.flush()
     await db.commit()
     return _to_out(chart)
+
+
+@router.post("/api/clients/{client_id}/diet-chart/send", status_code=status.HTTP_201_CREATED)
+async def send_client_diet_chart(
+    client_id: UUID,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> DietChartSendOut:
+    await _get_owned_client(db, client_id, hc_id)
+    chart = await _get_active_chart(db, client_id, hc_id)
+    if chart is None:
+        raise HTTPException(status_code=404, detail="No active diet chart for this client")
+
+    snapshot = DietChartSend(
+        client_id=client_id,
+        hc_user_id=UUID(hc_id),
+        chart_name=chart.name,
+        chart_parameters=chart.parameters or {},
+    )
+    db.add(snapshot)
+    await db.flush()
+    await db.commit()
+    return DietChartSendOut.model_validate(snapshot)

@@ -181,16 +181,79 @@ export default function DietChartTemplatesPage() {
         <h1 className="mt-1 font-heading text-4xl font-black text-foreground">
           Templates
         </h1>
-        <p className="mt-2 font-sans text-sm text-muted-foreground">
-          Upload CSV templates or paste directly from Google Sheets. Each template is the starting point the AI uses when generating a client chart.
-        </p>
+        
       </div>
+
+      <section className="space-y-4">
+        <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-foreground">
+          Library
+        </h2>
+        <Separator />
+        {loadError ? (
+          <p className="font-sans text-sm text-destructive">Could not load templates.</p>
+        ) : templates === null ? (
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : templates.length === 0 ? (
+          <p className="py-2 font-heading text-xl font-black text-muted-foreground">
+            No templates yet. <em>Upload or paste one below.</em>
+          </p>
+        ) : (
+          <ul className="divide-y divide-border rounded-2xl border border-border">
+            {templates.map((t) => {
+              const isOpen = expandedId === t.id;
+              const subtitle = templateSubtitle(t);
+              return (
+                <li key={t.id} className="px-5 py-4">
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedId(isOpen ? null : t.id)}
+                      className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                    >
+                      <span
+                        className="mt-0.5 shrink-0 font-sans text-xs text-muted-foreground"
+                        aria-hidden
+                      >
+                        {isOpen ? "▲" : "▼"}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-heading text-base font-bold text-foreground">
+                          {t.name}
+                        </p>
+                        {subtitle && (
+                          <p className="font-sans text-xs text-muted-foreground">
+                            {subtitle}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => handleDelete(t.id)}
+                      className="ml-4 shrink-0 font-sans text-xs text-destructive underline-offset-4 hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  {isOpen && <TemplateGrid template={t} />}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
 
       <section className="space-y-4">
         <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-foreground">
           Upload a template
         </h2>
         <Separator />
+        <p className="mt-2 font-sans text-sm text-muted-foreground">
+          Upload CSV templates or paste directly from Google Sheets. Each template is the starting point the AI uses when generating a client chart.
+        </p>
         <p className="font-sans text-xs text-muted-foreground">
           CSV format: header row <code className="font-mono">Day,Breakfast,Lunch,…</code>, rows 2–8 are Monday–Sunday, cells are{" "}
           <code className="font-mono">food · timing</code>.
@@ -259,68 +322,6 @@ export default function DietChartTemplatesPage() {
             <p className="font-sans text-xs text-destructive">{pasteError}</p>
           )}
         </div>
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="font-sans text-xs font-bold uppercase tracking-widest text-foreground">
-          Library
-        </h2>
-        <Separator />
-        {loadError ? (
-          <p className="font-sans text-sm text-destructive">Could not load templates.</p>
-        ) : templates === null ? (
-          <div className="space-y-2">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-          </div>
-        ) : templates.length === 0 ? (
-          <p className="py-2 font-heading text-xl font-black text-muted-foreground">
-            No templates yet. <em>Upload or paste one above.</em>
-          </p>
-        ) : (
-          <ul className="divide-y divide-border rounded-2xl border border-border">
-            {templates.map((t) => {
-              const isOpen = expandedId === t.id;
-              const subtitle = templateSubtitle(t);
-              return (
-                <li key={t.id} className="px-5 py-4">
-                  <div className="flex items-center justify-between">
-                    <button
-                      type="button"
-                      onClick={() => setExpandedId(isOpen ? null : t.id)}
-                      className="flex min-w-0 flex-1 items-start gap-3 text-left"
-                    >
-                      <span
-                        className="mt-0.5 shrink-0 font-sans text-xs text-muted-foreground"
-                        aria-hidden
-                      >
-                        {isOpen ? "▲" : "▼"}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="font-heading text-base font-bold text-foreground">
-                          {t.name}
-                        </p>
-                        {subtitle && (
-                          <p className="font-sans text-xs text-muted-foreground">
-                            {subtitle}
-                          </p>
-                        )}
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(t.id)}
-                      className="ml-4 shrink-0 font-sans text-xs text-destructive underline-offset-4 hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </div>
-
-                  {isOpen && <TemplateGrid template={t} />}
-                </li>
-              );
-            })}
-          </ul>
-        )}
       </section>
     </div>
   );

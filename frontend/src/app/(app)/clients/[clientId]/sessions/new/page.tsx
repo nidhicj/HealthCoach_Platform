@@ -31,6 +31,7 @@ export default function NewSessionPage() {
     const fd = new FormData(e.currentTarget);
     const scheduledRaw = fd.get("scheduled_at") as string;
     const sessionNumberRaw = (fd.get("session_number") as string).trim();
+    const meetingUrlRaw = (fd.get("meeting_url") as string).trim();
 
     if (!scheduledRaw || !sessionNumberRaw) {
       setError("All fields are required.");
@@ -50,6 +51,7 @@ export default function NewSessionPage() {
         client_id: clientId,
         session_number,
         scheduled_at: new Date(scheduledRaw).toISOString(),
+        meeting_url: meetingUrlRaw || undefined,
       });
       router.push(`/clients/${clientId}/sessions/${session.id}`);
     } catch {
@@ -108,6 +110,21 @@ export default function NewSessionPage() {
             type="datetime-local"
             required
             defaultValue={localIso}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label
+            htmlFor="meeting_url"
+            className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground"
+          >
+            Meeting link (optional)
+          </Label>
+          <Input
+            id="meeting_url"
+            name="meeting_url"
+            type="url"
+            placeholder="https://meet.google.com/…"
           />
         </div>
 

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
     openrouter_api_key: str = ""
     llm_call_encryption_key: str = ""
+    demographics_encryption_key: str = ""
 
     r2_account_id: str = ""
     r2_access_key_id: str = ""
@@ -35,6 +36,8 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
 
     scheduler_secret: str = ""
+    resend_api_key: str = ""
+    resend_from_email: str = "noreply@tapas.health"
 
     @field_validator("database_url", "jwt_private_key", "jwt_public_key", mode="before")
     @classmethod

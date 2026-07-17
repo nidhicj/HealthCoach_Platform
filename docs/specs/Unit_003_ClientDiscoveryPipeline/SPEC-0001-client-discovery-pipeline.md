@@ -291,7 +291,7 @@ Constraint: `UNIQUE (hc_user_id, email)` — prevents duplicate leads from the s
 | `consultation_fee_inr` | INTEGER | Nullable until configured. |
 | `consultation_duration_min` | INTEGER DEFAULT 45 | |
 | `scheduling_link` | TEXT | External calendar link (Calendly, Google Calendar). |
-| `notification_delivery` | TEXT DEFAULT 'email'` | Enum: `email`. WhatsApp variants deferred. |
+| `notification_delivery` | TEXT DEFAULT 'email' | Enum: `email`. WhatsApp variants deferred. |
 | `lead_expiry_days` | INTEGER DEFAULT 60 | |
 | `updated_at` | TIMESTAMPTZ | |
 

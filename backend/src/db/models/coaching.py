@@ -25,6 +25,7 @@ class Mom(Base):
     client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     draft_text: Mapped[str] = mapped_column(Text, nullable=False)
     final_text: Mapped[str | None] = mapped_column(Text)
+    action_items_draft: Mapped[list | None] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="draft", server_default=text("'draft'"))
     sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     sent_to_email: Mapped[str | None] = mapped_column(Text)

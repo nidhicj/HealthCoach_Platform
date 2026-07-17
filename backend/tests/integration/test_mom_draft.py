@@ -86,6 +86,80 @@ async def test_mom_draft_writes_llm_calls_row(http_client, hc_headers, session_i
 
 
 @pytest.mark.asyncio
+async def test_mom_draft_preserves_structured_action_items(http_client, hc_headers, session_id):
+    """POST /mom/draft populates action_items_draft with the LLM's structured list, not just prose."""
+    mock_json = json.dumps({
+        "summary": "Good session.",
+        "key_discussion_points": ["Sleep"],
+        "action_items": [
+            {"description": "Walk 20 minutes daily", "due_date": "2026-07-15"},
+            {"description": "Cut sugar after 7pm", "due_date": None},
+        ],
+        "follow_ups": [],
+        "hc_closing_note": "Keep it up.",
+    })
+    with patch("src.llm_service.client.make_http_client", return_value=_mock_http(mock_json)):
+        r = await http_client.post(
+            f"/api/sessions/{session_id}/mom/draft",
+            headers=hc_headers,
+            json={"session_notes": "Talked about sleep and sugar."},
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["action_items_draft"] == [
+        {"description": "Walk 20 minutes daily", "due_date": "2026-07-15"},
+        {"description": "Cut sugar after 7pm", "due_date": None},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_mom_draft_rejects_redraft_after_freeze(http_client, hc_headers, session_id, db):
+    """Both draft_mom and freeze_mom must guard against state changes once a MOM is frozen.
+
+    This test verifies that two separate failure modes are prevented:
+    1. If draft_mom allowed re-drafting after freeze, status would reset to "draft", allowing
+       a second freeze to create duplicate ActionItem rows (freeze only db.add()s, never removes)
+    2. If freeze_mom allowed freezing a non-draft MOM, it could also create duplicate rows
+
+    This confirms both guards work in combination: re-draft is rejected (409), re-freeze is
+    also rejected (409), and action_items row count stays unchanged after both rejections.
+    """
+    with patch("src.llm_service.client.make_http_client", return_value=_mock_http(_MOCK_MOM_JSON)):
+        await http_client.post(
+            f"/api/sessions/{session_id}/mom/draft",
+            headers=hc_headers,
+            json={"session_notes": "Good hydration discussion."},
+        )
+
+    freeze_r = await http_client.post(f"/api/sessions/{session_id}/mom/freeze", headers=hc_headers)
+    assert freeze_r.status_code == 200, freeze_r.text
+
+    count_before = (await db.execute(
+        sa.text("SELECT COUNT(*) FROM action_items WHERE session_id = :sid"),
+        {"sid": session_id},
+    )).scalar()
+
+    # Attempt to re-draft after freeze — should be rejected by draft_mom's guard
+    with patch("src.llm_service.client.make_http_client", return_value=_mock_http(_MOCK_MOM_JSON)):
+        redraft_r = await http_client.post(
+            f"/api/sessions/{session_id}/mom/draft",
+            headers=hc_headers,
+            json={"session_notes": "Attempting a re-draft after freeze."},
+        )
+    assert redraft_r.status_code == 409, redraft_r.text
+
+    # Attempt to re-freeze after freeze — should be rejected by freeze_mom's "must be draft" guard
+    refreeze_r = await http_client.post(f"/api/sessions/{session_id}/mom/freeze", headers=hc_headers)
+    assert refreeze_r.status_code == 409, refreeze_r.text
+
+    count_after = (await db.execute(
+        sa.text("SELECT COUNT(*) FROM action_items WHERE session_id = :sid"),
+        {"sid": session_id},
+    )).scalar()
+    assert count_after == count_before
+
+
+@pytest.mark.asyncio
 async def test_mom_draft_wrong_hc_returns_404(http_client, session_id):
     other_hc_id = str(uuid.uuid4())
     token = create_access_token(

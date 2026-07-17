@@ -13,9 +13,15 @@ export const SessionOutSchema = z.object({
   started_at: z.string().nullable(),
   ended_at: z.string().nullable(),
   zoom_meeting_id: z.string().nullable(),
+  meeting_url: z.string().nullable(),
   notes_internal: z.string().nullable(),
   session_notes: z.string().nullable(),
   created_at: z.string(),
+});
+
+const ActionItemDraftSchema = z.object({
+  description: z.string(),
+  due_date: z.string().nullable(),
 });
 
 export const MomOutSchema = z.object({
@@ -24,6 +30,7 @@ export const MomOutSchema = z.object({
   client_id: z.string(),
   draft_text: z.string(),
   final_text: z.string().nullable(),
+  action_items_draft: z.array(ActionItemDraftSchema).nullable(),
   status: z.string(),
   llm_call_id: z.string().nullable(),
   sent_at: z.string().nullable(),
@@ -49,6 +56,7 @@ const PaginatedSessionsSchema = z.object({
 export type SessionOut = z.infer<typeof SessionOutSchema>;
 export type MomOut = z.infer<typeof MomOutSchema>;
 export type BriefOut = z.infer<typeof BriefOutSchema>;
+export type ActionItemDraft = z.infer<typeof ActionItemDraftSchema>;
 
 // ── api wrappers ─────────────────────────────────────────────────────────────
 
@@ -57,6 +65,7 @@ export async function createSession(input: {
   session_number: number;
   scheduled_at: string;
   zoom_meeting_id?: string;
+  meeting_url?: string;
   notes_internal?: string;
 }): Promise<SessionOut> {
   const res = await fetchWithAuth(`${API_URL}/api/sessions`, {
@@ -91,7 +100,7 @@ export async function getSession(sessionId: string): Promise<SessionOut> {
 
 export async function patchSession(
   sessionId: string,
-  input: { session_notes?: string },
+  input: { session_notes?: string; notes_internal?: string; meeting_url?: string },
 ): Promise<SessionOut> {
   const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}`, {
     method: "PATCH",
@@ -116,6 +125,14 @@ export async function getBrief(sessionId: string): Promise<BriefOut> {
   return BriefOutSchema.parse(await res.json());
 }
 
+export async function generateBrief(sessionId: string): Promise<BriefOut> {
+  const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/brief`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Generate brief failed: ${res.status}`);
+  return BriefOutSchema.parse(await res.json());
+}
+
 export async function getMom(sessionId: string): Promise<MomOut> {
   const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/mom`);
   if (!res.ok) throw new Error(`Get MOM failed: ${res.status}`);
@@ -137,7 +154,7 @@ export async function draftMom(
 
 export async function patchMom(
   sessionId: string,
-  input: { draft_text?: string; final_text?: string; status?: string },
+  input: { draft_text?: string; final_text?: string; action_items_draft?: ActionItemDraft[]; status?: string },
 ): Promise<MomOut> {
   const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/mom`, {
     method: "PATCH",
@@ -148,9 +165,19 @@ export async function patchMom(
   return MomOutSchema.parse(await res.json());
 }
 
-export async function sendMom(sessionId: string): Promise<MomOut> {
+export async function freezeMom(sessionId: string): Promise<MomOut> {
+  const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/mom/freeze`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Freeze MOM failed: ${res.status}`);
+  return MomOutSchema.parse(await res.json());
+}
+
+export async function sendMom(sessionId: string, message: string): Promise<MomOut> {
   const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/mom/send`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
   });
   if (!res.ok) throw new Error(`Send MOM failed: ${res.status}`);
   return MomOutSchema.parse(await res.json());

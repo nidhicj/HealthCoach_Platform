@@ -11,7 +11,7 @@
 | Environment | Hostname | Backend | Frontend | DB | When used |
 |---|---|---|---|---|---|
 | Local dev | `localhost:8000` (backend), `localhost:3000` (frontend) | `uvicorn src.main:app --reload` | `npm run dev` | Local Docker Postgres | Daily development |
-| Production | **FILL IN**: actual prod URL once domain is configured (e.g. `app.healthcoach.in`) | GCP Cloud Run (`asia-south1`) | Cloudflare Pages | Supabase Mumbai | Pilot HC + clients |
+| Production | `https://app.tapas.fitness` (frontend-facing; fronted by Cloudflare Worker `tapas-domain-proxy`, see ADR-0009) | GCP Cloud Run (`asia-south1`) — backend has no public hostname, stays on raw `.run.app` | GCP Cloud Run (`asia-south1`) | Supabase Mumbai | Pilot HC + clients |
 
 > **DECIDE**: do you want a separate staging environment between dev and production? At MVP scale (1 HC), arguments both ways: skipping it saves cost (~$25/mo of duplicated infra); having it would catch DPDP-relevant data shape issues before they hit real client data. Suggestion: skip until pilot has 2+ HCs, but smoke-test against production-config from day 1 (per build-plan P9).
 
@@ -19,12 +19,16 @@
 
 ## First-time setup
 
-### Cloudflare (frontend only)
+### Cloudflare (custom domain proxy only — frontend hosting itself is Cloud Run, not Cloudflare Pages)
 
-1. Create Cloudflare account (Free tier sufficient for prototype scale).
-2. Configure Pages project for frontend: connect to GitHub repo, build command `npm run build`, build output `.next/` (or `out/` for static export — confirm with ADR-0001 frontend stack).
-3. **DECIDE**: which Cloudflare account / zone owns the Pages project. If using a custom domain, configure DNS at the registrar.
-4. Enable rate limiting, WAF, basic cache rules at Cloudflare dashboard (for the Pages/frontend layer). **FILL IN**: actual rate limit thresholds (suggestion: 100 req/min per IP for unauthenticated paths).
+> Superseded 2026-06-19 (frontend moved off Cloudflare Pages to Cloud Run, per ADR-0001) and again 2026-07-12 (custom domain added via a Cloudflare Worker, not Pages — see ADR-0009). Cloudflare's only role today is DNS + a Worker that fixes Cloud Run's Host-header routing; it does not host any app code.
+
+1. Create Cloudflare account (Free tier — sufficient; Workers' 100k req/day free tier covers pilot scale).
+2. Buy the domain at a registrar (currently Porkbun), add it as a zone in Cloudflare, point the registrar's nameservers at the two Cloudflare gives you.
+3. DNS record: `CNAME app → hc-platform-frontend-<project-number>.asia-south1.run.app`, **proxied** (orange cloud) — required for the Worker route below to intercept it.
+4. Deploy the Worker: `cd cloudflare/domain-proxy && npx wrangler login && npx wrangler deploy` (see `cloudflare/domain-proxy/README.md`). This rewrites the Host header so Cloud Run's front door recognizes the custom domain — without it, the domain 404s even though DNS resolves correctly (ADR-0009 has the full diagnosis).
+5. Verify: `curl -I https://app.tapas.fitness/` returns 200 (not Google's generic 404 page).
+6. **Not yet configured**: WAF, rate limiting, Cloud Armor — the Worker above fixes routing only. See `docs/diagrams/0001-system-architecture.md` "What's NOT in this architecture" for the current state and upgrade triggers.
 
 ### GCP Cloud Run (backend)
 
@@ -104,9 +108,11 @@ After deploy:
 ```bash
 cd frontend
 npm run build
+# Build/push/deploy to Cloud Run — see frontend/cloudbuild.yaml (gcloud builds submit
+# + gcloud run deploy hc-platform-frontend), same pattern as the backend above.
 ```
 
-Cloudflare Pages auto-deploys on push to `main` (if configured). Otherwise: `npx wrangler pages deploy ./.next`.
+The Cloudflare Worker (`cloudflare/domain-proxy/`) does **not** need redeploying on ordinary frontend deploys — it references the frontend by its stable Cloud Run *service* hostname, which doesn't change across revisions. Only redeploy the Worker if the service is renamed or moved to a different region.
 
 ### Database migrations
 
@@ -198,5 +204,6 @@ Migration rollback is dangerous. **Default policy**: forward-only fixes. If a mi
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-07-12 | Production hostname filled in (`https://app.tapas.fitness`). "Cloudflare (frontend only)" section rewritten — it described the retired Cloudflare Pages flow; Cloudflare's actual role today is DNS + a Worker (`cloudflare/domain-proxy/`) fixing Cloud Run's Host-header routing, not app hosting. Frontend deploy procedure corrected (was still describing `wrangler pages deploy`). | ADR-0009 — custom domain added via Cloudflare Worker reverse proxy. |
 | 2026-06-19 | Backend changed from Cloudflare Workers (`pywrangler`) to GCP Cloud Run (`gcloud run deploy`). DB changed from AWS RDS to Supabase. First-time setup, deploy procedure, rollback, failure modes all updated. Supabase keep-alive step added to pre-pilot checklist. | Stack migration per ADR-0001 changelog 2026-06-19. |
 | 2026-04-28 | Initial template. | Deploy procedure needs to exist before first deploy. |

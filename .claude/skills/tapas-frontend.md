@@ -1,4 +1,4 @@
-# Parivarthan Frontend Brand Rules
+# Tapas Frontend Brand Rules
 
 **Read this skill before touching any frontend file in this repo.**
 Source documents: `Poshini_Brand_Colour_Guide fina;.docx` + `docs/specs/Unit_001_HcCoreCycle/PHASE-06-frontend.md`

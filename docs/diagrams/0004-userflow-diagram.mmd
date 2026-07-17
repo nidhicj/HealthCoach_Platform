@@ -1,0 +1,96 @@
+flowchart TD
+    subgraph publicZone ["Public"]
+        landing([Tapas Landing])
+        signIn[Sign in with Google]
+        callback{{Auth callback}}
+    end
+
+    authCheck{Authenticated?}
+
+    subgraph appZone ["Authenticated app — HC"]
+        dashboard[Roster Board]
+        actionItems[Action Items]
+        settings[Settings]
+
+        subgraph clientZone ["Client management"]
+            newClient[New client form]
+            clientDetail[Client detail — 3-tab]
+            summaryTab[Summary tab + Financials — F4]
+            checkinsTab[Check-ins tab — hybrid thread — F2]
+            mealsTab[Logged Meals tab — F3]
+            generateChart[Generate chart]
+            chartEditor[Diet chart editor]
+        end
+
+        subgraph sessionZone ["Session workflow"]
+            newSession[New session]
+            sessionPage[Session page + meeting link — F6]
+            momTab[MOM tab]
+            draftMom[Generate MOM draft]
+            sendMom[Send to client — F1]
+        end
+
+        subgraph paymentsZone ["Payments — F4"]
+            genLink[Generate Razorpay link]
+            webhook{{Razorpay webhook}}
+        end
+    end
+
+    subgraph clientPortalZone ["Client-facing /c/[token] — spec's proposed model, UNRECONCILED with existing client OAuth login (see conflict above)"]
+        clientEmail([Client receives email: plan / check-in / reply])
+        portalHome(["/c/[token] — PWA home /"])
+        planView[/plan — MOM + diet chart/]
+        checkinForm[/checkin — 3-question form/]
+        chatThread[/chat — hybrid thread/]
+        mealLog[/meals — log + history/]
+    end
+
+    landing --> authCheck
+    authCheck -->|"Not signed in"| signIn
+    authCheck -->|"Session valid"| dashboard
+    signIn --> callback --> dashboard
+
+    dashboard --> newClient
+    dashboard --> clientDetail
+    dashboard --> actionItems
+    dashboard -.-> settings
+
+    newClient --> clientDetail
+    clientDetail --> summaryTab
+    clientDetail --> checkinsTab
+    clientDetail --> mealsTab
+    clientDetail --> newSession
+    clientDetail --> generateChart
+    generateChart -.-> clientDetail
+    clientDetail -.-> chartEditor
+    chartEditor -.-> clientDetail
+
+    summaryTab --> genLink --> webhook
+    webhook -.-> summaryTab
+
+    newSession --> sessionPage --> momTab --> draftMom --> sendMom
+    sendMom -.-> clientDetail
+
+    checkinsTab -->|"Send weekly check-in"| clientEmail
+    sendMom -->|"email"| clientEmail
+    checkinsTab -.->|"HC reply notification"| clientEmail
+
+    clientEmail --> portalHome
+    portalHome --> planView
+    portalHome --> checkinForm
+    portalHome --> chatThread
+    portalHome --> mealLog
+    checkinForm -.->|"card appears"| checkinsTab
+    chatThread -.->|"free message"| checkinsTab
+    mealLog -.->|"logged meal appears"| mealsTab
+
+    style publicZone       fill:#C6FAF6,stroke:#5AD8CC
+    style appZone          fill:#F5F5F5,stroke:#B3B3B3
+    style clientZone       fill:#DCCCFF,stroke:#874FFF
+    style sessionZone      fill:#FFECBD,stroke:#FFC943
+    style paymentsZone     fill:#D9D9D9,stroke:#B3B3B3
+    style clientPortalZone fill:#FFE1B8,stroke:#FF9F1C
+    style dashboard        fill:#C2E5FF,stroke:#3DADFF
+    style landing          fill:#C2E5FF,stroke:#3DADFF
+    style sendMom          fill:#CDF4D3,stroke:#66D575
+    style clientEmail      fill:#CDF4D3,stroke:#66D575

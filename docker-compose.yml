@@ -1,10 +1,11 @@
+name: tapas_platform
 services:
   postgres:
     image: postgres:17.4          # pinned minor version — update only when PG 17 EOL (Nov 2029)
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: localdevpassword
-      POSTGRES_DB: parivarthan_dev
+      POSTGRES_DB: tapas_dev
     ports:
       - "5432:5432"
     volumes:
@@ -17,3 +18,5 @@ services:
 
 volumes:
   postgres_data:
+    external: true
+    name: tapas_platform_postgres_data

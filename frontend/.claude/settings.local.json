@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gcloud config *)",
+      "Bash(gcloud run services list *)",
+      "Bash(gcloud run services describe *)",
+      "Bash(gcloud run revisions list *)",
+      "Bash(gcloud builds *)",
+      "Bash(gcloud logging read *)",
+      "Bash(gcloud projects *)",
+      "Read(//mnt/hdd/yourProjects/OnGoing/Poshini/tapas_unit004/backend/**)"
+    ]
+  }
+}

@@ -1,0 +1,34 @@
+erDiagram
+    clients ||--o{ check_in_submissions : "F2 — overlaps existing check_ins table, see conflict above"
+    clients ||--o{ client_messages : "F2"
+    clients ||--o{ meal_logs : "F3"
+    clients ||--o{ payments : "F4"
+    clients ||--o{ notification_logs : "F1/F2/F5"
+
+    clients {
+        text checkin_token "NEW — unique, never expires (D-5)"
+        bool whatsapp_opted_in "NEW — schema only, F5 deferred"
+        text whatsapp_phone "NEW — schema only"
+    }
+    check_in_submissions {
+        int energy "1-5"
+        int adherence "1-5"
+        text note
+        timestamptz submitted_at "nullable"
+    }
+    client_messages {
+        enum direction "client or coach"
+        text body
+        timestamptz read_at "nullable"
+    }
+    meal_logs {
+        text description
+        text photo_url "nullable, Supabase signed URL"
+        bool hc_ack "default false — the only feedback mechanic, D-4"
+    }
+    payments {
+        text razorpay_order_id
+        text razorpay_payment_id "nullable"
+        int amount_paise
+        enum status "pending, paid, failed"
+    }

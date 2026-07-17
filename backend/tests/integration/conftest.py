@@ -1,4 +1,4 @@
-"""Async DB + HTTP fixtures for integration tests. Uses parivarthan_test database."""
+"""Async DB + HTTP fixtures for integration tests. Uses tapas_test database."""
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -22,6 +22,7 @@ _TEST_PUBLIC_KEY = (
 
 os.environ.setdefault("JWT_PRIVATE_KEY", _TEST_PRIVATE_KEY)
 os.environ.setdefault("JWT_PUBLIC_KEY", _TEST_PUBLIC_KEY)
+os.environ.setdefault("DEMOGRAPHICS_ENCRYPTION_KEY", "ZGV2LXRlc3Qta2V5LTMyLWJ5dGVzLWV4YWN0bHkhISE=")
 
 # Clear any existing settings cache so the keys above take effect
 try:
@@ -49,7 +50,7 @@ from src.db.models import Client, Session, User
 def db_url() -> str:
     url = os.environ.get(
         "TEST_DATABASE_URL",
-        "postgresql://postgres:localdevpassword@localhost:5432/parivarthan_test",
+        "postgresql://postgres:localdevpassword@localhost:5432/tapas_test",
     )
     if url.startswith("postgresql://"):
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
