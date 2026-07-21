@@ -73,7 +73,7 @@ class CheckIn(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
     client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
     hc_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    payload: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     requested_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     sentiment_flag: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
