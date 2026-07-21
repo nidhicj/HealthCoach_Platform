@@ -1,0 +1,26 @@
+sequenceDiagram
+    actor HC
+    participant Detail as Client detail → Check-ins tab
+    participant DB as check_in_submissions / client_messages
+    participant Email as Resend email
+    actor Client
+    participant PWA as /c/[token]/chat
+
+    HC->>Detail: Click "Send weekly check-in"
+    Detail->>DB: insert check_in_submissions (sent_at)
+    Detail->>Email: notify client
+    Email->>Client: "takes 90 seconds" + link
+    Client->>PWA: opens /checkin, answers 3 questions
+    Client->>DB: submit (submitted_at, energy, adherence, note)
+    DB-->>Detail: card appears in unified thread
+    Detail->>Email: notify HC "Sunita submitted her check-in"
+
+    Client->>PWA: types free message ("swap sabzi for paneer?")
+    PWA->>DB: insert client_messages (direction=client)
+    DB-->>Detail: bubble appears in same thread
+    Detail->>Email: notify HC "Sunita sent you a message" + preview
+
+    HC->>Detail: types reply inline (same thread — not on the meal entry, per D-4)
+    Detail->>DB: insert client_messages (direction=coach)
+    DB-->>PWA: bubble appears in client's thread
+    Detail->>Email: notify client "Your coach replied" + preview

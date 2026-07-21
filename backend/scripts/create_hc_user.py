@@ -1,4 +1,4 @@
-"""Dev utility: create or reuse an HC user in parivarthan_dev and print JWT exports.
+"""Dev utility: create or reuse an HC user in tapas_dev and print JWT exports.
 
 Usage:
     python scripts/create_hc_user.py                        # random test email (old behaviour)

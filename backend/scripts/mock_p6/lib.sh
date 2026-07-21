@@ -4,7 +4,7 @@
 # =============================================================================
 
 API="http://localhost:8000"
-DB="postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev"
+DB="postgresql://postgres:localdevpassword@localhost:5432/tapas_dev"
 IDS_FILE="/tmp/mock_p6_ids.env"
 
 # ── HTTP helpers ───────────────────────────────────────────────────────────────

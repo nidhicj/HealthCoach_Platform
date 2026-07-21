@@ -1,0 +1,24 @@
+# Cloudflare Worker: rewrites the Host header for app.tapas.fitness so
+# Cloud Run's front door (which routes purely by Host header) recognizes
+# the request and serves hc-platform-frontend instead of a generic 404.
+# See docs/decisions/0008-custom-domain-cloudflare-worker.md for why this exists.
+
+name = "tapas-domain-proxy"
+main = "src/worker.js"
+compatibility_date = "2026-07-12"
+
+# account_id intentionally omitted — `wrangler login` (interactive OAuth,
+# per-machine) is the standard way to authenticate for a single-account,
+# single-maintainer project. Uncomment and set explicitly only if deploying
+# from CI/non-interactively (see README.md "CI deploy" section).
+# account_id = "<cloudflare_account_id>"
+
+[[routes]]
+pattern = "app.tapas.fitness/*"
+zone_name = "tapas.fitness"
+
+[vars]
+# The real Cloud Run origin this worker proxies to. Configurable here
+# (not hardcoded in worker.js) so a future region move or service rename
+# only requires touching this file, not the script.
+ORIGIN_HOSTNAME = "hc-platform-frontend-296472807958.asia-south1.run.app"
