@@ -48,34 +48,36 @@ async def test_returns_existing_pending_row_without_creating_new_one():
 
 
 @pytest.mark.asyncio
-async def test_gracefully_handles_multiple_pending_rows_by_returning_oldest():
-    """Regression test: if multiple pending rows exist for the same client
-    (race condition upstream), the function should gracefully return the
-    oldest one (by requested_at) instead of crashing with MultipleResultsFound.
+async def test_uses_first_not_scalar_one_to_avoid_multiple_results_crash():
+    """Verifies that the code uses .scalars().first() (which returns only the
+    first row and does not raise on multiple results) instead of .scalar_one_or_none()
+    (which would crash with MultipleResultsFound if multiple rows exist).
+
+    Note: truly verifying multi-row DB semantics requires a real Postgres integration
+    test with multiple actual rows returned by the query. This unit test, with a fully
+    mocked DB session, can only verify that the call chain uses .first() and completes
+    without crashing, regardless of how many conceptual rows exist upstream.
     """
     client_id = uuid.uuid4()
     hc_id = uuid.uuid4()
 
-    # Create two pending rows with different requested_at times
-    older = CheckIn(
+    existing = CheckIn(
         id=uuid.uuid4(), client_id=client_id, hc_user_id=hc_id,
         payload=None, requested_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
-    newer = CheckIn(
-        id=uuid.uuid4(), client_id=client_id, hc_user_id=hc_id,
-        payload=None, requested_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
-    )
 
     result_mock = MagicMock()
-    # Simulate query returning oldest row when .limit(1) and .scalars().first() are used
-    result_mock.scalars.return_value.first.return_value = older
+    result_mock.scalars.return_value.first.return_value = existing
 
     db = AsyncMock()
     db.execute = AsyncMock(return_value=result_mock)
 
     row, created = await get_or_create_pending_check_in(db, client_id, hc_id)
 
-    # Should return the oldest one and not create a new row
+    # Verify the code path uses .first() to fetch the row (not .scalar_one_or_none())
+    result_mock.scalars.return_value.first.assert_called_once()
+
+    # Verify it returns the row and does not create a new one
     assert created is False
-    assert row is older
+    assert row is existing
     db.add.assert_not_called()
