@@ -19,7 +19,8 @@ class CheckInOut(BaseModel):
     id: UUID
     client_id: UUID
     hc_user_id: UUID
-    payload: dict
+    payload: dict | None
+    requested_at: datetime | None
     sentiment_flag: str | None
     created_at: datetime
 
