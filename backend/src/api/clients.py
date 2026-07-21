@@ -292,7 +292,7 @@ async def get_client_ast(
     cutoff_14d = datetime.now(timezone.utc) - timedelta(days=14)
     recent_checkins = (await db.execute(
         select(CheckIn)
-        .where(CheckIn.client_id == client_id, CheckIn.created_at >= cutoff_14d)
+        .where(CheckIn.client_id == client_id, CheckIn.created_at >= cutoff_14d, CheckIn.payload.isnot(None))
         .order_by(CheckIn.created_at.desc())
     )).scalars().all()
 
