@@ -24,8 +24,8 @@ async def get_or_create_pending_check_in(
             CheckIn.client_id == client_id,
             CheckIn.requested_at.is_not(None),
             CheckIn.payload.is_(None),
-        )
-    )).scalar_one_or_none()
+        ).order_by(CheckIn.requested_at).limit(1)
+    )).scalars().first()
     if existing is not None:
         return existing, False
 
