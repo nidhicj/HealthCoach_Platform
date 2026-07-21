@@ -112,3 +112,36 @@ async def test_flag_check_in_cross_tenant_returns_404(http_client, hc_headers, h
         json={"sentiment_flag": "concern"},
     )
     assert r.status_code == 404
+
+
+# ── POST /api/clients/{id}/check-ins/request ──
+
+@pytest.mark.asyncio
+async def test_hc_can_request_check_in(http_client, hc_headers):
+    client = await _make_client(http_client, hc_headers)
+
+    r = await http_client.post(f"/api/clients/{client['id']}/check-ins/request", headers=hc_headers)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["client_id"] == client["id"]
+    assert body["payload"] is None
+    assert body["requested_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_hc_cannot_request_second_check_in_while_one_pending(http_client, hc_headers):
+    client = await _make_client(http_client, hc_headers)
+
+    r1 = await http_client.post(f"/api/clients/{client['id']}/check-ins/request", headers=hc_headers)
+    assert r1.status_code == 201
+
+    r2 = await http_client.post(f"/api/clients/{client['id']}/check-ins/request", headers=hc_headers)
+    assert r2.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_request_check_in_cross_tenant_returns_404(http_client, hc_headers, hc2_headers):
+    client = await _make_client(http_client, hc_headers)
+
+    r = await http_client.post(f"/api/clients/{client['id']}/check-ins/request", headers=hc2_headers)
+    assert r.status_code == 404

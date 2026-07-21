@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import and_, or_, select
 
+from src.api._check_in_lifecycle import get_or_create_pending_check_in
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
 from src.db.models import CheckIn, Client
 
@@ -91,3 +92,24 @@ async def flag_check_in(
     await db.flush()
     await db.commit()
     return CheckInOut.model_validate(ci)
+
+
+@router.post("/api/clients/{client_id}/check-ins/request", status_code=status.HTTP_201_CREATED)
+async def request_check_in(
+    client_id: UUID,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> CheckInOut:
+    client = (await db.execute(
+        select(Client).where(Client.id == client_id, Client.hc_user_id == UUID(hc_id))
+    )).scalar_one_or_none()
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    row, created = await get_or_create_pending_check_in(db, client_id, UUID(hc_id))
+    if not created:
+        raise HTTPException(status_code=409, detail="A check-in request is already pending for this client")
+
+    await db.commit()
+    return CheckInOut.model_validate(row)
