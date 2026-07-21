@@ -53,15 +53,61 @@ async def submit_check_in(
     db: DbDep,
 ) -> CheckInOut:
     client = await _resolve_client(db, claims, hc_id)
-    ci = CheckIn(
-        client_id=client.id,
-        hc_user_id=UUID(hc_id),
-        payload=body.payload,
-    )
-    db.add(ci)
+
+    pending = (await db.execute(
+        select(CheckIn).where(
+            CheckIn.client_id == client.id,
+            CheckIn.requested_at.is_not(None),
+            CheckIn.payload.is_(None),
+        )
+    )).scalar_one_or_none()
+
+    if pending is not None:
+        pending.payload = body.payload
+        ci = pending
+    else:
+        ci = CheckIn(
+            client_id=client.id,
+            hc_user_id=UUID(hc_id),
+            payload=body.payload,
+        )
+        db.add(ci)
+
     await db.flush()
     await db.commit()
     return CheckInOut.model_validate(ci)
+
+
+@router.get("/check-ins")
+async def list_my_check_ins(
+    claims: ClientClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+    limit: LimitDep = 20,
+    cursor: Annotated[str | None, Query()] = None,
+) -> PaginatedList[CheckInOut]:
+    client = await _resolve_client(db, claims, hc_id)
+
+    q = select(CheckIn).where(CheckIn.client_id == client.id)
+
+    if cursor:
+        cur_ts, cur_id = decode_cursor(cursor)
+        q = q.where(
+            or_(
+                CheckIn.created_at < cur_ts,
+                and_(CheckIn.created_at == cur_ts, CheckIn.id < cur_id),
+            )
+        )
+
+    q = q.order_by(CheckIn.created_at.desc(), CheckIn.id.desc()).limit(limit + 1)
+    rows = (await db.execute(q)).scalars().all()
+
+    next_cursor: str | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_cursor = encode_cursor(rows[-1].created_at, rows[-1].id)
+
+    return PaginatedList(items=[CheckInOut.model_validate(r) for r in rows], next_cursor=next_cursor)
 
 
 @router.get("/moms")
