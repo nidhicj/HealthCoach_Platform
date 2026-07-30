@@ -253,6 +253,7 @@ describe("CheckInOutSchema", () => {
     client_id: "cli-1",
     hc_user_id: "hc-1",
     payload: { mood: "good", energy: 7 },
+    requested_at: null,
     sentiment_flag: null,
     created_at: NOW,
   };

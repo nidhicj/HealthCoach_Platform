@@ -55,4 +55,65 @@ describe("me API wrapper", () => {
     );
     expect(result.status).toBe("completed");
   });
+
+  it("listMyCheckIns calls GET /api/me/check-ins and parses the paginated shape", async () => {
+    vi.doMock("@/lib/config", () => ({ API_URL: "http://localhost:8000" }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        items: [{
+          id: "cin-1", client_id: "c-1", hc_user_id: "hc-1",
+          payload: { mood: "good" }, requested_at: "2026-07-30T12:00:00Z",
+          sentiment_flag: null, created_at: "2026-07-30T12:00:00Z",
+        }],
+        next_cursor: null,
+      }), { status: 200 }),
+    );
+    vi.doMock("@/lib/auth/client", () => ({ fetchWithAuth: fetchMock }));
+
+    const { listMyCheckIns } = await import("@/lib/api/me");
+    const result = await listMyCheckIns();
+
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/me/check-ins");
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].payload).toEqual({ mood: "good" });
+  });
+
+  it("listMyCheckIns throws on non-ok response", async () => {
+    vi.doMock("@/lib/config", () => ({ API_URL: "http://localhost:8000" }));
+    vi.doMock("@/lib/auth/client", () => ({
+      fetchWithAuth: vi.fn().mockResolvedValue(new Response("", { status: 500 })),
+    }));
+    const { listMyCheckIns } = await import("@/lib/api/me");
+    await expect(listMyCheckIns()).rejects.toThrow("List my check-ins failed: 500");
+  });
+
+  it("submitMyCheckIn POSTs the payload to /api/me/check-ins and returns CheckInOut", async () => {
+    vi.doMock("@/lib/config", () => ({ API_URL: "http://localhost:8000" }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        id: "cin-1", client_id: "c-1", hc_user_id: "hc-1",
+        payload: { mood: "good" }, requested_at: "2026-07-30T12:00:00Z",
+        sentiment_flag: null, created_at: "2026-07-30T12:00:00Z",
+      }), { status: 200 }),
+    );
+    vi.doMock("@/lib/auth/client", () => ({ fetchWithAuth: fetchMock }));
+
+    const { submitMyCheckIn } = await import("@/lib/api/me");
+    const result = await submitMyCheckIn({ mood: "good" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/me/check-ins",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ payload: { mood: "good" } }) },
+    );
+    expect(result.payload).toEqual({ mood: "good" });
+  });
+
+  it("submitMyCheckIn throws on non-ok response", async () => {
+    vi.doMock("@/lib/config", () => ({ API_URL: "http://localhost:8000" }));
+    vi.doMock("@/lib/auth/client", () => ({
+      fetchWithAuth: vi.fn().mockResolvedValue(new Response("", { status: 500 })),
+    }));
+    const { submitMyCheckIn } = await import("@/lib/api/me");
+    await expect(submitMyCheckIn({})).rejects.toThrow("Submit check-in failed: 500");
+  });
 });
