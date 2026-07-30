@@ -122,7 +122,7 @@ async def run_scheduled_tasks(request: Request, db: DbDep) -> SchedulerResult:
     )
 
     tasks_run = ["snippet_retirement"]
-    if _is_saturday_ist():
+    if request.headers.get("X-Scheduled-Task") == "check_in_reminders" and _is_saturday_ist():
         reminder_count = await _run_check_in_reminders(db)
         tasks_run.append("check_in_reminders")
         logger.info("scheduled_task_run", task="check_in_reminders", reminder_count=reminder_count)
