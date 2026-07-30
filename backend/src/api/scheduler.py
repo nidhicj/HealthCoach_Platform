@@ -1,13 +1,17 @@
 """Scheduler endpoint — authenticated background tasks per build-plan.md §P7."""
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import and_, func, update
+from sqlalchemy import and_, func, select, update
 
+from src.api._check_in_lifecycle import get_or_create_pending_check_in
 from src.api.deps import DbDep
 from src.config import get_settings
+from src.db.models import Client
 from src.db.models.coaching import HcStyleSnippet
+from src.lib.email import send_check_in_reminder_email
 from src.telemetry.log import get_logger
 
 router = APIRouter(prefix="/internal", tags=["scheduler"])
@@ -36,6 +40,33 @@ def _check_scheduler_token(provided: str, expected: str) -> None:
     """Raise ValueError if the provided token does not match the expected secret."""
     if not provided or provided != expected:
         raise ValueError("invalid scheduler token")
+
+
+def _is_saturday_ist(today: date | None = None) -> bool:
+    d = today if today is not None else datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    return d.weekday() == 5  # Monday=0 ... Saturday=5
+
+
+async def _run_check_in_reminders(db) -> int:
+    clients = (await db.execute(
+        select(Client).where(
+            Client.journey_stage != "completed",
+            Client.user_id.is_not(None),
+            Client.email.is_not(None),
+        )
+    )).scalars().all()
+
+    sent = 0
+    for client in clients:
+        await get_or_create_pending_check_in(db, client.id, client.hc_user_id)
+        send_check_in_reminder_email(
+            to=client.email,
+            client_name=client.full_name,
+            portal_url=f"{get_settings().frontend_url}/me/checkins",
+        )
+        sent += 1
+    await db.commit()
+    return sent
 
 
 # ── schemas ────────────────────────────────────────────────────────────────
@@ -90,4 +121,10 @@ async def run_scheduled_tasks(request: Request, db: DbDep) -> SchedulerResult:
         threshold_days=RETIREMENT_THRESHOLD_DAYS,
     )
 
-    return SchedulerResult(tasks_run=["snippet_retirement"], retired_count=retired_count)
+    tasks_run = ["snippet_retirement"]
+    if _is_saturday_ist():
+        reminder_count = await _run_check_in_reminders(db)
+        tasks_run.append("check_in_reminders")
+        logger.info("scheduled_task_run", task="check_in_reminders", reminder_count=reminder_count)
+
+    return SchedulerResult(tasks_run=tasks_run, retired_count=retired_count)
