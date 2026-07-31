@@ -84,7 +84,7 @@ def send_check_in_reminder_email(*, to: str, client_name: str, portal_url: str) 
     resend.api_key = api_key
 
     safe_client = html.escape(client_name)
-    subject = "Your weekly check-in"
+    subject = "Your check-in"
     safe_subject = html.escape(subject)
 
     body_html = f"""<!DOCTYPE html>
@@ -100,7 +100,7 @@ def send_check_in_reminder_email(*, to: str, client_name: str, portal_url: str) 
   </div>
   <div style="background: #ffffff; padding: 28px 24px; border-radius: 0 0 8px 8px; border: 1px solid #E8EDE5;">
     <p style="font-size: 15px; margin-top: 0;">Hi {safe_client},</p>
-    <p style="font-size: 15px;">It's Saturday — time for your weekly check-in. Pick any 3 metrics and rate how your week went.</p>
+    <p style="font-size: 15px;">Time for a check-in — pick any 3 metrics and rate how your week went.</p>
     <p style="margin: 24px 0;">
       <a href="{portal_url}" style="background: #5C6652; color: #F7F4EE; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-size: 14px;">Fill in check-in</a>
     </p>
