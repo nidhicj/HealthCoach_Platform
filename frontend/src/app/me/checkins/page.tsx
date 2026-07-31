@@ -12,13 +12,18 @@ const METRICS = [
 
 export default function CheckInsPage() {
   const [checkIns, setCheckIns] = useState<CheckInOut[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
 
   useEffect(() => {
-    listMyCheckIns().then((data) => setCheckIns(data.items)).catch(() => setCheckIns([]));
+    listMyCheckIns()
+      .then((data) => setCheckIns(data.items))
+      .catch(() => setLoadError(true));
   }, []);
 
   const pending = checkIns?.find((c) => c.requested_at && c.payload === null) ?? null;
@@ -33,6 +38,7 @@ export default function CheckInsPage() {
 
   async function handleSubmit() {
     setSubmitting(true);
+    setSubmitError(null);
     try {
       const metrics = Object.fromEntries(selected.map((m) => [m, ratings[m] ?? 5]));
       const updated = await submitMyCheckIn({ metrics, note: note || undefined });
@@ -40,6 +46,9 @@ export default function CheckInsPage() {
       setSelected([]);
       setRatings({});
       setNote("");
+      setShowForm(false);
+    } catch {
+      setSubmitError("Couldn't submit your check-in — please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -51,10 +60,12 @@ export default function CheckInsPage() {
     <div className="space-y-8">
       <h1 className="font-heading text-3xl font-black text-foreground">Check-ins</h1>
 
-      {pending && (
+      {(pending || showForm) && (
         <div className="space-y-4 rounded-md border p-4">
           <p className="font-sans text-sm text-foreground">
-            Your coach asked for a check-in. Pick 3 things to rate:
+            {pending
+              ? "Your coach asked for a check-in. Pick 3 things to rate:"
+              : "Pick 3 things to rate:"}
           </p>
           <div className="flex flex-wrap gap-2">
             {METRICS.map((m) => (
@@ -86,15 +97,31 @@ export default function CheckInsPage() {
             placeholder="Anything else? (optional)"
             className="w-full rounded-md border border-border p-2 font-sans text-sm"
           />
-          <Button onClick={handleSubmit} disabled={selected.length !== 3 || submitting}>
-            {submitting ? "Submitting…" : "Submit check-in"}
+          <div className="flex items-center gap-3">
+            <Button onClick={handleSubmit} disabled={selected.length !== 3 || submitting}>
+              {submitting ? "Submitting…" : "Submit check-in"}
+            </Button>
+            {submitError && (
+              <p className="font-sans text-sm text-destructive">{submitError}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!pending && !showForm && checkIns !== null && (
+        <div className="space-y-3">
+          <p className="font-sans text-sm text-muted-foreground">
+            Nothing to answer right now.
+          </p>
+          <Button variant="outline" onClick={() => setShowForm(true)}>
+            Check in now
           </Button>
         </div>
       )}
 
-      {!pending && checkIns !== null && (
-        <p className="font-sans text-sm text-muted-foreground">
-          Nothing to answer right now — you can still check in any time from here.
+      {loadError && (
+        <p className="font-sans text-sm text-destructive">
+          Couldn&apos;t load your check-ins — try refreshing.
         </p>
       )}
 
