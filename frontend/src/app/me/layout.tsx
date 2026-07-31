@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { API_URL } from "@/lib/config";
 import { getToken, setToken } from "@/lib/auth/tokens";
@@ -45,8 +46,13 @@ export default function ClientPortalLayout({ children }: { children: React.React
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-40 border-b bg-background">
-        <nav className="mx-auto flex h-12 max-w-2xl items-center px-4 sm:px-6">
-          <span className="font-heading text-lg font-black text-foreground">Tapas</span>
+        <nav className="mx-auto flex h-12 max-w-2xl items-center gap-4 px-4 sm:px-6">
+          <Link href="/me" className="font-heading text-lg font-black text-foreground">
+            Tapas
+          </Link>
+          <Link href="/me/checkins" className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground">
+            Check-ins
+          </Link>
         </nav>
       </header>
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
