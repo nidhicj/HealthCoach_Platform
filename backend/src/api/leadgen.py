@@ -157,9 +157,22 @@ class LeadgenConfigPatch(BaseModel):
 
 # Fields backed by NOT NULL columns on hc_leadgen_config. LeadgenConfigPatch types these
 # as `X | None = None` so exclude_unset=True can distinguish "omitted" from "sent" —
-# but that means an explicit `null` in the request body would otherwise reach the DB
-# as a NOT NULL violation (raw 500) instead of a clean 422. See PHASE-01 final-review I-2.
-_NOT_NULL_PATCH_FIELDS = ("consultation_duration_min", "notification_delivery", "lead_expiry_days")
+# but that means an explicit `null` in the request body would otherwise reach the DB.
+# For the scalar columns (consultation_duration_min, notification_delivery,
+# lead_expiry_days) that would raise a NOT NULL violation (raw 500) — see PHASE-01
+# final-review I-2. For the JSONB columns (questionnaire, test_panel) it's worse:
+# SQLAlchemy's JSONB defaults to none_as_null=False, so a Python None is written as
+# the JSON literal `null`, which satisfies the SQL NOT NULL constraint — the write
+# commits, and the row is left permanently corrupted (every subsequent GET/PATCH on
+# that HC's config 500s in LeadgenConfigOut.model_validate, with no API-level
+# recovery path). See PHASE-01 final-review N-1.
+_NOT_NULL_PATCH_FIELDS = (
+    "consultation_duration_min",
+    "notification_delivery",
+    "lead_expiry_days",
+    "questionnaire",
+    "test_panel",
+)
 
 
 def _validate_no_null_for_not_null_fields(update_data: dict) -> None:

@@ -1,6 +1,7 @@
 """Integration tests: /api/leadgen/config* endpoints."""
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
 
 pytestmark = pytest.mark.asyncio
 
@@ -224,3 +225,55 @@ async def test_patch_rejects_malformed_questionnaire_entry(http_client: AsyncCli
 
     resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"questionnaire": malformed})
     assert resp.status_code == 422
+
+
+async def test_patch_rejects_explicit_null_on_questionnaire_without_corrupting_row(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    """N-1: JSONB columns don't get NOT NULL protection for free the way scalar columns
+    do — SQLAlchemy's JSONB writes Python None as the JSON literal `null`, which
+    satisfies the SQL NOT NULL constraint and commits successfully, corrupting the row
+    (every later GET/PATCH 500s on response serialization, no API-level recovery).
+    An explicit null must be rejected with 422 before the commit happens at all."""
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.commit()
+    await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
+
+    resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"questionnaire": None})
+    assert resp.status_code == 422
+
+    # row must still be intact — GET still works and questionnaire is a real JSON array,
+    # not JSON null (which is what a corrupted row would look like).
+    get_resp = await http_client.get("/api/leadgen/config", headers=hc_headers)
+    assert get_resp.status_code == 200
+    assert len(get_resp.json()["questionnaire"]) == 6
+
+    type_result = await db.execute(
+        text("SELECT jsonb_typeof(questionnaire) FROM hc_leadgen_config WHERE hc_user_id = :hc_id"),
+        {"hc_id": hc_user.id},
+    )
+    assert type_result.scalar_one() == "array"
+
+
+async def test_patch_rejects_explicit_null_on_test_panel_without_corrupting_row(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    """Same as above for test_panel — the other JSONB NOT NULL column."""
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.commit()
+    await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
+
+    resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"test_panel": None})
+    assert resp.status_code == 422
+
+    get_resp = await http_client.get("/api/leadgen/config", headers=hc_headers)
+    assert get_resp.status_code == 200
+    assert get_resp.json()["test_panel"] == {"standard_tests": [], "condition_rules": []}
+
+    type_result = await db.execute(
+        text("SELECT jsonb_typeof(test_panel) FROM hc_leadgen_config WHERE hc_user_id = :hc_id"),
+        {"hc_id": hc_user.id},
+    )
+    assert type_result.scalar_one() == "object"
