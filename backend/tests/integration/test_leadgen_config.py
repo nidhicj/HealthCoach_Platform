@@ -79,3 +79,35 @@ async def test_init_returns_conflict_not_500_when_hc_user_id_races_during_insert
     resp = await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
     assert resp.status_code == 409
     assert resp.json()["detail"]["error"] == "already_configured"
+
+
+async def test_get_config_returns_setup_incomplete_when_not_configured(http_client: AsyncClient, hc_headers):
+    resp = await http_client.get("/api/leadgen/config", headers=hc_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["configured"] is False
+
+
+async def test_get_config_returns_full_config_when_configured(http_client: AsyncClient, hc_user, hc_headers, db):
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.commit()
+    init_resp = await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
+    assert init_resp.status_code == 201
+
+    resp = await http_client.get("/api/leadgen/config", headers=hc_headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["configured"] is True
+    assert body["hc_slug"] == init_resp.json()["hc_slug"]
+
+
+async def test_get_config_cross_tenant_isolation(http_client: AsyncClient, hc_user, hc_headers, hc2_headers, db):
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.commit()
+    await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
+
+    resp = await http_client.get("/api/leadgen/config", headers=hc2_headers)
+    assert resp.status_code == 200
+    assert resp.json()["configured"] is False  # HC2 sees their own (nonexistent) config, never HC1's

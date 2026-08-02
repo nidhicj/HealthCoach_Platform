@@ -56,6 +56,18 @@ class LeadgenConfigOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class LeadgenConfigStatusOut(BaseModel):
+    configured: bool
+    hc_slug: str | None = None
+    questionnaire: list[dict] | None = None
+    test_panel: dict | None = None
+    consultation_fee_inr: int | None = None
+    consultation_duration_min: int | None = None
+    scheduling_link: str | None = None
+    notification_delivery: str | None = None
+    lead_expiry_days: int | None = None
+
+
 @router.post("/config/init", status_code=status.HTTP_201_CREATED)
 async def init_leadgen_config(
     claims: HcClaimsDep,
@@ -106,3 +118,17 @@ async def init_leadgen_config(
             if attempt == _MAX_SLUG_ATTEMPTS - 1:
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not generate a unique slug")
     raise AssertionError("unreachable")  # loop always returns or raises
+
+
+@router.get("/config")
+async def get_leadgen_config(
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> LeadgenConfigStatusOut:
+    config = (await db.execute(
+        select(HcLeadgenConfig).where(HcLeadgenConfig.hc_user_id == UUID(hc_id))
+    )).scalar_one_or_none()
+    if config is None:
+        return LeadgenConfigStatusOut(configured=False)
+    return LeadgenConfigStatusOut(configured=True, **LeadgenConfigOut.model_validate(config).model_dump())
