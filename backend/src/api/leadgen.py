@@ -132,3 +132,51 @@ async def get_leadgen_config(
     if config is None:
         return LeadgenConfigStatusOut(configured=False)
     return LeadgenConfigStatusOut(configured=True, **LeadgenConfigOut.model_validate(config).model_dump())
+
+
+class LeadgenConfigPatch(BaseModel):
+    hc_slug: str | None = None  # accepted but always ignored — read-only, see spec Non-goals
+    questionnaire: list[dict] | None = None
+    test_panel: dict | None = None
+    consultation_fee_inr: int | None = None
+    consultation_duration_min: int | None = None
+    scheduling_link: str | None = None
+    notification_delivery: str | None = None
+    lead_expiry_days: int | None = None
+
+
+def _validate_questionnaire_keeps_fixed_questions(new_list: list[dict]) -> None:
+    fixed_keys = {q["key"] for q in _FIXED_QUESTIONS}
+    new_keys = {q.get("key") for q in new_list}
+    missing = fixed_keys - new_keys
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Cannot remove fixed questions: {sorted(missing)}",
+        )
+    for q in new_list:
+        if q.get("key") in fixed_keys and q.get("removable", False):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Fixed question '{q['key']}' cannot be marked removable")
+
+
+@router.patch("/config")
+async def patch_leadgen_config(
+    body: LeadgenConfigPatch,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> LeadgenConfigOut:
+    config = (await db.execute(
+        select(HcLeadgenConfig).where(HcLeadgenConfig.hc_user_id == UUID(hc_id))
+    )).scalar_one_or_none()
+    if config is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Leadgen not configured yet")
+
+    update_data = body.model_dump(exclude_unset=True, exclude={"hc_slug"})
+    if "questionnaire" in update_data:
+        _validate_questionnaire_keeps_fixed_questions(update_data["questionnaire"])
+    for field, value in update_data.items():
+        setattr(config, field, value)
+
+    await db.commit()
+    return LeadgenConfigOut.model_validate(config)

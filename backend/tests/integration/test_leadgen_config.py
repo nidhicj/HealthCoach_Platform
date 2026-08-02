@@ -111,3 +111,46 @@ async def test_get_config_cross_tenant_isolation(http_client: AsyncClient, hc_us
     resp = await http_client.get("/api/leadgen/config", headers=hc2_headers)
     assert resp.status_code == 200
     assert resp.json()["configured"] is False  # HC2 sees their own (nonexistent) config, never HC1's
+
+
+async def test_patch_updates_settings_fields(http_client: AsyncClient, hc_user, hc_headers, db):
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.commit()
+    await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
+
+    resp = await http_client.patch(
+        "/api/leadgen/config", headers=hc_headers,
+        json={"consultation_fee_inr": 2000, "scheduling_link": "https://calendly.com/asha"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["consultation_fee_inr"] == 2000
+    assert body["scheduling_link"] == "https://calendly.com/asha"
+
+
+async def test_patch_ignores_hc_slug_field(http_client: AsyncClient, hc_user, hc_headers, db):
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.commit()
+    init_resp = await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
+    original_slug = init_resp.json()["hc_slug"]
+
+    resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"hc_slug": "hacked-slug-00000"})
+    assert resp.status_code == 200
+    assert resp.json()["hc_slug"] == original_slug  # unchanged
+
+
+async def test_patch_rejects_removing_fixed_question(http_client: AsyncClient, hc_user, hc_headers, db):
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.commit()
+    await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
+
+    resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"questionnaire": []})
+    assert resp.status_code == 422
+
+
+async def test_patch_returns_404_when_not_configured(http_client: AsyncClient, hc_headers):
+    resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"consultation_fee_inr": 1000})
+    assert resp.status_code == 404
