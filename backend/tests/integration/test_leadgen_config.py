@@ -151,6 +151,21 @@ async def test_patch_rejects_removing_fixed_question(http_client: AsyncClient, h
     assert resp.status_code == 422
 
 
+async def test_patch_rejects_marking_fixed_question_removable(http_client: AsyncClient, hc_user, hc_headers, db):
+    from src.api.leadgen import _FIXED_QUESTIONS
+
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.commit()
+    await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
+
+    tampered = [dict(q) for q in _FIXED_QUESTIONS]
+    tampered[0]["removable"] = True  # full_name — key still present, but defanged
+
+    resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"questionnaire": tampered})
+    assert resp.status_code == 422
+
+
 async def test_patch_returns_404_when_not_configured(http_client: AsyncClient, hc_headers):
     resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"consultation_fee_inr": 1000})
     assert resp.status_code == 404
