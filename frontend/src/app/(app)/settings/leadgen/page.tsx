@@ -11,10 +11,16 @@ export default function LeadgenSettingsPage() {
   const [config, setConfig] = useState<LeadgenConfigStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [initError, setInitError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("setup");
 
   useEffect(() => {
-    getLeadgenConfig().then(setConfig).finally(() => setLoading(false));
+    getLeadgenConfig()
+      .then(setConfig)
+      .catch((err) => {
+        setLoadError(err instanceof Error ? err.message : "Failed to load lead generation settings");
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   async function handleInit() {
@@ -28,6 +34,16 @@ export default function LeadgenSettingsPage() {
   }
 
   if (loading) return <div className="p-6">Loading...</div>;
+
+  if (loadError) {
+    return (
+      <div className="p-6 max-w-lg">
+        <h1 className="text-xl font-semibold mb-2">Couldn&apos;t load lead generation settings</h1>
+        <p className="text-sm text-destructive">{loadError}</p>
+        <p className="text-sm text-muted-foreground mt-2">Try reloading the page. If this keeps happening, contact support.</p>
+      </div>
+    );
+  }
 
   if (!config?.configured) {
     return (
