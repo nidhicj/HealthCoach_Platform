@@ -5,7 +5,7 @@ from src.db.models.coaching import ActionItem, Brief, CheckIn, HcStyleSnippet, M
 from src.db.models.compliance import AuditLog, Consent
 from src.db.models.content import ContentAssignment, DietChart, DietChartRecipe, PrepRecipe
 from src.db.models.files import ClientFile
-from src.db.models.leadgen import HcLeadgenConfig
+from src.db.models.leadgen import HcLeadgenConfig, Lead, LeadFile, LeadQuestionnaireResponse, LeadUploadToken
 from src.db.models.llm import LlmCall
 from src.db.models.sessions import Session
 from src.db.models.supplements import SupplementRecommendation
@@ -17,6 +17,6 @@ __all__ = [
     "Consent", "AuditLog", "AuthRefreshToken", "ClientInviteToken",
     "DietChart", "PrepRecipe", "DietChartRecipe", "ContentAssignment",
     "ClientFile",
-    "HcLeadgenConfig",
+    "HcLeadgenConfig", "Lead", "LeadQuestionnaireResponse", "LeadUploadToken", "LeadFile",
     "SupplementRecommendation",
 ]
