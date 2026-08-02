@@ -2,6 +2,7 @@
 import random
 import re
 import string
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
@@ -134,9 +135,18 @@ async def get_leadgen_config(
     return LeadgenConfigStatusOut(configured=True, **LeadgenConfigOut.model_validate(config).model_dump())
 
 
+class Question(BaseModel):
+    key: str
+    text: str
+    type: Literal["free_text", "multiple_choice", "scale"]
+    required: bool
+    removable: bool
+    options: list[str] | None = None
+
+
 class LeadgenConfigPatch(BaseModel):
     hc_slug: str | None = None  # accepted but always ignored — read-only, see spec Non-goals
-    questionnaire: list[dict] | None = None
+    questionnaire: list[Question] | None = None
     test_panel: dict | None = None
     consultation_fee_inr: int | None = None
     consultation_duration_min: int | None = None
@@ -145,18 +155,46 @@ class LeadgenConfigPatch(BaseModel):
     lead_expiry_days: int | None = None
 
 
+# Fields backed by NOT NULL columns on hc_leadgen_config. LeadgenConfigPatch types these
+# as `X | None = None` so exclude_unset=True can distinguish "omitted" from "sent" —
+# but that means an explicit `null` in the request body would otherwise reach the DB
+# as a NOT NULL violation (raw 500) instead of a clean 422. See PHASE-01 final-review I-2.
+_NOT_NULL_PATCH_FIELDS = ("consultation_duration_min", "notification_delivery", "lead_expiry_days")
+
+
+def _validate_no_null_for_not_null_fields(update_data: dict) -> None:
+    nulled = sorted(f for f in _NOT_NULL_PATCH_FIELDS if f in update_data and update_data[f] is None)
+    if nulled:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Field(s) cannot be null: {nulled}",
+        )
+
+
 def _validate_questionnaire_keeps_fixed_questions(new_list: list[dict]) -> None:
-    fixed_keys = {q["key"] for q in _FIXED_QUESTIONS}
+    fixed_by_key = {q["key"]: q for q in _FIXED_QUESTIONS}
     new_keys = {q.get("key") for q in new_list}
-    missing = fixed_keys - new_keys
+    missing = set(fixed_by_key) - new_keys
     if missing:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Cannot remove fixed questions: {sorted(missing)}",
         )
     for q in new_list:
-        if q.get("key") in fixed_keys and q.get("removable", False):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Fixed question '{q['key']}' cannot be marked removable")
+        key = q.get("key")
+        fixed = fixed_by_key.get(key)
+        if fixed is None:
+            continue  # custom question — not subject to fixed-question invariants
+        if q.get("removable", False):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Fixed question '{key}' cannot be marked removable")
+        # D-2: fixed questions are frozen as free_text/required — PHASE-02's render path
+        # depends on this invariant holding, not just on the key being present.
+        for field in ("type", "required", "text"):
+            if q.get(field) != fixed[field]:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Fixed question '{key}' field '{field}' cannot be changed",
+                )
 
 
 @router.patch("/config")
@@ -173,7 +211,8 @@ async def patch_leadgen_config(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Leadgen not configured yet")
 
     update_data = body.model_dump(exclude_unset=True, exclude={"hc_slug"})
-    if "questionnaire" in update_data:
+    _validate_no_null_for_not_null_fields(update_data)
+    if "questionnaire" in update_data and update_data["questionnaire"] is not None:
         _validate_questionnaire_keeps_fixed_questions(update_data["questionnaire"])
     for field, value in update_data.items():
         setattr(config, field, value)

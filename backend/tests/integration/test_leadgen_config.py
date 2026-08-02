@@ -169,3 +169,58 @@ async def test_patch_rejects_marking_fixed_question_removable(http_client: Async
 async def test_patch_returns_404_when_not_configured(http_client: AsyncClient, hc_headers):
     resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"consultation_fee_inr": 1000})
     assert resp.status_code == 404
+
+
+async def test_patch_rejects_retyping_fixed_question(http_client: AsyncClient, hc_user, hc_headers, db):
+    """D-1/D-2: a fixed question's type/required/text must not be changeable via PATCH,
+    not just its key/removable — PHASE-02's render path depends on fixed questions
+    staying free_text/required."""
+    from src.api.leadgen import _FIXED_QUESTIONS
+
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.commit()
+    await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
+
+    tampered = [dict(q) for q in _FIXED_QUESTIONS]
+    tampered[0]["type"] = "scale"  # full_name — key present, not marked removable, but retyped
+    tampered[0]["required"] = False
+
+    resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"questionnaire": tampered})
+    assert resp.status_code == 422
+
+    # confirm nothing was persisted
+    get_resp = await http_client.get("/api/leadgen/config", headers=hc_headers)
+    full_name_q = next(q for q in get_resp.json()["questionnaire"] if q["key"] == "full_name")
+    assert full_name_q["type"] == "free_text"
+    assert full_name_q["required"] is True
+
+
+async def test_patch_rejects_explicit_null_on_not_null_field(http_client: AsyncClient, hc_user, hc_headers, db):
+    """consultation_duration_min backs a NOT NULL column. An explicit null in the PATCH
+    body must be rejected with a clean 422, not reach the DB and raise a raw 500."""
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.commit()
+    await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
+
+    resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"consultation_duration_min": None})
+    assert resp.status_code == 422
+
+
+async def test_patch_rejects_malformed_questionnaire_entry(http_client: AsyncClient, hc_user, hc_headers, db):
+    """A questionnaire entry missing required Question fields (e.g. no 'type') must be
+    rejected at the request-validation layer, not persisted — a malformed persisted
+    questionnaire later breaks the frontend's Zod parse on GET."""
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.commit()
+    await http_client.post("/api/leadgen/config/init", headers=hc_headers, json={})
+
+    from src.api.leadgen import _FIXED_QUESTIONS
+
+    malformed = [dict(q) for q in _FIXED_QUESTIONS]
+    malformed.append({"key": "custom_bad", "text": "Missing type field"})  # no 'type', 'required', 'removable'
+
+    resp = await http_client.patch("/api/leadgen/config", headers=hc_headers, json={"questionnaire": malformed})
+    assert resp.status_code == 422
