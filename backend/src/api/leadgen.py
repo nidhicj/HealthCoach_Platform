@@ -36,6 +36,13 @@ def _generate_slug(first_name: str, last_name: str) -> str:
     return f"{_slugify_name_part(first_name)}-{_slugify_name_part(last_name)}-{suffix}"
 
 
+def _already_configured_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={"error": "already_configured", "message": "Leadgen is already set up for this account."},
+    )
+
+
 class LeadgenConfigOut(BaseModel):
     hc_slug: str
     questionnaire: list[dict]
@@ -70,10 +77,7 @@ async def init_leadgen_config(
         select(HcLeadgenConfig).where(HcLeadgenConfig.hc_user_id == UUID(hc_id))
     )).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"error": "already_configured", "message": "Leadgen is already set up for this account."},
-        )
+        raise _already_configured_error()
 
     for attempt in range(_MAX_SLUG_ATTEMPTS):
         config = HcLeadgenConfig(
@@ -88,6 +92,17 @@ async def init_leadgen_config(
             return LeadgenConfigOut.model_validate(config)
         except IntegrityError:
             await db.rollback()
+            # IntegrityError here means either the hc_slug was already taken (retry with
+            # a new slug) or a concurrent request won the race on hc_user_id's unique
+            # constraint (the pre-check above ran before that request committed). We
+            # can't reliably tell which from the exception itself without parsing the
+            # DB-specific constraint name, which is fragile. Re-query by hc_user_id —
+            # the same check already used above — to disambiguate.
+            raced = (await db.execute(
+                select(HcLeadgenConfig).where(HcLeadgenConfig.hc_user_id == UUID(hc_id))
+            )).scalar_one_or_none()
+            if raced is not None:
+                raise _already_configured_error()
             if attempt == _MAX_SLUG_ATTEMPTS - 1:
                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not generate a unique slug")
     raise AssertionError("unreachable")  # loop always returns or raises
