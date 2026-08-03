@@ -4,6 +4,44 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-08-02 — Unit_003 Client Discovery Pipeline: PHASE-01 (leadgen data layer & HC setup) shipped
+
+**Branch**: `feature/unit-003-client-discovery-pipeline` (kept as-is per SoJo, not merged/pushed this session)
+
+**Shipped (all 8 tasks, via superpowers:subagent-driven-development, one fresh implementer + reviewer per task):**
+- Data layer: `leads`, `lead_questionnaire_responses`, `lead_upload_tokens`, `lead_files`, `hc_leadgen_config` tables (5 new tables, one migration chain, verified linear/single-head, verified schema-identical on both `tapas_dev` and `tapas_test`).
+- Temporary `users.first_name`/`last_name` columns (conceptually owned by `Unit_006_PlatformFoundations`, not yet built) — explicitly flagged in the migration docstring and PHASE-01's Global Constraints as a cross-branch merge collision risk for whoever merges second.
+- Three endpoints in `backend/src/api/leadgen.py`: `POST /api/leadgen/config/init` (slug generation, profile-incomplete/already-configured guards), `GET /api/leadgen/config`, `PATCH /api/leadgen/config` (fixed-question protection, tenant-scoped).
+- `backend/scripts/seed_hc_names.py` — temporary manual backfill script, ahead of Unit_006's real settings UI. Run against a dummy pilot HC (`joshichi.nidhi@gmail.com` / Nidhi Joshi — explicitly confirmed dummy/test data) in this worktree's `tapas_dev`.
+- Frontend `/settings/leadgen` page (Setup / Intake Form / Test Panel tabs), verified with a real in-browser Playwright walkthrough (not just typecheck/build) against live backend + Postgres, per this repo's UI-verification rule.
+
+**Bugs found and fixed during execution (6 total, across per-task review + final whole-branch review):**
+- Task 2: migration was applied to `tapas_dev` but silently never reached `tapas_test` (wrong env var — `alembic/env.py` only reads `DATABASE_URL`, not `TEST_DATABASE_URL` as its own var). Caught because `tests/integration/conftest.py` builds the test schema via `Base.metadata.create_all`, not Alembic, so pytest alone would have masked this drift indefinitely.
+- Task 5: `POST /config/init`'s slug-collision retry loop misdiagnosed a concurrent `hc_user_id` race as a slug collision, returning a misleading 500 instead of 409 `already_configured`. SoJo approved the fix explicitly (plan-mandated code, flagged as a plan-vs-finding conflict rather than silently fixed).
+- Task 7: `_validate_questionnaire_keeps_fixed_questions`'s `removable: true` rejection branch had zero test coverage (brief only specified the "missing key" test case).
+- Final review (I-1): PATCH didn't enforce D-1's "no retyping a fixed question" rule — only checked key-presence/`removable`, not `type`/`required`/`text`.
+- Final review (I-2): explicit `null` on NOT-NULL scalar PATCH fields caused a raw 500 instead of 422.
+- Final review (I-3) + regression (N-1) caught in the fix wave's own re-review: `questionnaire` was untyped `list[dict]` server-side (malformed entries silently persisted, later breaking the frontend's stricter Zod parse with no error surfaced — `page.tsx` had no `.catch()`); the fix for I-3 combined with the *pre-existing* lack of a null-guard on `questionnaire`/`test_panel` (both NOT NULL JSONB columns) meant `PATCH {"questionnaire": null}` would silently corrupt a row — JSONB `null` satisfies a SQL `NOT NULL` constraint, so the write committed, then every later GET/PATCH on that row 500'd trying to serialize it back out, with no API-level recovery path. Closed with one more approved fix round (extended the same null-guard to both JSONB fields), verified via counterfactual + mutation-tested regression tests.
+
+**Decided**:
+- Confirmed with SoJo (see prior conversation turn): PHASE docs are written and executed one sprint at a time (design → implement → design next), not all upfront — matches this repo's own CLAUDE.md §6 convention and Unit_001's actual commit history.
+- This worktree's `.env` JWT keys were placeholders (blocking any real login/JWT-issuance testing). Copied the real dev ES256 keypair from `tapas_unit004`'s `.env` (JWT signing keys aren't meant to be per-worktree) — `.env` confirmed gitignored, never committed.
+
+**Pending / next session**:
+- PHASE-02 (public intake questionnaire + lab recommendation + email) is next, per SPEC-0001's Stage 2-3 — not started.
+- `/settings/leadgen` is not yet reachable from any in-app nav (`frontend/src/app/(app)/layout.tsx` has no settings sub-nav yet) — flagged by final review as a real but non-blocking gap.
+- Minor deferred items (see final commit `d75d402` and the now-deleted SDD ledger, summarized): `seed_hc_names.py` doesn't dispose its DB engine on the user-not-found error path; no PATCH-specific cross-tenant isolation test (GET has one); `LeadgenConfigPatch` has no `extra="forbid"`; hardcoded `tapas.app` intake-link display string should eventually source from config (also: SPEC-0001 Stages 2-4 still say `parivarthan.app`, inconsistent with the Tapas rename — not touched this session).
+- The Unit_006/cross-branch `users.first_name`/`last_name` collision risk (see PHASE-01 Global Constraints, now committed) still needs SoJo to actively coordinate at merge time — not resolvable from within this branch alone.
+
+**Context the next session needs**:
+- This worktree's Postgres runs on port 5436 (`docker-compose.yml` project `tapas_unit003`) — always run `scripts/db-check.sh` first. `tapas_test` needs `TEST_DATABASE_URL` exported explicitly before `pytest` (conftest.py reads `os.environ` directly; `.env` isn't auto-sourced into the shell).
+- Full backend suite: 286 passed. Frontend: clean build, `/settings/leadgen` included.
+
+**Open questions for SoJo**:
+- None blocking. The Unit_006 merge-coordination risk above is the one item that needs your active attention, not Claude's — timing depends on Unit_006's own roadmap.
+
+---
+
 ## 2026-07-12 — Custom domain (app.tapas.fitness) via Cloudflare Worker
 
 **Done**:
