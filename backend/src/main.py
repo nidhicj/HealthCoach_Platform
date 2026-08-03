@@ -56,7 +56,12 @@ async def rate_limit_exception_handler(request: Request, exc: RateLimitExceeded)
     logger.info("rate_limit_exceeded", path=request.url.path)
     return JSONResponse(
         status_code=429,
-        content={"detail": "Rate limit exceeded"},
+        content={
+            "detail": (
+                "We've received a lot of submissions just now. "
+                "Please wait a few minutes and try again."
+            )
+        },
     )
 
 
