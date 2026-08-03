@@ -77,7 +77,7 @@ All 7 planned tasks shipped and were individually reviewed clean (per-task revie
 - **Verification date**: 2026-08-03
 - **Verification record**: no `docs/VERIFICATION.md` entry exists for this phase — verification was performed but not additionally logged there. A formal `VERIFICATION.md` section for PHASE-02 is a reasonable follow-up if this repo wants every phase represented there, but none is claimed here.
 - **Test count at end of phase**: 318 passing (delta from PHASE-01's end-state of 286, per `docs/SESSION_LOG.md`'s 2026-08-02 entry: +32)
-- **Key checks**: full backend automated suite green (318/318); clean frontend production build and `tsc --noEmit`; real in-browser Playwright verification of the public intake page against a live-patched HC config — covering the happy path, the duplicate-email 409 path, the rate-limit 429 path, and both the `multiple_choice` and `scale` question-type renderers (this last pair was a coverage gap the Task 7 reviewer closed directly via live browser verification rather than relying on unit/integration tests alone).
+- **Key checks**: full backend automated suite green (318/318); clean frontend production build; `tsc --noEmit` clean apart from two pre-existing `Route.fallthrough` typing errors in `tests/e2e/diet-chart.spec.ts` (last touched in `bcbdf02`, unrelated to this phase); real in-browser Playwright verification of the public intake page against a live-patched HC config — covering the happy path, the duplicate-email 409 path, the rate-limit 429 path, and both the `multiple_choice` and `scale` question-type renderers (this last pair was a coverage gap the Task 7 reviewer closed directly via live browser verification rather than relying on unit/integration tests alone).
 
 ## 7. Lessons learned
 
