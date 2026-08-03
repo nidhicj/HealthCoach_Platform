@@ -289,3 +289,34 @@ async def test_unconfigured_slug_returns_404_not_422(http_client: AsyncClient):
         json={"consent_ack": True, "full_name": "Jane Doe"},
     )
     assert resp.status_code == 404
+
+
+async def test_sixth_submission_within_an_hour_from_same_ip_returns_429(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    """SPEC-0001 acceptance criterion: 6th submission from the same IP within 1 hour
+    returns 429. This runs against the real registered `app` (via `http_client`,
+    which wraps `src.main.app` — the same app object that has `app.state.limiter`
+    and the `RateLimitExceeded` handler wired in `main.py`), not a throwaway test
+    app, so it proves the `@limiter.limit("5/hour")` decorator on the real route is
+    genuinely enforced end-to-end. Each request uses a distinct email so the 6th
+    request is rejected for rate-limiting specifically, not the duplicate-email 409
+    path. `httpx.ASGITransport`'s default fake client IP is the same for every
+    request in this test, so all six land in the same rate-limit bucket.
+    `reset_rate_limiter` (autouse, tests/conftest.py) guarantees this test starts
+    with a clean bucket regardless of test execution order."""
+    config = await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+
+    for i in range(5):
+        resp = await http_client.post(
+            f"/api/intake/{config['hc_slug']}",
+            json=_valid_payload(email=f"lead{i}@example.com"),
+        )
+        assert resp.status_code == 201, f"request {i + 1} failed: {resp.text}"
+
+    sixth = await http_client.post(
+        f"/api/intake/{config['hc_slug']}",
+        json=_valid_payload(email="lead-sixth@example.com"),
+    )
+    assert sixth.status_code == 429, sixth.text
+    assert "detail" in sixth.json()

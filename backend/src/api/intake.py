@@ -8,13 +8,14 @@ through this public endpoint.
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from src.api.deps import DbDep
 from src.db.models import HcLeadgenConfig, Lead, LeadQuestionnaireResponse, User
+from src.lib.rate_limit import limiter
 
 router = APIRouter(prefix="/api/intake", tags=["intake"])
 
@@ -133,11 +134,17 @@ def _validate_intake_responses(questionnaire: list[dict], responses: dict[str, o
 
 
 @router.post("/{hc_slug}", status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/hour")
 async def submit_intake_questionnaire(
-    hc_slug: str, body: IntakeSubmissionIn, db: DbDep
+    request: Request, hc_slug: str, body: IntakeSubmissionIn, db: DbDep
 ) -> IntakeSubmissionOut:
     """Public questionnaire submission. No auth — resolved by hc_slug, same 404
     generic-not-found pattern as GET (see docstring above).
+
+    Rate-limited 5 req/hour per direct-connection IP (SPEC-0001 API surface table;
+    `src.lib.rate_limit.limiter`, keyed by `get_remote_address` only — no
+    X-Forwarded-For trust per PHASE-02 Decision D-1). `request: Request` is required
+    by name for slowapi's key function to read the client IP.
 
     Consent (`consent_given_at` / `consent_purpose`) is written on the same `Lead`
     row that is flushed/committed together with its `LeadQuestionnaireResponse`
