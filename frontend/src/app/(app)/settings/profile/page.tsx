@@ -14,6 +14,7 @@ export default function SettingsProfilePage() {
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     getProfile()
@@ -27,10 +28,12 @@ export default function SettingsProfilePage() {
   async function handleSave() {
     setSaving(true);
     setSaveError(false);
+    setSaved(false);
     try {
       const updated = await updateProfile(businessName.trim() === "" ? null : businessName);
       setProfile(updated);
       setBusinessName(updated.business_name ?? "");
+      setSaved(true);
     } catch {
       setSaveError(true);
     } finally {
@@ -63,10 +66,14 @@ export default function SettingsProfilePage() {
         <>
           {/* Editable business name */}
           <div className="space-y-2">
-            <label className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground">
+            <label
+              htmlFor="business-name"
+              className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground"
+            >
               Business name
             </label>
             <Input
+              id="business-name"
               value={businessName}
               onChange={(e) => setBusinessName(e.target.value)}
               placeholder="Your practice name"
@@ -76,6 +83,9 @@ export default function SettingsProfilePage() {
             </Button>
             {saveError && (
               <p className="font-sans text-xs text-destructive">Could not save. Try again.</p>
+            )}
+            {saved && !saveError && (
+              <p className="font-sans text-xs text-muted-foreground">Saved</p>
             )}
           </div>
 
