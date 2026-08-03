@@ -136,7 +136,11 @@ async def test_successful_submission_creates_lead_and_all_response_rows(
     resp = await http_client.post(f"/api/intake/{config['hc_slug']}", json=_valid_payload())
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["status"] == "questionnaire_submitted"
+    # Stage 3 (PHASE-02 Task 5) fires inline in the same request/response cycle and
+    # advances the Lead to "tests_recommended" before this response is built — the
+    # response body must reflect that actual final state, not the pre-Stage-3
+    # "questionnaire_submitted" snapshot (SPEC-0001 Stage 3 step 6).
+    assert body["status"] == "tests_recommended"
     lead_id = UUID(body["lead_id"])
 
     lead = await db.get(Lead, lead_id)
@@ -145,11 +149,6 @@ async def test_successful_submission_creates_lead_and_all_response_rows(
     assert lead.full_name == "Jane Doe"
     assert lead.email == "jane@example.com"
     assert lead.phone == "9876543210"
-    # Stage 3 (PHASE-02 Task 5) fires inline in the same request/response cycle and
-    # advances the Lead's DB status past Stage 2's — the HTTP response body above
-    # still reports "questionnaire_submitted" (the milestone at the moment the Lead's
-    # own submission was durably committed), but the row's final `status` by the time
-    # this request returns is "tests_recommended" (SPEC-0001 Stage 3 step 6).
     assert lead.status == "tests_recommended"
 
     responses = (await db.execute(
@@ -367,7 +366,11 @@ async def test_successful_submission_builds_recommendation_issues_token_and_emai
             json=_valid_payload(current_health_concerns="Diagnosed with PCOD last year"),
         )
     assert resp.status_code == 201, resp.text
-    lead_id = UUID(resp.json()["lead_id"])
+    body = resp.json()
+    # Response body must report the Lead's actual final status, not the
+    # pre-Stage-3 "questionnaire_submitted" snapshot.
+    assert body["status"] == "tests_recommended"
+    lead_id = UUID(body["lead_id"])
 
     lead = await db.get(Lead, lead_id)
     assert lead.status == "tests_recommended"
@@ -426,7 +429,11 @@ async def test_email_delivery_failure_does_not_fail_request_lead_and_token_persi
     assert resp.status_code == 201, resp.text
     mock_email.assert_called_once()
 
-    lead_id = UUID(resp.json()["lead_id"])
+    body = resp.json()
+    # Even when the email send fails, the response status must still reflect
+    # Stage 3's actual outcome (already committed before the email is attempted).
+    assert body["status"] == "tests_recommended"
+    lead_id = UUID(body["lead_id"])
     lead = await db.get(Lead, lead_id)
     assert lead is not None
     assert lead.status == "tests_recommended"

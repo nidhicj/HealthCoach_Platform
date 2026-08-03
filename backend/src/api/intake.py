@@ -301,7 +301,11 @@ async def submit_intake_questionnaire(
     # captured submission.
     recommendation = _build_test_recommendation(test_panel, response_texts)
     lead.test_recommendation = recommendation
-    lead.status = "tests_recommended"
+    # Reassign the same local the response is built from below (not a new
+    # variable) so IntakeSubmissionOut.status reflects the Lead's actual final
+    # state, not the pre-Stage-3 "questionnaire_submitted" snapshot.
+    lead_status = "tests_recommended"
+    lead.status = lead_status
 
     raw_token = os.urandom(32).hex()
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
