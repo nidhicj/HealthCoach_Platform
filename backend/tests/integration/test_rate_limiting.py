@@ -13,13 +13,13 @@ import pytest
 @pytest.mark.asyncio
 async def test_rate_limiter_enforces_limit(http_client: httpx.AsyncClient) -> None:
     """Verify that rate limit is enforced and returns 429 after limit exceeded."""
-    # Make requests up to the limit (5 per hour)
+    # Make requests up to the limit (5 per hour) to internal test endpoint
     for i in range(5):
-        response = await http_client.get("/health")
+        response = await http_client.get("/_internal/test-rate-limit")
         assert response.status_code == 200, f"Request {i+1} failed with {response.status_code}"
 
     # 6th request should be rate-limited
-    response = await http_client.get("/health")
+    response = await http_client.get("/_internal/test-rate-limit")
     assert response.status_code == 429, f"Expected 429, got {response.status_code}"
     body = response.json()
     assert "detail" in body
@@ -29,7 +29,7 @@ async def test_rate_limiter_enforces_limit(http_client: httpx.AsyncClient) -> No
 async def test_rate_limiter_limit_resets_between_tests_first(http_client: httpx.AsyncClient) -> None:
     """First test in a pair verifying reset fixture works. Make 3 requests."""
     for i in range(3):
-        response = await http_client.get("/health")
+        response = await http_client.get("/_internal/test-rate-limit")
         assert response.status_code == 200, f"Request {i+1} failed with {response.status_code}"
     # No assertion needed; we're just checking state doesn't leak to the next test
 
@@ -41,5 +41,5 @@ async def test_rate_limiter_limit_resets_between_tests_second(http_client: httpx
     test and fail at request 2 or 3. With reset working, all 5 requests should succeed.
     """
     for i in range(5):
-        response = await http_client.get("/health")
+        response = await http_client.get("/_internal/test-rate-limit")
         assert response.status_code == 200, f"Request {i+1} failed after reset (would fail without reset); got {response.status_code}"

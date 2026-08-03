@@ -41,7 +41,6 @@ from src.auth.jwt_utils import create_access_token
 from src.config import get_settings
 from src.db.base import Base
 from src.db.models import Client, Session, User
-from src.lib.rate_limit import limiter
 
 
 # ── engine (session-scoped: schema created once per pytest session) ────────────
@@ -205,16 +204,3 @@ async def session_id(db: AsyncSession, hc_user: User, client_rec: Client) -> UUI
     db.add(sess)
     await db.flush()
     return sess.id
-
-
-# ── Rate limiter reset (autouse, function-scoped) ──────────────────────────────
-
-
-@pytest.fixture(autouse=True)
-def reset_rate_limiter() -> None:
-    """
-    Reset slowapi's in-memory rate-limit storage before each test.
-    Prevents test pollution: storage is a process-global singleton, so limits
-    would otherwise bleed from one test function to the next.
-    """
-    limiter.reset()
