@@ -14,6 +14,7 @@ const NAV_LINKS = [
   { href: "/action-items", label: "Action Items" },
   { href: "/settings/diet-chart-templates", label: "Diet Charts" },
   { href: "/settings/sessions", label: "Settings" },
+  { href: "/settings/profile", label: "Profile" },
 ] as const;
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
