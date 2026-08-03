@@ -1,8 +1,8 @@
 # PHASE-02: Public intake questionnaire and lab recommendation
 
 **Unit**: Unit_003_ClientDiscoveryPipeline
-**Status**: Draft
-**Verification date**: Not yet verified — fill in after implementation and verification
+**Status**: Complete
+**Verification date**: 2026-08-03
 **Implements**: SPEC-0001 §Stage 2 (Lead completes questionnaire), §Stage 3 (Lab test recommendation generated and emailed); Acceptance criteria §Lead questionnaire submission, §Lab recommendation and token; §DPDP (consent-capture items only — logging/robots items belong to whichever phase ships the full pipeline)
 **ADRs implemented**: ADR-0005 (auth strategy) — this phase's `lead_upload_tokens` issuance mirrors the `client_invite_tokens` pattern it defines. No LLM or observability ADRs apply — this phase makes no LLM calls.
 
@@ -20,7 +20,7 @@ This phase builds the public-facing half of the Lead intake funnel described in 
 
 ## 2. Deliverables shipped
 
-Planned — to be updated with actuals as this phase is implemented and ships.
+All 7 planned tasks shipped and were individually reviewed clean (per-task review, `superpowers:subagent-driven-development`), then confirmed spec-compliant by a final whole-branch review. This list is unchanged from the pre-implementation plan — the plan held up:
 
 - `backend/src/lib/rate_limit.py` (new) — `slowapi` `Limiter` instance, conservative IP key (direct connection only, see Decision D-1)
 - `backend/pyproject.toml` — add `slowapi` dependency
@@ -31,7 +31,7 @@ Planned — to be updated with actuals as this phase is implemented and ships.
 - `backend/tests/integration/test_intake_public.py` (new)
 - `backend/tests/unit/test_lead_test_recommendation.py` (new) — pure-function tests for the recommendation-matching logic
 - `frontend/src/lib/api/intake.ts` (new) — unauthenticated API module, Zod schemas
-- `frontend/src/app/(public)/intake/layout.tsx` (new) — Server Component, sets `noindex` metadata
+- `frontend/src/app/(public)/intake/layout.tsx` (new) — Server Component, sets `noindex` metadata (and, added in this phase's final fix wave, a generic unbranded `title`)
 - `frontend/src/app/(public)/intake/[slug]/page.tsx` (new) — the public questionnaire page
 
 ## 3. Decisions made during this phase
@@ -50,7 +50,19 @@ Planned — to be updated with actuals as this phase is implemented and ships.
 
 ## 4. Bugs fixed mid-phase
 
-None yet — phase not yet executed. PHASE-01's real experience (6 bugs caught across per-task and final-branch review; see PHASE-01 and the SESSION_LOG 2026-08-02 entry) is the expectation to calibrate against: this section should be filled in honestly as implementation surfaces real issues, not left as "no issues" without verification.
+**Task 1 — real production liveness endpoint accidentally rate-limited.** The first implementation of the rate-limiting smoke test decorated the real `/health` endpoint (used by smoke-gate scripts, ops runbooks, and future uptime monitoring) with `@limiter.limit("5/hour")` instead of exercising the limiter against a disposable test route. Caught in round-1 review before merge — a 6th health check within an hour in production would have started failing with 429s, a genuine near-incident caught by independent review rather than in production. Fixed by replacing the test's dependency on `/health` with its own route.
+
+**Task 1 — replacement test route was itself an unauthenticated permanent production route.** The round-1 fix introduced `/_internal/test-rate-limit` as a new route on the real app, but it was unauthenticated and permanently present in the production surface, not following the existing `scheduler_secret`-gating idiom used elsewhere for internal-only routes. Caught in round 2. Fixed by moving the rate-limiter test entirely off the production `app` object: `test_rate_limiting.py` now builds its own isolated per-test `FastAPI()` instance with its own `Limiter` and exception handler, so no test-only route exists on the shipped app at all.
+
+**Task 1 — rate-limit test-isolation gap across `tests/unit/` and `tests/integration/` (Important, fixed).** The initial `reset_rate_limiter` autouse fixture lived in `tests/integration/conftest.py`, but `tests/unit/test_request_logging.py` also calls `/health` (multiple times per test) with no reset available to it — the suite was passing only by alphabetical collection-order luck, not by design. Fixed by moving `reset_rate_limiter` to the root `backend/tests/conftest.py` so it applies autouse across both directories.
+
+**Task 1 — `uv.lock` never regenerated after adding `slowapi` (Important, fixed).** `slowapi` was added to `backend/pyproject.toml` but `uv.lock` was not regenerated in the same commit, which would break `uv sync --frozen` in the Docker build. Confirmed absent in both the introducing commit and the working tree at review time; fixed by regenerating the lockfile.
+
+**Task 4 — `POST /api/intake/:slug` shipped with no rate limit at all.** SPEC-0001's API-surface table and acceptance criteria explicitly require 5 requests/hour/IP on this endpoint, but the first implementation of Task 4 omitted the `@limiter.limit(...)` decorator entirely. This was not implementer error in the usual sense: this phase plan's own §2 Deliverables prose correctly described the requirement, but the Implementation Plan's per-task paragraph for Task 4 (below) never restated it, so the task that actually needed to apply it had no textual cue to do so. Fixed in round 1 by adding the decorator; see §7 for the process lesson.
+
+**Task 5 — response body reported a stale Lead status.** `POST /api/intake/:slug`'s response `status` field still read `"questionnaire_submitted"` after Task 5 added Stage 3 orchestration in the same handler — by the time the response was built, the Lead had already progressed to `"tests_recommended"`. Fixed by reusing the same local variable Stage 3 updates, so the response reflects the Lead's actual final state rather than a pre-Stage-3 snapshot.
+
+**Task 6 — error detail unwrapping, two rounds.** Round 1: `frontend/src/lib/api/intake.ts`'s `IntakeError.detail` captured the entire parsed JSON response body (e.g. `{detail: "..."}`) instead of the unwrapped message string, and `err.message` was a hardcoded generic placeholder rather than the backend's actual plain-language copy — this would have broken Task 7's requirement to render the exact per-status-code message to the Lead. Round 2: the round-1 fix's `extractDetailMessage`/`IntakeValidationError` assumed any array-shaped `detail` was a `string[]`, but FastAPI's native Pydantic validation-error 422 (reachable on this endpoint via malformed JSON or a non-coercible `consent_ack`) returns `[{loc, msg, type, input}, ...]` object shapes instead — unhandled, this would have rendered the literal string `"[object Object]"` to a Lead. Both fixed; `extractDetailMessage` now branches on whether array entries are strings or `{msg}`-shaped objects before deciding how to render them.
 
 ## 5. Source docs consulted
 
@@ -62,11 +74,17 @@ None yet — phase not yet executed. PHASE-01's real experience (6 bugs caught a
 
 ## 6. Verification
 
-Not yet executed — phase not yet built. Once implemented, the verification bar mirrors PHASE-01's: full backend + frontend test suite green, a `docs/VERIFICATION.md` entry, and a manual/Playwright browser walkthrough of the intake page (HC's configured questionnaire renders correctly, consent gate works, submission shows the same-page confirmation with no redirect, duplicate submission shows the correct plain-language message, `noindex` meta tag present). Fill in actual date, test count, and `VERIFICATION.md` link upon completion.
+- **Verification date**: 2026-08-03
+- **Verification record**: no `docs/VERIFICATION.md` entry exists for this phase — verification was performed but not additionally logged there. A formal `VERIFICATION.md` section for PHASE-02 is a reasonable follow-up if this repo wants every phase represented there, but none is claimed here.
+- **Test count at end of phase**: 318 passing (delta from PHASE-01's end-state of 286, per `docs/SESSION_LOG.md`'s 2026-08-02 entry: +32)
+- **Key checks**: full backend automated suite green (318/318); clean frontend production build and `tsc --noEmit`; real in-browser Playwright verification of the public intake page against a live-patched HC config — covering the happy path, the duplicate-email 409 path, the rate-limit 429 path, and both the `multiple_choice` and `scale` question-type renderers (this last pair was a coverage gap the Task 7 reviewer closed directly via live browser verification rather than relying on unit/integration tests alone).
 
 ## 7. Lessons learned
 
-Not yet executed — to be filled in honestly upon completion. This section is what the next phase (Stage 4) reads first; do not pre-fill with speculative lessons before the work has actually happened.
+- **What worked**: independent per-task review caught a genuine near-production-incident before it shipped — Task 1's first draft put a `5/hour` rate limit on the real `/health` liveness endpoint. Had that reached production, ops runbooks and uptime monitoring would have started seeing false-negative health checks under normal traffic. This is the clearest evidence in either PHASE-01 or PHASE-02 that the per-task-implementer-plus-reviewer split earns its cost.
+- **What worked**: deliberately scoping Stage 4 (blood-report upload, PDF extraction, R2 storage, LLM brief generation) out of this phase during planning, rather than bundling it with Stage 2/3, kept the phase's review surface tractable. Stage 4 introduces three new subsystems at once (file storage, an LLM task type, PDF parsing); folding it in here would likely have compounded the same classes of bug seen in Task 1 and Task 6 rather than isolating them.
+- **What surprised**: Task 4's missing rate limit was not implementer carelessness in the usual sense — it was a document-consistency gap. §2 Deliverables of this very phase plan correctly named the `5/hour` requirement, but the Implementation Plan's per-task paragraph for Task 4 never restated it, so the person and reviewer working strictly from that paragraph had no textual cue that it applied. The requirement was true in one part of the document and silently absent in the part actually consulted task-by-task.
+- **What to do differently**: when a phase plan states a cross-cutting requirement (rate limits, auth, validation rules) in its prose sections (§1 Scope, §2 Deliverables), the Implementation Plan's per-task breakdown should explicitly restate it on the task that owns implementing it, not just imply it's covered because it's mentioned elsewhere. Future phase-plan authors should do a pass cross-checking that every per-task paragraph actually contains what the higher-level sections promise, rather than trusting that mentioning something once is enough.
 
 ## 8. Carry-over to subsequent phases
 
@@ -76,6 +94,8 @@ Not yet executed — to be filled in honestly upon completion. This section is w
 - **D-5 (MIME magic-byte approach) directly informs Stage 4.** The 3-signature check (PDF/JPEG/PNG) and its rationale — this repo's existing Content-Type-only convention relies on an authenticated, accountable uploader, which Stage 4's endpoint lacks — should be applied there, not re-litigated from scratch.
 - `LeadUploadToken` rows created by this phase's Stage 3 step (14-day expiry, SHA-256 hash, raw token embedded in the emailed link) are exactly what Stage 4's upload endpoint will validate and consume — the token pattern itself needs no further design work by that phase.
 - `frontend/src/app/(public)/intake/` establishes the public-route pattern (a Server Component `layout.tsx` for page metadata, wrapping a `"use client"` page) that a later `/upload/[token]` page should mirror.
+- **Stage 3's two-commit sequence has a recovery gap.** `POST /api/intake/:slug` commits the Lead + questionnaire responses (Stage 2) in one transaction, then commits the test recommendation + upload token (Stage 3) in a second, separate transaction. If the second commit fails after the first has already succeeded, the Lead is left permanently stuck at `status="questionnaire_submitted"` with a recommendation/token that were never issued and no recovery path — the intake page shows no error to retry from, since the Lead's submission genuinely succeeded. Whichever phase builds `POST /api/leads/:id/remind` (SPEC-0001's API surface) should account for leads stuck in this specific state, not just leads whose upload token has expired.
+- `backend/tests/conftest.py`'s `reset_rate_limiter` autouse fixture (root-level, applies to both `tests/unit/` and `tests/integration/`) resets `slowapi`'s process-global in-memory storage before every test. Anyone adding the next rate-limited endpoint needs to know this fixture exists and already covers them — no per-suite reset needed — but also that it's in-memory-only and won't reflect a real multi-process/multi-instance deployment's rate-limit state.
 
 ---
 
