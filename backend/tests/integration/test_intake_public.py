@@ -1,6 +1,12 @@
-"""Integration tests: GET /api/intake/:slug (public, unauthenticated). PHASE-02."""
+"""Integration tests: GET/POST /api/intake/:slug (public, unauthenticated). PHASE-02."""
+import uuid as uuid_mod
+from uuid import UUID
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
+
+from src.db.models import Lead, LeadQuestionnaireResponse
 
 pytestmark = pytest.mark.asyncio
 
@@ -66,3 +72,220 @@ async def test_response_contains_only_allowlisted_fields(
     body = resp.json()
 
     assert set(body.keys()) == {"hc_name", "hc_photo_url", "questionnaire"}
+
+
+# ── POST /api/intake/:slug — questionnaire submission ───────────────────────────
+
+
+async def _configure_with_custom_questions(
+    http_client: AsyncClient, hc_user, hc_headers, db
+) -> dict:
+    """Sets up base leadgen config (six fixed questions), then PATCHes in one
+    multiple_choice and one scale custom question so the type-specific validation
+    branches can be exercised, not just the fixed free_text ones."""
+    config = await _init_leadgen_config(http_client, hc_user, hc_headers, db)
+    questionnaire = [
+        *config["questionnaire"],
+        {
+            "key": "diet_type",
+            "text": "What is your diet type?",
+            "type": "multiple_choice",
+            "required": True,
+            "removable": True,
+            "options": ["Vegetarian", "Non-vegetarian", "Vegan"],
+        },
+        {
+            "key": "energy_level",
+            "text": "Rate your energy level (1-10)",
+            "type": "scale",
+            "required": True,
+            "removable": True,
+        },
+    ]
+    resp = await http_client.patch(
+        "/api/leadgen/config", headers=hc_headers, json={"questionnaire": questionnaire}
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _valid_payload(**overrides) -> dict:
+    payload = {
+        "consent_ack": True,
+        "full_name": "Jane Doe",
+        "age": "34",
+        "email": "jane@example.com",
+        "phone": "9876543210",
+        "primary_health_goal": "Weight loss",
+        "current_health_concerns": "None",
+        "diet_type": "Vegetarian",
+        "energy_level": 7,
+    }
+    payload.update(overrides)
+    return payload
+
+
+async def test_successful_submission_creates_lead_and_all_response_rows(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    config = await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+
+    resp = await http_client.post(f"/api/intake/{config['hc_slug']}", json=_valid_payload())
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["status"] == "questionnaire_submitted"
+    lead_id = UUID(body["lead_id"])
+
+    lead = await db.get(Lead, lead_id)
+    assert lead is not None
+    assert lead.hc_user_id == hc_user.id
+    assert lead.full_name == "Jane Doe"
+    assert lead.email == "jane@example.com"
+    assert lead.phone == "9876543210"
+    assert lead.status == "questionnaire_submitted"
+
+    responses = (await db.execute(
+        select(LeadQuestionnaireResponse).where(LeadQuestionnaireResponse.lead_id == lead_id)
+    )).scalars().all()
+    assert len(responses) == len(config["questionnaire"])
+    by_key = {r.question_key: r for r in responses}
+    assert by_key["full_name"].response_text == "Jane Doe"
+    assert by_key["full_name"].question_text == "Full name"  # verbatim from config
+    assert by_key["diet_type"].response_text == "Vegetarian"
+    assert by_key["energy_level"].response_text == "7"
+
+
+async def test_consent_fields_set_on_lead_row_in_same_transaction(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    config = await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+
+    resp = await http_client.post(f"/api/intake/{config['hc_slug']}", json=_valid_payload())
+    assert resp.status_code == 201, resp.text
+
+    lead = await db.get(Lead, UUID(resp.json()["lead_id"]))
+    assert lead.consent_given_at is not None
+    assert lead.consent_purpose == (
+        "Your responses will be shared only with Asha Rao for the purpose of your "
+        "initial health consultation. We do not share your information with any third "
+        "party."
+    )
+
+
+async def test_missing_required_question_returns_422(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    config = await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+    payload = _valid_payload()
+    del payload["primary_health_goal"]
+
+    resp = await http_client.post(f"/api/intake/{config['hc_slug']}", json=payload)
+    assert resp.status_code == 422
+
+
+async def test_invalid_multiple_choice_answer_returns_422(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    config = await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+
+    resp = await http_client.post(
+        f"/api/intake/{config['hc_slug']}", json=_valid_payload(diet_type="Carnivore")
+    )
+    assert resp.status_code == 422
+
+
+async def test_out_of_range_scale_answer_returns_422(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    config = await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+
+    resp = await http_client.post(
+        f"/api/intake/{config['hc_slug']}", json=_valid_payload(energy_level=11)
+    )
+    assert resp.status_code == 422
+
+
+async def test_non_integer_scale_answer_returns_422(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    config = await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+
+    resp = await http_client.post(
+        f"/api/intake/{config['hc_slug']}", json=_valid_payload(energy_level="high")
+    )
+    assert resp.status_code == 422
+
+
+async def test_missing_consent_ack_returns_422(http_client: AsyncClient, hc_user, hc_headers, db):
+    config = await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+    payload = _valid_payload()
+    del payload["consent_ack"]
+
+    resp = await http_client.post(f"/api/intake/{config['hc_slug']}", json=payload)
+    assert resp.status_code == 422
+
+
+async def test_false_consent_ack_returns_422(http_client: AsyncClient, hc_user, hc_headers, db):
+    config = await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+
+    resp = await http_client.post(
+        f"/api/intake/{config['hc_slug']}", json=_valid_payload(consent_ack=False)
+    )
+    assert resp.status_code == 422
+
+
+async def test_duplicate_email_returns_409_with_spec_message(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    config = await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+    payload = _valid_payload()
+
+    first = await http_client.post(f"/api/intake/{config['hc_slug']}", json=payload)
+    assert first.status_code == 201, first.text
+
+    second = await http_client.post(f"/api/intake/{config['hc_slug']}", json=payload)
+    assert second.status_code == 409
+    assert second.json()["detail"] == (
+        "Our records show you've already submitted your intake form for this coach. "
+        "If you have questions, please contact Asha Rao directly."
+    )
+
+    # No duplicate leads row — only the original submission persisted.
+    leads = (await db.execute(select(Lead).where(Lead.email == "jane@example.com"))).scalars().all()
+    assert len(leads) == 1
+
+
+async def test_submission_transaction_is_atomic_on_mid_flow_failure(
+    http_client: AsyncClient, hc_user, hc_headers, db, monkeypatch
+):
+    """Forces a genuine FK-violation IntegrityError on one LeadQuestionnaireResponse
+    insert (not the email-uniqueness constraint) after the Lead row has already been
+    flushed mid-transaction. Confirms the whole transaction rolls back — no orphaned
+    Lead row survives even though it was flushed to the DB before the failure was
+    triggered, and no LeadQuestionnaireResponse rows persist either."""
+    config = await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+
+    original_add = db.add
+
+    def _add_with_fk_violation(instance, *args, **kwargs):
+        if isinstance(instance, LeadQuestionnaireResponse) and instance.question_key == "phone":
+            instance.lead_id = uuid_mod.uuid4()  # references no existing lead -> FK violation
+        return original_add(instance, *args, **kwargs)
+
+    monkeypatch.setattr(db, "add", _add_with_fk_violation)
+
+    with pytest.raises(Exception):  # noqa: B017 — unhandled IntegrityError propagates through the test client
+        await http_client.post(f"/api/intake/{config['hc_slug']}", json=_valid_payload())
+
+    leads = (await db.execute(select(Lead).where(Lead.email == "jane@example.com"))).scalars().all()
+    assert leads == []
+    responses = (await db.execute(select(LeadQuestionnaireResponse))).scalars().all()
+    assert responses == []
+
+
+async def test_unconfigured_slug_returns_404_not_422(http_client: AsyncClient):
+    resp = await http_client.post(
+        "/api/intake/this-slug-does-not-exist-00000",
+        json={"consent_ack": True, "full_name": "Jane Doe"},
+    )
+    assert resp.status_code == 404
