@@ -36,10 +36,18 @@ async def test_patch_empty_string_normalizes_to_null(http_client, hc_headers):
 
 
 @pytest.mark.asyncio
-async def test_patch_empty_body_is_noop_returns_200(http_client, hc_headers):
-    r = await http_client.patch("/api/settings/profile", headers=hc_headers, json={})
-    assert r.status_code == 200
-    assert r.json()["business_name"] is None
+async def test_patch_empty_body_is_noop_preserves_existing_value(http_client, hc_headers):
+    r1 = await http_client.patch(
+        "/api/settings/profile", headers=hc_headers, json={"business_name": "Sunrise Wellness"}
+    )
+    assert r1.status_code == 200
+    assert r1.json()["business_name"] == "Sunrise Wellness"
+
+    r2 = await http_client.patch("/api/settings/profile", headers=hc_headers, json={})
+    assert r2.status_code == 200
+
+    r3 = await http_client.get("/api/settings/profile", headers=hc_headers)
+    assert r3.json()["business_name"] == "Sunrise Wellness"
 
 
 @pytest.mark.asyncio

@@ -49,7 +49,8 @@ async def get_profile(claims: HcClaimsDep, db: DbDep) -> SettingsProfileOut:
 @router.patch("/api/settings/profile")
 async def patch_profile(body: SettingsProfilePatch, claims: HcClaimsDep, db: DbDep) -> SettingsProfileOut:
     user = await db.get(User, UUID(claims.sub))
-    user.business_name = body.business_name
+    if "business_name" in body.model_fields_set:
+        user.business_name = body.business_name
     await db.commit()
     await db.refresh(user)
     return SettingsProfileOut.model_validate(user)
