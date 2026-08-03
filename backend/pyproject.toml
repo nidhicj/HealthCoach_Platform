@@ -18,6 +18,7 @@ dependencies = [
     "python-docx>=1.1",
     "uvicorn[standard]>=0.30",
     "resend>=2.0",
+    "slowapi>=0.1.9",
 ]
 
 [dependency-groups]
