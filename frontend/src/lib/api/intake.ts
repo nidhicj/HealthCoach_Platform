@@ -10,10 +10,14 @@ import { API_URL } from "@/lib/config";
  * Error handling distinguishes 404 (not found), 409 (duplicate email),
  * 422 (validation error), 429 (rate limited), and generic network/5xx errors.
  *
- * All error response bodies (404, 409, 422, 429) follow FastAPI's format:
- * {detail: string | string[]} — the detail field is unwrapped into each error's
- * message and detail properties so callers can render backend-specific copy
- * without re-parsing the response body.
+ * Error response bodies (404, 409, 429) follow FastAPI's format: {detail: string}.
+ * 422 responses can be either:
+ * - {detail: string} — from our custom IntakeSubmissionIn validation
+ * - {detail: string[]} — from our custom _validate_intake_responses errors
+ * - {detail: [{type, loc, msg, input}, ...]} — from FastAPI's native RequestValidationError
+ *   when Pydantic validation fails (e.g., malformed JSON, bad consent_ack type)
+ * The detail field is unwrapped into each error's message and detail properties
+ * so callers can render backend-specific copy without re-parsing the response body.
  */
 
 const QuestionSchema = z.object({
@@ -55,13 +59,46 @@ async function safeParseJson(res: Response): Promise<unknown> {
 
 /**
  * Helper to extract and format error detail from FastAPI response body.
- * FastAPI's HTTPException and rate limiter return {detail: string | string[]}
+ * Handles three possible detail shapes:
+ * 1. string — from 404/409/429 or some 422 responses
+ * 2. string[] — from our custom validation error list
+ * 3. {msg: string, type?, loc?, input?}[] — from FastAPI's RequestValidationError
+ *
+ * Returns:
+ * - string: a single message
+ * - string[]: array of message strings (for structured error access)
+ * - null: if detail field is missing or unparseable
+ *
+ * Never returns [object Object] strings; invalid shapes are treated as null.
  */
-function extractDetailMessage(body: unknown): string | string[] | null {
+function extractDetailMessage(
+  body: unknown
+): string | string[] | null {
   if (!body || typeof body !== "object") return null;
   const detail = (body as Record<string, unknown>).detail;
+
+  // Case 1: string
   if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) return detail;
+
+  // Case 2 & 3: array — could be string[] or validation error object[]
+  if (Array.isArray(detail)) {
+    // Check if it's a string array (our custom validation errors)
+    if (detail.every((d) => typeof d === "string")) {
+      return detail;
+    }
+
+    // Check if it's FastAPI's RequestValidationError shape: array of {msg, type, loc, input}
+    if (detail.every((d) => typeof d === "object" && d !== null && "msg" in d)) {
+      const messages = (detail as Array<{ msg?: unknown }>)
+        .map((err) => (typeof err.msg === "string" ? err.msg : "Invalid request"))
+        .filter((msg) => msg);
+      return messages.length > 0 ? messages : null;
+    }
+
+    // Array but neither all-strings nor validation errors — treat as unparseable
+    return null;
+  }
+
   return null;
 }
 
