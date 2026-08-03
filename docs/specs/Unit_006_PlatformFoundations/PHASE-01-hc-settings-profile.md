@@ -1,6 +1,100 @@
-# PHASE-01 — HC Settings & Profile Implementation Plan
+# PHASE-01: HC Settings & Profile
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Unit**: Unit_006_PlatformFoundations
+**Status**: Verified
+**Verification date**: 2026-08-03 — see `docs/VERIFICATION.md` § Unit_006 PHASE-01 — HC Settings & Profile
+**Implements**: `Unit_006_PlatformFoundations/SPEC-0001-platform-foundations.md` — PHASE-01 scope (Flow, Data, API surface, Acceptance criteria — all items)
+**ADRs implemented**: ADR-0001 (stack — no new dependencies), ADR-0005 (auth / tenant scoping — `require_role('hc')` + `claims.sub` pattern, and the `/api/me/*` actor boundary this phase deliberately does not collide with)
+
+---
+
+## 0. Prerequisites
+
+Anthem rules from CLAUDE.md apply. Preflight every substantive response per PREFLIGHT.md. Context Missing for anything product-specific I haven't provided. Ready?
+
+---
+
+## 1. Scope
+
+Give the HC an editable business name — distinct from their personal Google identity — and a read-only view of their signed-in Google account (name, photo, email), closing the smallest of the seven Platform Foundations gaps identified in `SPEC-0001-platform-foundations.md` (Option C / D-3). Delivered via one new nullable column (`users.business_name`), one new backend router (`/api/settings/profile`, GET + PATCH, scoped to the authenticated HC), and one new frontend settings page.
+
+Not in scope: profile-photo upload, an HC-level timezone field, notification preference toggles — all explicitly deferred per SPEC-0001 D-3, each with a stated reason.
+
+---
+
+## 2. Deliverables shipped
+
+- `backend/src/db/models/users.py` — `business_name: Mapped[str | None] = mapped_column(Text)`, added to the existing `User` class
+- `backend/alembic/versions/6503e78ca409_add_business_name_to_users.py` — migration adding nullable `users.business_name TEXT`; applied to both `tapas_dev` and `tapas_test`
+- `backend/src/api/settings.py` — new router: `GET /api/settings/profile` and `PATCH /api/settings/profile`, both `require_role('hc')`-gated and scoped via `claims.sub` (not `TenantDep`); returns/accepts `{business_name, display_name, photo_url, email}`
+- `backend/src/main.py` — `settings_router` registered alongside the existing routers
+- `backend/tests/unit/test_model_users_business_name.py` — 1 unit test
+- `backend/tests/integration/test_settings.py` — 10 integration tests: authenticated GET, PATCH round-trip, empty-string→null, empty-body no-op (preserves existing value), leading/trailing-whitespace trim, whitespace-only→null, max-length 422, unauthenticated 401, client-role 403, cross-HC isolation
+- `frontend/src/lib/api/settings.ts` — Zod-typed API client (`SettingsProfileSchema`, `getProfile()`, `updateProfile()`)
+- `frontend/src/app/(app)/settings/profile/page.tsx` — editable business-name field with save/error/"Saved" feedback states, plus a read-only block showing the HC's Google-linked avatar, name, and email
+- `frontend/src/app/(app)/layout.tsx` — one new nav entry ("Profile", `/settings/profile`)
+
+---
+
+## 3. Decisions made during this phase
+
+- **Registered `settings_router` alongside the real existing routers in `main.py`**, rather than following the plan's literal Step 2.4 instruction, which referenced a nonexistent `calendar_router` (a stale artifact from another task's template) — verified there was no such router to anchor the import to, and used the actual router list instead.
+- **Added a defensive `if user is None: raise HTTPException(401, "User not found")` guard to both handlers**, overriding the plan's original assumption that `require_role` already validates the row exists in the DB. It doesn't — `require_role` (`backend/src/auth/dependencies.py`) only decodes the JWT and checks `claims.role`; there is no DB round trip in the auth dependency chain. This surfaced only in the final whole-branch review (visible when reading `settings.py` and `auth/dependencies.py` together, not from either file alone), not either per-task review. Matches the existing precedent in `backend/src/auth/router.py` (~line 235-239).
+- **Extended `_normalize_empty` to trim all input, not just detect the all-whitespace case** (`return v.strip() or None`) — makes the endpoint's normalization behavior correct for any client, not just the one frontend page this phase built.
+- **Added a cross-HC isolation test** (`test_cross_hc_profile_isolation`) even though this endpoint deliberately doesn't use `TenantDep`/`current_tenant()` — this is the one endpoint in the codebase enforcing isolation by a different mechanism (`claims.sub`) than every other route, and nothing had verified it held. Uses the existing `hc2_headers`/`hc2_user` conftest fixtures, matching the pattern already used by `test_clients.py`, `test_sessions.py`, and others.
+
+---
+
+## 4. Bugs fixed mid-phase
+
+- **Pydantic v2 required-field gap**: `SettingsProfilePatch.business_name: str | None = Field(max_length=200)` had no `default=None`. In Pydantic v2, a `str | None` type annotation does not make a `Field()` optional without an explicit default — `PATCH /api/settings/profile` with an empty body `{}` incorrectly returned 422 instead of being a no-op. Fixed by adding `default=None`. Caught by task review; the code was copied verbatim from this same plan's own Step 2.3 example, so the class of bug is worth remembering for future plan-authoring: illustrative code in a plan is not automatically correct.
+- **Silent partial-update data loss (surfaced by the fix above)**: once `{}` was no longer rejected, the handler's unconditional `user.business_name = body.business_name` assignment meant any partial PATCH omitting `business_name` silently wiped it back to `null`. Root cause: Pydantic can't distinguish "field omitted" from "field explicitly null" without checking `model_fields_set`. Fixed by guarding the assignment: `if "business_name" in body.model_fields_set: user.business_name = body.business_name`. Caught by the implementer's own follow-up testing while fixing the first bug — not by either round of review — because the first fix's own test only checked that `{}` returned 200, which can't distinguish "wiped" from "left alone" when the fixture's starting value is already `None`. The regression test added afterward does a real round trip: set a value, PATCH `{}`, GET again, confirm the value survived.
+- **Missing 401 guard for a deleted/missing user row**: see Decisions above — not a bug that manifested in any test (nothing in this codebase currently deletes a `users` row), but a real correctness gap the final whole-branch review caught before PHASE-02 (real account deletion) could make it reachable.
+
+---
+
+## 5. Source docs consulted
+
+- `docs/specs/Unit_006_PlatformFoundations/SPEC-0001-platform-foundations.md` — full spec, PHASE-01 scope and D-3/D-4 decisions
+- `docs/decisions/0005-auth-strategy.md` — ADR-0005 §8, the client-actor `/api/me/*` namespace this phase's `/api/settings/*` must not collide with
+- `Unit_004_OneStopSpot/SPEC-0001-one-stop-spot.md` — D-31, the frontend `/me/*` route prefix already locked for the client actor
+- `backend/src/api/me.py` — existing client-actor endpoint pattern (namespace precedent; the one place that needs a cross-table 404 branch, unlike this phase's own-row lookup)
+- `backend/src/db/models/users.py` — confirms `display_name`/`photo_url` already populated from Google OAuth, and that `deleted_at` already exists (flagged for PHASE-02, not touched here)
+- `backend/src/auth/router.py` — Google OAuth callback and refresh-token issuance (confirms `hc_id == sub` for HC-role tokens)
+- `frontend/AGENTS.md` — non-standard Next.js version; App Router API check required before Task 3
+- `frontend/src/app/(app)/settings/sessions/page.tsx` — existing settings-page header/loading-state pattern to follow
+
+---
+
+## 6. Verification
+
+- **Verification date**: 2026-08-03
+- **Verification record**: `docs/VERIFICATION.md` § Unit_006 PHASE-01 — HC Settings & Profile
+- **Test count at end of phase**: 273 total in `backend/` (`pytest -q`, run against this worktree's isolated `tapas_test` on port 5435) — 235 passing, 38 pre-existing failures unrelated to this phase (missing `pgcrypto` Postgres extension on this worktree's `tapas_test`, affecting only LLM/MOM-tracking tests that use `pgp_sym_encrypt`; confirmed via diff/stash comparison that these fail identically with or without this phase's changes). This phase added 11 new tests (1 unit + 10 integration), all passing.
+- **Key checks**: migration confirmed applied directly against `tapas_dev` via `psql` (`business_name` column present, `alembic_version = 6503e78ca409`) — not just claimed from a migration-tool log. Full `test_settings.py` suite (10/10) covers the GET/PATCH contract, empty-string and whitespace normalization, empty-body no-op, 401/403, max-length 422, and cross-HC isolation. Frontend `npx tsc --noEmit` clean (0 new errors; 2 pre-existing, unrelated Playwright type errors in `tests/e2e/diet-chart.spec.ts` untouched by this phase). Went through subagent-driven-development's full per-task review + final whole-branch review process; one Minor finding parked (see Lessons learned).
+
+---
+
+## 7. Lessons learned
+
+- **What worked**: Subagent-driven-development's per-task review caught the Pydantic required-field bug immediately, and fixing it surfaced the more serious silent-wipe bug before it ever reached a real review — the implementer's own follow-up testing habit (verify the fix actually does what the finding demands, not just that the request no longer errors) did real work here. The final whole-branch review then caught a third issue (missing 401 guard) that neither per-task review could have — it was only visible by reading two files together (`settings.py` + `auth/dependencies.py`) that no single task touched both of.
+- **What surprised**: A plan's own illustrative code is not automatically correct. Both of Task 2's bugs traced back to code the plan itself specified verbatim (`Field(max_length=200)` with no default; the unconditional assignment). Per-task review still caught them because review judges the shipped code, not the plan's authority — but it's worth remembering when writing future plans that "the plan says so" is not a substitute for the plan's code being right.
+- **What to do differently**: Add a cross-actor isolation test as a standing checklist item for any endpoint that deliberately departs from the repository's default tenant-scoping pattern (`TenantDep`/`current_tenant()`), rather than waiting for a final review to notice one wasn't written. `claims.sub`-scoped endpoints are rare in this codebase (this is the first), so there's no existing convention to copy from — worth adding to a future skill or checklist rather than relying on review to catch it every time.
+- **Parked, not fixed**: the frontend's "Saved" success indicator is not cleared when the user edits the field again after a successful save — cosmetic only (no data-integrity or auth impact), ruled non-blocking rather than spun into a disallowed second fix wave. See `.superpowers/sdd/PHASE-01-hc-settings-profile/progress.md` for the full ledger.
+
+---
+
+## 8. Carry-over to subsequent phases
+
+- `backend/src/api/settings.py` — establishes the `/api/settings/*` namespace; per SPEC-0001 D-2, PHASE-02 (account/data deletion) and PHASE-03 (consent) are expected to extend this same router rather than create a new namespace
+- `frontend/src/app/(app)/settings/profile/page.tsx` — becomes the natural home for PHASE-02's account-deletion control and PHASE-03's consent toggle (per SPEC-0001 D-2)
+- Convention: look up the authenticated user via `claims.sub` directly (not `TenantDep`/`current_tenant()`) when an endpoint reads/writes the authenticated user's *own* row rather than a tenant-scoped domain resource — later phases touching the HC's own account should follow this same distinction
+
+---
+
+## Implementation plan
 
 **Goal:** Give the HC an editable business name (distinct from their personal Google identity) and a read-only view of their signed-in account, closing the smallest of the seven Platform Foundations gaps (`Unit_006_PlatformFoundations/SPEC-0001-platform-foundations.md`, Option C).
 
@@ -8,7 +102,7 @@
 
 **Tech Stack:** FastAPI/SQLAlchemy backend, Next.js/TypeScript frontend, Zod for API schema validation, Alembic for migrations. Same stack as every other phase in this repo — no new dependencies.
 
-## Global Constraints
+### Global Constraints
 
 - Python ≥ 3.12, FastAPI ≥ 0.115, SQLAlchemy ≥ 2.0, Pydantic ≥ 2.7
 - Activate the Python env with `source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate` before running any backend command
@@ -21,7 +115,7 @@
 
 ---
 
-## Task 1: `users.business_name` column + migration
+### Task 1: `users.business_name` column + migration
 
 **Files:**
 - Modify: `backend/src/db/models/users.py` (add `business_name` column to the existing `User` class)
@@ -110,7 +204,7 @@ git commit -m "feat(settings): add users.business_name column"
 
 ---
 
-## Task 2: Backend API — `GET`/`PATCH /api/settings/profile`
+### Task 2: Backend API — `GET`/`PATCH /api/settings/profile`
 
 **Files:**
 - Create: `backend/src/api/settings.py`
@@ -259,6 +353,8 @@ async def patch_profile(body: SettingsProfilePatch, claims: HcClaimsDep, db: DbD
 
 `db.get(User, ...)` is not expected to return `None` here — `claims.sub` always resolves to an existing `users` row (`require_role` already validated the token against that row) — so there's no defensive `if user is None` branch, matching how `me.py`'s `_resolve_client` is the only place in this codebase that needs a 404 branch (because *that* lookup crosses tables, unlike this one).
 
+> **Corrected during final review (see §3 Decisions, §4 Bugs fixed):** this justification was wrong. `require_role` only decodes the JWT and checks `claims.role` — it never queries the database, so it does not validate that the row exists. Both handlers now include `if user is None: raise HTTPException(401, "User not found")`, matching the precedent already in `backend/src/auth/router.py`. The code above is left as originally planned for historical record; it does not reflect what shipped.
+
 - [ ] **Step 2.4: Register the router**
 
 In `backend/src/main.py`, add the import alongside the existing ones (after `from src.api.sessions import router as sessions_router`):
@@ -299,7 +395,7 @@ git commit -m "feat(settings): add GET/PATCH /api/settings/profile"
 
 ---
 
-## Task 3: Frontend — `/settings/profile` page
+### Task 3: Frontend — `/settings/profile` page
 
 **Files:**
 - Create: `frontend/src/lib/api/settings.ts`
@@ -489,7 +585,7 @@ git commit -m "feat(settings): add /settings/profile page"
 
 ---
 
-## Self-review
+### Self-review
 
 **Spec coverage check** (against `Unit_006_PlatformFoundations/SPEC-0001-platform-foundations.md`, PHASE-01 section):
 

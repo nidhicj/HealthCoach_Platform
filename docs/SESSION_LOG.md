@@ -4,6 +4,37 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-08-03 — Unit_006 PHASE-01: HC Settings & Profile
+
+**Done**:
+- Reformatted `docs/specs/Unit_006_PlatformFoundations/PHASE-01-hc-settings-profile.md` to the required 8-section `template-phase-plan.md` structure (it had been written as a raw implementation plan with no header block or numbered sections). All original Goal/Architecture/Task content preserved, nested under a new `## Implementation plan` section per CLAUDE.md §6's superpowers-output-path override.
+- Implemented PHASE-01 via `superpowers:subagent-driven-development`: Task 1 (`users.business_name` nullable column + Alembic migration), Task 2 (`GET`/`PATCH /api/settings/profile`, `claims.sub`-scoped, not `TenantDep`), Task 3 (`/settings/profile` frontend page + nav entry).
+- All 8 SPEC-0001 acceptance criteria verified and checked off. Migration confirmed applied to `tapas_dev` directly via `psql` (not just trusted from a migration-tool log).
+- Full backend suite: 273 total, 235 passing, 38 pre-existing unrelated failures (missing `pgcrypto` extension on this worktree's `tapas_test`, affects only LLM/MOM-tracking tests — confirmed unrelated by diff/stash comparison, independent grep for `pgcrypto` usage, and re-confirmed by the final review).
+
+**Decided** (link ADRs):
+- No new ADRs. Confirmed ADR-0005's `/api/me/*` namespace belongs to the client actor; this phase's `/api/settings/*` is a deliberately separate namespace for the HC's own profile.
+- `claims.sub` (not `TenantDep`/`current_tenant()`) is the correct lookup for any endpoint reading/writing the authenticated user's *own* row rather than a tenant-scoped domain resource — new convention recorded in the PHASE-01 doc's §8 Carry-over for PHASE-02 (deletion) and PHASE-03 (consent) to follow.
+
+**Bugs fixed mid-session**:
+- Pydantic v2 required-field gap: `SettingsProfilePatch.business_name: str | None = Field(max_length=200)` had no `default=None`, so an empty-body PATCH incorrectly 422'd. Fixed with `default=None`.
+- Fixing the above exposed a more serious bug: the handler's unconditional `user.business_name = body.business_name` assignment silently wiped an already-set value to `null` on any partial PATCH omitting the field. Fixed by guarding on `"business_name" in body.model_fields_set`.
+- Final whole-branch review caught a missing `if user is None: 401` guard on both handlers — the plan's justification for omitting it ("`require_role` already validated the row exists") was factually wrong; `require_role` only decodes the JWT and never touches the DB. Fixed to match the existing precedent in `backend/src/auth/router.py`.
+
+**Pending / next session**:
+- One Minor finding parked, not fixed: the frontend's "Saved" success indicator isn't cleared when the user edits the field again after a save — cosmetic only, no data-integrity/auth impact.
+- PHASE-02 (account/data deletion) is next per SPEC-0001's fixed build order (D-2) — needs its own brainstorming pass before a PHASE plan is written. `users.deleted_at` already exists as a soft-delete column and needs tracing (dead schema, or used for something narrower than account deletion?) before that phase is designed (SPEC-0001 Open questions).
+- The migration test-coverage gap identified during final review (this worktree's `tapas_test` schema is built via SQLAlchemy `create_all`, not `alembic upgrade` — so migrations are never actually exercised by the test suite, and the plan's claim that they are is wrong) is a unit-level follow-up, out of scope for PHASE-01 itself.
+
+**Context the next session needs**:
+- SDD workspace/ledger for this phase: `.superpowers/sdd/PHASE-01-hc-settings-profile/progress.md` — full record of all fix rounds and review verdicts.
+- This worktree's Postgres runs on port 5435 (not 5432) — `TEST_DATABASE_URL`/`DATABASE_URL` in `.env` are already correct, but they must be `source`d (with `set -a`) into a fresh shell before running `pytest` directly, since `conftest.py`'s `db_url` fixture reads `os.environ` directly, not via pydantic-settings' dotenv loading.
+
+**Open questions for SoJo**:
+- None blocking. PHASE-02 needs a brainstorming session before implementation, per SPEC-0001's own stated process.
+
+---
+
 ## 2026-07-12 — Custom domain (app.tapas.fitness) via Cloudflare Worker
 
 **Done**:

@@ -1,6 +1,6 @@
 # SPEC-0001: Platform Foundations
 
-**Status**: Draft — PHASE-01 locked and ready for an implementation plan. PHASE-02–07 are scoped (what/why/order) but not yet individually brainstormed — each needs its own design pass before it gets a PHASE plan.
+**Status**: Draft — PHASE-01 shipped and verified 2026-08-03 (all 8 acceptance criteria met). PHASE-02–07 are scoped (what/why/order) but not yet individually brainstormed — each needs its own design pass before it gets a PHASE plan.
 **Date**: 2026-07-14
 **Owner**: SoJo
 **Relates to**: `CLAUDE.md` §9 (architectural principles — multi-actor data model, consent as first-class entity, real deletion), `decisions/0005-auth-strategy.md` (client-actor `/me/*` namespace this spec's PHASE-01 must not collide with), `decisions/0007-demographics-pii-encryption.md`, `domain/compliance-india.md` (DPDP), `domain/actors.md` (Operator/SoJo role, `is_operator` flag, `audit_log` requirement), `domain/glossary.md`, `Unit_004_OneStopSpot/SPEC-0001-one-stop-spot.md` (D-24 notification model — relevant to PHASE-06; the storage-backend mismatch noted in D-6 below concerns that spec's F3)
@@ -126,14 +126,14 @@ Not applicable — no AI-generated content in this spec.
 
 ## Acceptance criteria
 
-- [ ] Alembic migration adds `users.business_name TEXT NULL`; existing rows unaffected (nullable, no default needed)
-- [ ] `GET /api/settings/profile` returns `business_name`, `display_name`, `photo_url`, `email` for the authenticated HC
-- [ ] `PATCH /api/settings/profile` updates `business_name`; round-trips correctly on a subsequent GET
-- [ ] Empty-string PATCH normalizes to `null` in the DB
-- [ ] Unauthenticated request to either endpoint → 401
-- [ ] Client-role JWT hitting either endpoint → 403 or 404 (not 200)
-- [ ] `frontend/src/app/(app)/settings/profile/page.tsx` renders the editable business-name field and the read-only Google-identity block
-- [ ] Integration tests hit real Postgres per this repo's existing test convention (no DB mocking)
+- [x] Alembic migration adds `users.business_name TEXT NULL`; existing rows unaffected (nullable, no default needed)
+- [x] `GET /api/settings/profile` returns `business_name`, `display_name`, `photo_url`, `email` for the authenticated HC
+- [x] `PATCH /api/settings/profile` updates `business_name`; round-trips correctly on a subsequent GET
+- [x] Empty-string PATCH normalizes to `null` in the DB
+- [x] Unauthenticated request to either endpoint → 401
+- [x] Client-role JWT hitting either endpoint → 403 or 404 (not 200)
+- [x] `frontend/src/app/(app)/settings/profile/page.tsx` renders the editable business-name field and the read-only Google-identity block
+- [x] Integration tests hit real Postgres per this repo's existing test convention (no DB mocking)
 
 ---
 
@@ -159,3 +159,4 @@ Not applicable — no AI-generated content in this spec.
 |---|---|---|
 | 2026-07-14 | Initial draft. PHASE-01 (settings/profile) designed in full; PHASE-02–07 scoped at roadmap level only. | Platform-basics brainstorm with SoJo — closing the gap between "features work" and "this is a complete product," starting from an audited (not assumed) list of what's actually missing. |
 | 2026-07-17 | Renumbered from `Unit_005_PlatformFoundations` to `Unit_006_PlatformFoundations`, and moved to its own dedicated branch/worktree (`feature/unit-006-platform-foundations` / `tapas_unit006`). | Discovered `Unit_005` was already claimed by a separate, unrelated Unit (the agnostic macro calculator, `Unit_005_MacroDrivenDietCharts`) that had been created independently. This spec's own numbering had also accidentally leaked, unrenamed, onto three other feature branches via an unrelated rename-task commit — cleaned up as part of this move. |
+| 2026-08-03 | PHASE-01 shipped and verified. All 8 acceptance criteria checked off. Implementation went through 3 fix rounds across per-task and final whole-branch review (Pydantic required-field bug, a silent partial-update data-loss bug it exposed, and a missing 401 guard whose justification was factually wrong — see `PHASE-01-hc-settings-profile.md` §3/§4). One Minor finding (stale "Saved" UI indicator) parked, not fixed. | Full implementation cycle via `superpowers:subagent-driven-development`; see `docs/VERIFICATION.md` § Unit_006 PHASE-01 for the verification record. |

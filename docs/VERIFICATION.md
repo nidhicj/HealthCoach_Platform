@@ -4,6 +4,24 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 
 ---
 
+## Unit_006 PHASE-01 — HC Settings & Profile ✅
+
+**Status**: verified 2026-08-03
+
+| Check | Result |
+| --- | --- |
+| `python -m pytest -q` (backend, `TEST_DATABASE_URL` → this worktree's isolated `tapas_test` on port 5435) → 273 total, 235 passed, 38 pre-existing failures | ✅ (38 failures confirmed unrelated — missing `pgcrypto` Postgres extension, affects only LLM/MOM-tracking tests, fails identically with or without this phase's changes) |
+| `backend/tests/integration/test_settings.py` → 10/10 passed (GET/PATCH contract, empty-string/whitespace normalization, empty-body no-op, 401/403, max-length 422, cross-HC isolation) | ✅ |
+| `backend/tests/unit/test_model_users_business_name.py` → 1/1 passed | ✅ |
+| `psql -h localhost -p 5435 -U postgres -d tapas_dev -c "\d users"` → `business_name \| text` present | ✅ |
+| `select version_num from alembic_version` on `tapas_dev` → `6503e78ca409` | ✅ |
+| `cd frontend && npx tsc --noEmit` → 0 new errors (2 pre-existing, unrelated Playwright errors in `tests/e2e/diet-chart.spec.ts`) | ✅ |
+| SPEC-0001 §Acceptance criteria — all 8 items | ✅ |
+
+Went through `superpowers:subagent-driven-development`: 3 tasks, each with an individual spec+quality review; Task 2 required 2 fix rounds (Pydantic required-field bug → silent partial-update data-loss bug it exposed); a final whole-branch review (Opus) found 2 further Important findings (missing 401 guard on a deleted/missing user row — the stated justification for omitting it was factually wrong; missing cross-HC isolation test) plus 3 Minors, fixed in one wave and re-reviewed clean except one parked Minor (stale "Saved" UI indicator after re-editing — cosmetic, no data-integrity or auth impact). Full ledger: `.superpowers/sdd/PHASE-01-hc-settings-profile/progress.md`.
+
+---
+
 ## P8 — Observability Live
 
 **Status**: Partial — code complete 2026-06-16; live verification (AC4 Sentry smoke test, AC5 SQL queries against populated DB) deferred to P9 when production DSN and pilot data are available.
