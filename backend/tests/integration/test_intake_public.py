@@ -1,12 +1,15 @@
 """Integration tests: GET/POST /api/intake/:slug (public, unauthenticated). PHASE-02."""
+import hashlib
 import uuid as uuid_mod
+from datetime import timedelta
+from unittest.mock import patch
 from uuid import UUID
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from src.db.models import Lead, LeadQuestionnaireResponse
+from src.db.models import Lead, LeadQuestionnaireResponse, LeadUploadToken
 
 pytestmark = pytest.mark.asyncio
 
@@ -142,7 +145,12 @@ async def test_successful_submission_creates_lead_and_all_response_rows(
     assert lead.full_name == "Jane Doe"
     assert lead.email == "jane@example.com"
     assert lead.phone == "9876543210"
-    assert lead.status == "questionnaire_submitted"
+    # Stage 3 (PHASE-02 Task 5) fires inline in the same request/response cycle and
+    # advances the Lead's DB status past Stage 2's — the HTTP response body above
+    # still reports "questionnaire_submitted" (the milestone at the moment the Lead's
+    # own submission was durably committed), but the row's final `status` by the time
+    # this request returns is "tests_recommended" (SPEC-0001 Stage 3 step 6).
+    assert lead.status == "tests_recommended"
 
     responses = (await db.execute(
         select(LeadQuestionnaireResponse).where(LeadQuestionnaireResponse.lead_id == lead_id)
@@ -320,3 +328,113 @@ async def test_sixth_submission_within_an_hour_from_same_ip_returns_429(
     )
     assert sixth.status_code == 429, sixth.text
     assert "detail" in sixth.json()
+
+
+# ── Stage 3 orchestration (test recommendation, upload token, email) ────────────
+
+
+async def _configure_with_test_panel(
+    http_client: AsyncClient, hc_user, hc_headers, db
+) -> dict:
+    """Extends `_configure_with_custom_questions` with a `test_panel` (standard
+    tests + one condition rule keyed on "PCOD") via `PATCH /api/leadgen/config`, so
+    Stage 3's recommendation-matching logic has real config to run against."""
+    await _configure_with_custom_questions(http_client, hc_user, hc_headers, db)
+    resp = await http_client.patch(
+        "/api/leadgen/config",
+        headers=hc_headers,
+        json={
+            "test_panel": {
+                "standard_tests": ["CBC", "HbA1c", "TSH", "Lipid Profile"],
+                "condition_rules": [
+                    {"keywords": ["PCOD"], "tests": ["Hormonal Panel (LH, FSH, AMH)"]},
+                ],
+            }
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def test_successful_submission_builds_recommendation_issues_token_and_emails(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    config = await _configure_with_test_panel(http_client, hc_user, hc_headers, db)
+
+    with patch("src.api.intake.send_lead_test_recommendation_email") as mock_email:
+        resp = await http_client.post(
+            f"/api/intake/{config['hc_slug']}",
+            json=_valid_payload(current_health_concerns="Diagnosed with PCOD last year"),
+        )
+    assert resp.status_code == 201, resp.text
+    lead_id = UUID(resp.json()["lead_id"])
+
+    lead = await db.get(Lead, lead_id)
+    assert lead.status == "tests_recommended"
+    assert lead.test_recommendation == {
+        "standard": ["CBC", "HbA1c", "TSH", "Lipid Profile"],
+        "additions": [
+            {"test": "Hormonal Panel (LH, FSH, AMH)", "triggered_by": "PCOD"}
+        ],
+        "all_tests": [
+            "CBC", "HbA1c", "TSH", "Lipid Profile", "Hormonal Panel (LH, FSH, AMH)"
+        ],
+    }
+
+    tokens = (await db.execute(
+        select(LeadUploadToken).where(LeadUploadToken.lead_id == lead_id)
+    )).scalars().all()
+    assert len(tokens) == 1
+    token = tokens[0]
+    assert token.token_hash is not None
+    assert len(token.token_hash) == 64  # SHA-256 hex digest length
+    assert token.used_at is None
+    expiry_delta = token.expires_at - token.created_at
+    assert timedelta(days=13, hours=23) < expiry_delta < timedelta(days=14, hours=1)
+
+    mock_email.assert_called_once()
+    kwargs = mock_email.call_args.kwargs
+    assert kwargs["to"] == "jane@example.com"
+    assert kwargs["lead_name"] == "Jane Doe"
+    assert kwargs["hc_name"] == "Asha Rao"
+    assert kwargs["recommended_tests"] == lead.test_recommendation["all_tests"]
+    assert kwargs["expiry_days"] == 14
+
+    # Upload link must be built purely from the server-generated raw token — no
+    # user-controlled input — and that raw token must hash to the stored token_hash.
+    assert kwargs["upload_link"].startswith("http://localhost:3000/upload/")
+    raw_token = kwargs["upload_link"].rsplit("/", 1)[-1]
+    assert hashlib.sha256(raw_token.encode()).hexdigest() == token.token_hash
+
+
+async def test_email_delivery_failure_does_not_fail_request_lead_and_token_persist(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    """Proves PHASE-02 Decision D-2: an email-send failure is caught and logged,
+    never re-raised — the HTTP response still indicates success, and the already
+    committed Lead/recommendation/token are not rolled back."""
+    config = await _configure_with_test_panel(http_client, hc_user, hc_headers, db)
+
+    with patch(
+        "src.api.intake.send_lead_test_recommendation_email",
+        side_effect=RuntimeError("resend outage"),
+    ) as mock_email:
+        resp = await http_client.post(
+            f"/api/intake/{config['hc_slug']}",
+            json=_valid_payload(email="resilient-lead@example.com"),
+        )
+    assert resp.status_code == 201, resp.text
+    mock_email.assert_called_once()
+
+    lead_id = UUID(resp.json()["lead_id"])
+    lead = await db.get(Lead, lead_id)
+    assert lead is not None
+    assert lead.status == "tests_recommended"
+    assert lead.test_recommendation is not None
+    assert lead.test_recommendation["standard"] == ["CBC", "HbA1c", "TSH", "Lipid Profile"]
+
+    tokens = (await db.execute(
+        select(LeadUploadToken).where(LeadUploadToken.lead_id == lead_id)
+    )).scalars().all()
+    assert len(tokens) == 1
+    assert tokens[0].used_at is None
