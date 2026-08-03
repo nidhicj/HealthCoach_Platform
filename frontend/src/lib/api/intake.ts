@@ -9,6 +9,11 @@ import { API_URL } from "@/lib/config";
  *
  * Error handling distinguishes 404 (not found), 409 (duplicate email),
  * 422 (validation error), 429 (rate limited), and generic network/5xx errors.
+ *
+ * All error response bodies (404, 409, 422, 429) follow FastAPI's format:
+ * {detail: string | string[]} — the detail field is unwrapped into each error's
+ * message and detail properties so callers can render backend-specific copy
+ * without re-parsing the response body.
  */
 
 const QuestionSchema = z.object({
@@ -38,14 +43,39 @@ const IntakeSubmissionResponseSchema = z.object({
 export type IntakeSubmissionResponse = z.infer<typeof IntakeSubmissionResponseSchema>;
 
 /**
+ * Helper to safely parse JSON from a response, returning the body or null on parse failure.
+ */
+async function safeParseJson(res: Response): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Helper to extract and format error detail from FastAPI response body.
+ * FastAPI's HTTPException and rate limiter return {detail: string | string[]}
+ */
+function extractDetailMessage(body: unknown): string | string[] | null {
+  if (!body || typeof body !== "object") return null;
+  const detail = (body as Record<string, unknown>).detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail;
+  return null;
+}
+
+/**
  * Error subclasses to allow fine-grained error handling by status code.
+ * Each class unwraps the `detail` field from the FastAPI response body
+ * and sets it as the error's message and detail property.
  */
 
 export class IntakeError extends Error {
   constructor(
     public status: number,
     message: string,
-    public detail?: unknown
+    public detail?: string | string[] | null
   ) {
     super(message);
     this.name = "IntakeError";
@@ -53,29 +83,38 @@ export class IntakeError extends Error {
 }
 
 export class IntakeNotFoundError extends IntakeError {
-  constructor(detail?: unknown) {
-    super(404, "Coach not found", detail);
+  constructor(body?: unknown) {
+    const detail = extractDetailMessage(body);
+    const message = typeof detail === "string" ? detail : "Coach not found";
+    super(404, message, detail);
     this.name = "IntakeNotFoundError";
   }
 }
 
 export class IntakeDuplicateEmailError extends IntakeError {
-  constructor(detail?: unknown) {
-    super(409, "Duplicate email submission", detail);
+  constructor(body?: unknown) {
+    const detail = extractDetailMessage(body);
+    const message = typeof detail === "string" ? detail : "Duplicate email submission";
+    super(409, message, detail);
     this.name = "IntakeDuplicateEmailError";
   }
 }
 
 export class IntakeValidationError extends IntakeError {
-  constructor(detail?: unknown) {
-    super(422, "Validation failed", detail);
+  constructor(body?: unknown) {
+    const detail = extractDetailMessage(body);
+    // For 422, detail could be a string or array of error messages
+    const message = Array.isArray(detail) ? detail.join("; ") : (typeof detail === "string" ? detail : "Validation failed");
+    super(422, message, detail);
     this.name = "IntakeValidationError";
   }
 }
 
 export class IntakeRateLimitError extends IntakeError {
-  constructor(detail?: unknown) {
-    super(429, "Rate limit exceeded", detail);
+  constructor(body?: unknown) {
+    const detail = extractDetailMessage(body);
+    const message = typeof detail === "string" ? detail : "Rate limit exceeded";
+    super(429, message, detail);
     this.name = "IntakeRateLimitError";
   }
 }
@@ -93,42 +132,31 @@ export async function getIntakeConfig(slug: string): Promise<IntakeConfig> {
     throw new IntakeError(
       0,
       `Network error fetching intake config for slug "${slug}"`,
-      err
+      null
     );
   }
 
   if (res.status === 404) {
-    let detail: unknown;
-    try {
-      detail = await res.json();
-    } catch {
-      detail = null;
-    }
-    throw new IntakeNotFoundError(detail);
+    const body = await safeParseJson(res);
+    throw new IntakeNotFoundError(body);
   }
 
   if (!res.ok) {
-    let detail: unknown;
-    try {
-      detail = await res.json();
-    } catch {
-      detail = null;
-    }
+    const body = await safeParseJson(res);
+    const detail = extractDetailMessage(body);
     throw new IntakeError(
       res.status,
-      `Failed to fetch intake config: HTTP ${res.status}`,
+      typeof detail === "string" ? detail : `Failed to fetch intake config: HTTP ${res.status}`,
       detail
     );
   }
 
-  let body: unknown;
-  try {
-    body = await res.json();
-  } catch (err) {
+  const body = await safeParseJson(res);
+  if (body === null) {
     throw new IntakeError(
       res.status,
       `Invalid JSON in intake config response`,
-      err
+      null
     );
   }
 
@@ -161,72 +189,47 @@ export async function submitIntake(
     throw new IntakeError(
       0,
       `Network error submitting intake for slug "${slug}"`,
-      err
+      null
     );
   }
 
+  // Handle each error status code with appropriate error class
   if (res.status === 404) {
-    let detail: unknown;
-    try {
-      detail = await res.json();
-    } catch {
-      detail = null;
-    }
-    throw new IntakeNotFoundError(detail);
+    const body = await safeParseJson(res);
+    throw new IntakeNotFoundError(body);
   }
 
   if (res.status === 409) {
-    let detail: unknown;
-    try {
-      detail = await res.json();
-    } catch {
-      detail = null;
-    }
-    throw new IntakeDuplicateEmailError(detail);
+    const body = await safeParseJson(res);
+    throw new IntakeDuplicateEmailError(body);
   }
 
   if (res.status === 422) {
-    let detail: unknown;
-    try {
-      detail = await res.json();
-    } catch {
-      detail = null;
-    }
-    throw new IntakeValidationError(detail);
+    const body = await safeParseJson(res);
+    throw new IntakeValidationError(body);
   }
 
   if (res.status === 429) {
-    let detail: unknown;
-    try {
-      detail = await res.json();
-    } catch {
-      detail = null;
-    }
-    throw new IntakeRateLimitError(detail);
+    const body = await safeParseJson(res);
+    throw new IntakeRateLimitError(body);
   }
 
   if (!res.ok) {
-    let detail: unknown;
-    try {
-      detail = await res.json();
-    } catch {
-      detail = null;
-    }
+    const body = await safeParseJson(res);
+    const detail = extractDetailMessage(body);
     throw new IntakeError(
       res.status,
-      `Failed to submit intake: HTTP ${res.status}`,
+      typeof detail === "string" ? detail : `Failed to submit intake: HTTP ${res.status}`,
       detail
     );
   }
 
-  let responseBody: unknown;
-  try {
-    responseBody = await res.json();
-  } catch (err) {
+  const responseBody = await safeParseJson(res);
+  if (responseBody === null) {
     throw new IntakeError(
       res.status,
       `Invalid JSON in intake submission response`,
-      err
+      null
     );
   }
 
