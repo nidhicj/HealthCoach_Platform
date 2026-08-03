@@ -27,7 +27,7 @@ class SettingsProfileOut(BaseModel):
 
 
 class SettingsProfilePatch(BaseModel):
-    business_name: str | None = Field(max_length=200)
+    business_name: str | None = Field(default=None, max_length=200)
 
     @field_validator("business_name")
     @classmethod

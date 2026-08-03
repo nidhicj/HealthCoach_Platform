@@ -36,6 +36,13 @@ async def test_patch_empty_string_normalizes_to_null(http_client, hc_headers):
 
 
 @pytest.mark.asyncio
+async def test_patch_empty_body_is_noop_returns_200(http_client, hc_headers):
+    r = await http_client.patch("/api/settings/profile", headers=hc_headers, json={})
+    assert r.status_code == 200
+    assert r.json()["business_name"] is None
+
+
+@pytest.mark.asyncio
 async def test_patch_exceeding_max_length_returns_422(http_client, hc_headers):
     r = await http_client.patch(
         "/api/settings/profile", headers=hc_headers, json={"business_name": "x" * 201}
