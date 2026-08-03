@@ -111,12 +111,3 @@ async def healthz(request: Request) -> dict[str, str]:
     logger.info("health_check")
     return {"status": "ok", "version": get_settings().app_version}
 
-
-@app.get("/_internal/test-rate-limit", include_in_schema=False)
-@limiter.limit("5/hour")
-async def test_rate_limit(request: Request) -> dict[str, str]:
-    """Internal test-only endpoint for rate-limiter smoke tests. Not for production use."""
-    logger = get_logger(request_id=getattr(request.state, "request_id", ""))
-    logger.info("test_rate_limit_endpoint")
-    return {"status": "ok"}
-
