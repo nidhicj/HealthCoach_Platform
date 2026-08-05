@@ -1,4 +1,4 @@
-name: tapas_platform
+name: ${COMPOSE_PROJECT_NAME:-tapas_dev}
 services:
   postgres:
     image: postgres:17.4          # pinned minor version — update only when PG 17 EOL (Nov 2029)
@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: localdevpassword
       POSTGRES_DB: tapas_dev
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,4 +19,4 @@ services:
 volumes:
   postgres_data:
     external: true
-    name: tapas_platform_postgres_data
+    name: ${COMPOSE_PROJECT_NAME:-tapas_dev}_postgres_data
