@@ -17,8 +17,11 @@ Append-only. Each phase ends with a manual checkpoint. Mark items ✅ when confi
 | `select version_num from alembic_version` on `tapas_dev` → `6503e78ca409` | ✅ |
 | `cd frontend && npx tsc --noEmit` → 0 new errors (2 pre-existing, unrelated Playwright errors in `tests/e2e/diet-chart.spec.ts`) | ✅ |
 | SPEC-0001 §Acceptance criteria — all 8 items | ✅ |
+| **(2026-08-04)** Nav restructure — single "Settings" top-nav entry, sidebar hub (Profile/Onboarding/Sign out), verified live in a browser (real OAuth-issued session, running dev server) via Playwright: top-nav active-state, sidebar active-state, Onboarding placeholder renders, Sign out actually revokes the session and redirects | ✅ |
 
 Went through `superpowers:subagent-driven-development`: 3 tasks, each with an individual spec+quality review; Task 2 required 2 fix rounds (Pydantic required-field bug → silent partial-update data-loss bug it exposed); a final whole-branch review (Opus) found 2 further Important findings (missing 401 guard on a deleted/missing user row — the stated justification for omitting it was factually wrong; missing cross-HC isolation test) plus 3 Minors, fixed in one wave and re-reviewed clean except one parked Minor (stale "Saved" UI indicator after re-editing — cosmetic, no data-integrity or auth impact). Full ledger: `.superpowers/sdd/PHASE-01-hc-settings-profile/progress.md`.
+
+**(2026-08-04)** SoJo reviewed the shipped nav and found the IA wrong (see PHASE-01 doc §3/§7): "Profile" as a standalone top-level nav item, and a non-functional `/settings/sessions` page still linked from nav. Corrected same-day; see commit `686c9f9`.
 
 ---
 

@@ -4,6 +4,33 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-08-04 — Unit_006 PHASE-01: Settings nav corrected to a hub + sidebar
+
+**Done**:
+- SoJo reviewed the PHASE-01 nav shipped the day before and flagged it as wrong: "Profile" had been added as a standalone top-level nav item next to "Settings," but business-name setup is a one-time thing an HC won't revisit often, and the top nav shouldn't grow one item per settings section (more are coming — Onboarding, and later PHASE-02/03's sections).
+- Restructured to a single "Settings" top-nav entry opening a hub: new `frontend/src/app/(app)/settings/layout.tsx` renders a left sidebar (Profile, Onboarding placeholder, Sign out) with the selected section on the right.
+- While discussing the sidebar's "Sign out" placement, traced `/settings/sessions` end-to-end at SoJo's prompting and confirmed it was non-functional as shipped: its "Sign out everywhere" button only revokes the current session (not "everywhere"), and its device-list/revoke UI calls backend endpoints (`GET /api/auth/sessions`, `DELETE /api/auth/sessions/{id}`) that were never implemented. Unlinked it from all nav (file kept for a possible real implementation later); the new sidebar's "Sign out" reuses the same working logout call, correctly labeled.
+- Verified live in a browser (not just `tsc`): minted a real access token + refresh-token DB row for the actual dev HC user, drove the running dev server via Playwright — confirmed nav/sidebar active-states, Onboarding placeholder, and a real working sign-out (session revoked, redirected to `/sign-in`).
+- Updated `PHASE-01-hc-settings-profile.md` (§2/§3/§7/§8), `SPEC-0001-platform-foundations.md` (Flow §1, Changelog), and `VERIFICATION.md` to record the correction.
+
+**Decided** (link ADRs):
+- No ADR changes. New convention recorded in PHASE-01 doc §8: future settings-adjacent phases (PHASE-02 deletion, PHASE-03 consent) get their own sidebar entry in `settings/layout.tsx`'s `SETTINGS_SECTIONS`, not a top-level nav item and not crammed into the Profile page.
+
+**Bugs fixed mid-session**:
+- None — this was a design/IA correction, not a bug fix. (The `/settings/sessions` non-functionality was discovered, not caused, this session — it predates PHASE-01.)
+
+**Pending / next session**:
+- Same as 2026-08-03's entry: PHASE-02 (account/data deletion) is next per SPEC-0001's fixed build order, needs its own brainstorming pass first. When it's designed, confirm sidebar placement with SoJo as part of that plan, not after building it (see PHASE-01 §7 lesson learned).
+- `/settings/sessions` remains an orphaned, unlinked file — no decision yet on whether to build real session management later or delete the stub.
+
+**Context the next session needs**:
+- The Settings hub pattern (`frontend/src/app/(app)/settings/layout.tsx`) is the template for adding any future one-time-setup settings section — add to `SETTINGS_SECTIONS`, don't touch the top-level `NAV_LINKS` in `(app)/layout.tsx`.
+
+**Open questions for SoJo**:
+- None blocking.
+
+---
+
 ## 2026-08-03 — Unit_006 PHASE-01: HC Settings & Profile
 
 **Done**:
