@@ -89,7 +89,11 @@ describe("buildFlaggedSet", () => {
 
 describe("findMilestone", () => {
   it("finds a milestone session within last 7 days", () => {
-    const s = baseSession({ session_number: 10, scheduled_at: new Date(Date.now() - 86400000).toISOString() });
+    const s = baseSession({
+      session_number: 10,
+      scheduled_at: new Date(Date.now() - 86400000).toISOString(),
+      ended_at: new Date(Date.now() - 86400000).toISOString(),
+    });
     const result = findMilestone([s], [baseClient({})]);
     expect(result).toEqual({ clientName: "Priya S", sessionNumber: 10 });
   });

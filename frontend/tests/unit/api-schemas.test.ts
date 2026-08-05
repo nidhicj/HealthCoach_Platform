@@ -147,6 +147,7 @@ describe("MomOutSchema", () => {
     client_id: "cli-1",
     draft_text: "Draft content",
     final_text: null,
+    action_items_draft: null,
     status: "draft",
     llm_call_id: null,
     sent_at: null,
