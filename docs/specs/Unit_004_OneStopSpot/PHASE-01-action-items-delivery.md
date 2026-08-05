@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Python ≥ 3.12, FastAPI ≥ 0.115, SQLAlchemy ≥ 2.0, Pydantic ≥ 2.7
-- Tests hit a real PostgreSQL DB (`parivarthan_test`) — no mocking the DB
+- Tests hit a real PostgreSQL DB (`tapas_test`) — no mocking the DB
 - Resend calls must be mocked in tests — never send real emails during CI
 - OpenRouter/LLM calls must be mocked in tests (`patch("src.llm_service.client.make_http_client", ...)`) — never call a real model during CI
 - `sent_to_email` is populated from `Client.email`; if `Client.email` is null → 422 with `"Client has no email address on record"`

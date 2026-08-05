@@ -1,9 +1,10 @@
 """Auth endpoints per ADR-0005 §11."""
 import hashlib
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -11,9 +12,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import get_settings
-from src.db.models import Client, ClientInviteToken, User
+from src.db.models import Client, ClientInviteToken, GoogleCalendarConnection, User
 from src.db.session import get_db
-from src.auth.jwt_utils import create_access_token
+from src.auth.calendar_oauth import (
+    MissingRefreshTokenError,
+    build_calendar_connect_url,
+    exchange_code_for_calendar_tokens,
+    fetch_calendar_account_email,
+)
+from src.auth.dependencies import require_role
+from src.auth.jwt_utils import TokenClaims, create_access_token
 from src.auth.oauth import build_authorization_url, exchange_code_for_userinfo, generate_pkce_pair
 from src.auth.refresh import issue_refresh_token, revoke_token, rotate_refresh_token
 
@@ -28,6 +36,7 @@ _COOKIE_NAME = "refresh_token"
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    role: str
 
 
 def _set_refresh_cookie(response: Response, raw_token: str) -> None:
@@ -120,6 +129,98 @@ async def google_callback(
     redirect = RedirectResponse(url=f"{settings.frontend_url}/auth/callback", status_code=302)
     _set_refresh_cookie(redirect, raw_refresh)
     return redirect
+
+
+@router.get("/google/calendar/connect")
+async def calendar_connect(
+    claims: Annotated[TokenClaims, Depends(require_role("hc"))],
+) -> dict:
+    """HC-only: begin incremental-consent OAuth to connect Google Calendar.
+
+    Separate, additive flow from /google/start — does not touch the login
+    flow's state or tokens (ADR-0005 §1 / PHASE-01e). The stashed state also
+    carries hc_user_id, since /callback is a public route with no bearer token
+    available (a full-page browser redirect from Google).
+    """
+    settings = get_settings()
+    state = str(uuid.uuid4())
+    verifier, challenge = generate_pkce_pair()
+    _state_store[state] = {"verifier": verifier, "hc_user_id": claims.sub}
+    redirect_uri = f"{settings.api_base_url}/api/auth/google/calendar/callback"
+    auth_url = build_calendar_connect_url(
+        client_id=settings.google_client_id,
+        redirect_uri=redirect_uri,
+        state=state,
+        code_challenge=challenge,
+    )
+    return {"auth_url": auth_url}
+
+
+@router.get("/google/calendar/callback")
+async def calendar_callback(
+    code: str,
+    state: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Public: Google redirects the browser here directly, so hc_user_id comes
+    from the stashed PKCE state, not request auth.
+
+    Bad/unknown state mirrors /google/callback's and /client/callback's exact
+    existing convention: raise 400 (this is a shared-code-path failure mode,
+    not something a coach can retry from the resulting page, so a JSON 400 is
+    consistent with how those two routes already behave). A token-exchange
+    failure, by contrast, is specific to this route's own interface contract
+    (PHASE-01e Task 4): redirect with connected=0&error=<code> so the
+    Settings page can render an inline retry affordance on a full-page nav.
+    """
+    settings = get_settings()
+    stored = _state_store.pop(state, None)
+    if stored is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired state"
+        )
+
+    redirect_uri = f"{settings.api_base_url}/api/auth/google/calendar/callback"
+    try:
+        tokens = await exchange_code_for_calendar_tokens(
+            code=code,
+            code_verifier=stored["verifier"],
+            redirect_uri=redirect_uri,
+            client_id=settings.google_client_id,
+            client_secret=settings.google_client_secret,
+        )
+        account_email = await fetch_calendar_account_email(tokens.access_token)
+    except (MissingRefreshTokenError, httpx.HTTPStatusError, httpx.RequestError):
+        return RedirectResponse(
+            url=f"{settings.frontend_url}/settings/calendar?connected=0&error=token_exchange_failed",
+            status_code=302,
+        )
+
+    hc_user_id = uuid.UUID(stored["hc_user_id"])
+    result = await db.execute(
+        select(GoogleCalendarConnection).where(GoogleCalendarConnection.hc_user_id == hc_user_id)
+    )
+    connection = result.scalar_one_or_none()
+    if connection is None:
+        connection = GoogleCalendarConnection(hc_user_id=hc_user_id)
+        db.add(connection)
+
+    now = datetime.now(timezone.utc)
+    connection.google_account_email = account_email
+    connection.scope_granted = tokens.scope
+    connection.credentials = {
+        "access_token": tokens.access_token,
+        "refresh_token": tokens.refresh_token,
+    }
+    connection.access_token_expires_at = now + timedelta(seconds=tokens.expires_in)
+    connection.revoked_at = None
+    connection.updated_at = now
+
+    await db.commit()
+
+    return RedirectResponse(
+        url=f"{settings.frontend_url}/settings/calendar?connected=1", status_code=302
+    )
 
 
 @router.get("/client/start")
@@ -253,7 +354,7 @@ async def refresh_token_endpoint(
         private_key=settings.jwt_private_key,
     )
     _set_refresh_cookie(response, new_raw)
-    return TokenResponse(access_token=access_token)
+    return TokenResponse(access_token=access_token, role=user.role)
 
 
 @router.post("/logout")

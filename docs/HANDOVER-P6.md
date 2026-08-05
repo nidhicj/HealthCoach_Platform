@@ -7,7 +7,7 @@
 
 ## What this product is
 
-**Parivarthan** — a webapp for independent health coaches (HCs) in India. HCs use it to:
+**Tapas** — a webapp for independent health coaches (HCs) in India. HCs use it to:
 1. Onboard and manage clients
 2. Run sessions with AI-assisted MOM (Minutes of Meeting) generation
 3. Send action items to clients
@@ -47,7 +47,7 @@ Use `uvicorn` for local dev.
 ## Repo layout (current state after P6)
 
 ```
-parivarthan_platform/
+tapas_platform/
 ├── .env.example                    # all env vars documented
 ├── .gitignore                      # updated P6: test-results/, *.tar.gz, *.zip
 ├── CLAUDE.md                       # operating contract — read before coding
@@ -443,8 +443,8 @@ All 17 rules from HANDOVER-P5 remain in force. Addition:
 ## Env vars (unchanged from P5)
 
 ```bash
-DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/parivarthan_dev
-TEST_DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/parivarthan_test
+DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas_dev
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas_test
 JWT_PRIVATE_KEY=<ES256 PEM>
 JWT_PUBLIC_KEY=<ES256 PEM>
 GOOGLE_CLIENT_ID=<from Google Cloud Console>
@@ -572,3 +572,7 @@ migrations:    5 applied (df7c84b2de4f is head)
 phases complete: P0 ✅  P1 ✅  P2 ✅  P3 ✅  P4 ✅  P5 ✅  P6 ✅
 phases pending:  P7, P8, P9
 ```
+
+---
+
+**Post-handover note**: Platform renamed from Parivarthan to Tapas (2026-07-14) — see `docs/decisions/0008-platform-rename-parivarthan-to-tapas.md`.

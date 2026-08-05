@@ -1,5 +1,6 @@
 """Re-export all models so Alembic autogenerate sees them via a single import."""
 from src.db.models.auth import AuthRefreshToken, ClientInviteToken
+from src.db.models.calendar import GoogleCalendarConnection
 from src.db.models.clients import Client
 from src.db.models.coaching import ActionItem, Brief, CheckIn, HcStyleSnippet, Mom
 from src.db.models.compliance import AuditLog, Consent
@@ -17,4 +18,5 @@ __all__ = [
     "DietChart", "PrepRecipe", "DietChartRecipe", "ContentAssignment",
     "ClientFile",
     "SupplementRecommendation",
+    "GoogleCalendarConnection",
 ]

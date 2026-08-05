@@ -136,6 +136,27 @@ async def test_brief_recent_checkin_suppresses_no_checkin_flag(
 
 
 @pytest.mark.asyncio
+async def test_brief_pending_checkin_does_not_suppress_no_checkin_flag(
+    http_client, hc_headers, hc_user, client_rec, session_id, db
+):
+    """A pending (payload=None) check-in within 14 days must not count as a real
+    check-in: 'no_recent_checkin' flag should still fire."""
+    pending = CheckIn(
+        client_id=client_rec.id,
+        hc_user_id=hc_user.id,
+        payload=None,
+        created_at=datetime.now(timezone.utc) - timedelta(days=3),
+    )
+    db.add(pending)
+    await db.flush()
+
+    with patch("src.llm_service.client.make_http_client", return_value=_mock_http(_MOCK_BRIEF_JSON)):
+        r = await http_client.get(f"/api/sessions/{session_id}/brief", headers=hc_headers)
+    assert r.status_code == 200
+    assert "no_recent_checkin" in r.json()["triage_flags"]
+
+
+@pytest.mark.asyncio
 async def test_brief_idempotent_second_get_returns_cached(http_client, hc_headers, session_id, db):
     """Second GET brief returns cached result; no second llm_calls row."""
     with patch("src.llm_service.client.make_http_client", return_value=_mock_http(_MOCK_BRIEF_JSON)):

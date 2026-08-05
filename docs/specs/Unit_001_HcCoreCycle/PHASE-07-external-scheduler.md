@@ -441,7 +441,7 @@ None recorded. (Fill in after build.)
 - [ ] **Step 4.1 — Create the `.github/workflows/` directory and workflow file**
 
   ```bash
-  mkdir -p /mnt/hdd/yourProjects/OnGoing/Poshini/parivarthan_platform/.github/workflows
+  mkdir -p /mnt/hdd/yourProjects/OnGoing/Poshini/tapas_platform/.github/workflows
   ```
 
   Create `.github/workflows/scheduler.yml`:
@@ -484,7 +484,7 @@ None recorded. (Fill in after build.)
 - [ ] **Step 4.3 — Document required GitHub secrets**
 
   The workflow needs two secrets set in the GitHub repo:
-  - `API_BASE_URL` — the production Cloud Run service URL (e.g. `https://parivarthan-backend-xyz.asia-south1.run.app`)
+  - `API_BASE_URL` — the production Cloud Run service URL (e.g. `https://tapas-backend-xyz.asia-south1.run.app`)
   - `SCHEDULER_SECRET` — matches `SCHEDULER_SECRET` set in Cloud Run environment variables
 
   These are set in GitHub → repo → Settings → Secrets and variables → Actions. This is a P9 (smoke gate) task; the workflow file can be committed now and the secrets added during P9.

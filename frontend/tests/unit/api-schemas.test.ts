@@ -8,6 +8,7 @@ import { SessionOutSchema, MomOutSchema, BriefOutSchema } from "@/lib/api/sessio
 import { ClientFileOutSchema } from "@/lib/api/files";
 import { ActionItemOutSchema } from "@/lib/api/actionItems";
 import { CheckInOutSchema } from "@/lib/api/checkIns";
+import { CalendarStatusSchema, CalendarEventSchema } from "@/lib/api/calendar";
 
 const NOW = new Date().toISOString();
 
@@ -109,6 +110,8 @@ describe("SessionOutSchema", () => {
     ended_at: null,
     zoom_meeting_id: null,
     meeting_url: null,
+    google_calendar_event_id: null,
+    google_calendar_event_title: null,
     notes_internal: null,
     session_notes: null,
     created_at: NOW,
@@ -127,6 +130,11 @@ describe("SessionOutSchema", () => {
     expect(result.ended_at).toBe(NOW);
   });
 
+  it("allows a non-null google_calendar_event_id", () => {
+    const result = SessionOutSchema.parse({ ...valid, google_calendar_event_id: "evt-1" });
+    expect(result.google_calendar_event_id).toBe("evt-1");
+  });
+
   it("throws when session_number is missing", () => {
     expect(() => SessionOutSchema.parse({ ...valid, session_number: undefined })).toThrow();
   });
@@ -139,6 +147,7 @@ describe("MomOutSchema", () => {
     client_id: "cli-1",
     draft_text: "Draft content",
     final_text: null,
+    action_items_draft: null,
     status: "draft",
     llm_call_id: null,
     sent_at: null,
@@ -245,6 +254,7 @@ describe("CheckInOutSchema", () => {
     client_id: "cli-1",
     hc_user_id: "hc-1",
     payload: { mood: "good", energy: 7 },
+    requested_at: null,
     sentiment_flag: null,
     created_at: NOW,
   };
@@ -268,5 +278,74 @@ describe("CheckInOutSchema", () => {
   it("allows non-null sentiment_flag", () => {
     const result = CheckInOutSchema.parse({ ...valid, sentiment_flag: "low_energy" });
     expect(result.sentiment_flag).toBe("low_energy");
+  });
+});
+
+// ── CalendarStatus / CalendarEvent (PHASE-01e Task 8) ────────────────────────
+
+describe("CalendarStatusSchema", () => {
+  it("parses a connected status", () => {
+    const result = CalendarStatusSchema.parse({
+      connected: true,
+      google_account_email: "coach@example.com",
+      connected_at: NOW,
+      needs_reauth: false,
+    });
+    expect(result.connected).toBe(true);
+  });
+
+  it("parses a not-connected status with null fields", () => {
+    const result = CalendarStatusSchema.parse({
+      connected: false,
+      google_account_email: null,
+      connected_at: null,
+      needs_reauth: false,
+    });
+    expect(result.google_account_email).toBeNull();
+  });
+
+  it("throws when connected is missing", () => {
+    expect(() =>
+      CalendarStatusSchema.parse({
+        google_account_email: null,
+        connected_at: null,
+        needs_reauth: false,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("CalendarEventSchema", () => {
+  // Representative payload shaped like the backend's flattened proxy of a
+  // real Google Calendar events.list item (src/api/calendar.py _map_google_calendar_event).
+  const googleShapedEvent = {
+    id: "6b6a8f2c4e1d4a9d9c3b1a2e3f4d5c6b_20260714T090000Z",
+    summary: "Coaching session — Ananya Krishnan",
+    start: "2026-07-14T09:00:00+05:30",
+    end: "2026-07-14T09:45:00+05:30",
+    hangout_link: "https://meet.google.com/abc-defg-hij",
+    html_link: "https://www.google.com/calendar/event?eid=NmI2YThmMmM0ZTFk",
+    location: null,
+  };
+
+  it("parses a representative Google-shaped event payload", () => {
+    const result = CalendarEventSchema.parse(googleShapedEvent);
+    expect(result).toEqual(googleShapedEvent);
+  });
+
+  it("parses an all-day event (date-only start/end, no hangout link)", () => {
+    const result = CalendarEventSchema.parse({
+      ...googleShapedEvent,
+      start: "2026-07-14",
+      end: "2026-07-15",
+      hangout_link: null,
+    });
+    expect(result.hangout_link).toBeNull();
+  });
+
+  it("throws when html_link is missing", () => {
+    expect(() =>
+      CalendarEventSchema.parse({ ...googleShapedEvent, html_link: undefined }),
+    ).toThrow();
   });
 });

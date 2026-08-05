@@ -7,7 +7,7 @@
 
 ## What this product is
 
-**Parivarthan** — a webapp for independent health coaches (HCs) in India. HCs use it to:
+**Tapas** — a webapp for independent health coaches (HCs) in India. HCs use it to:
 1. Onboard and manage clients
 2. Run sessions with AI-assisted MOM (Minutes of Meeting) generation
 3. Send action items to clients
@@ -43,7 +43,7 @@
 ## Repo layout (current state after P5)
 
 ```
-parivarthan_platform/
+tapas_platform/
 ├── .env.example                    # all env vars documented (no secrets)
 ├── .env                            # gitignored — copy from .env.example
 ├── docker-compose.yml              # local Postgres 16 on port 5432
@@ -223,7 +223,7 @@ Run `python scripts/check_r2_creds.py` from `backend/` to verify credentials bef
 6. **Activate the shared venv** — `source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate`. `backend/.venv` symlinks here.
 7. **`text()` for string server defaults** — `server_default=text("'draft'")`.
 8. **Migrations for every schema change** — `alembic revision --autogenerate -m "..."`, review before applying.
-9. **Tests for new logic** — savepoint isolation, `parivarthan_test` DB.
+9. **Tests for new logic** — savepoint isolation, `tapas_test` DB.
 10. **Write PHASE file first** — `docs/specs/Unit_001_HcCoreCycle/PHASE-NN-kebab-title.md` confirmed before any code.
 11. **Tenant scoping** — every domain query filters by `hc_id`. Cross-tenant = 404, never 403.
 12. **CP\<NNNN\> in prompts, never PII** — `client.code` only. Never `client.full_name`, email, phone.
@@ -287,8 +287,8 @@ python -m pytest tests/ -q
 
 ```bash
 # Postgres
-DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/parivarthan_dev
-TEST_DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/parivarthan_test
+DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas_dev
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas_test
 
 # Auth
 JWT_PRIVATE_KEY=<ES256 PEM>
@@ -380,3 +380,7 @@ migrations: 5 applied (df7c84b2de4f is head)
 phases complete: P0 ✅  P1 ✅  P2 ✅  P3 ✅  P4 ✅  P5 ✅
 phases pending: P6, P7, P8, P9
 ```
+
+---
+
+**Post-handover note**: Platform renamed from Parivarthan to Tapas (2026-07-14) — see `docs/decisions/0008-platform-rename-parivarthan-to-tapas.md`.

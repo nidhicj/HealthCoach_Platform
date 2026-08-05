@@ -32,17 +32,17 @@
 
 ### GCP Cloud Run (backend)
 
-1. Create a GCP project. **FILL IN**: project ID (suggestion: `parivarthan-prod`).
+1. GCP project: `t-replica-361407` (live — confirmed 2026-07-30; this doc previously said "FILL IN, suggestion parivarthan-prod," a placeholder that was never reconciled with the real project once it existed).
 2. Enable Cloud Run API and Artifact Registry API.
 3. Build and push the Docker image:
    ```bash
    cd backend
-   gcloud builds submit --tag gcr.io/<PROJECT_ID>/parivarthan-backend:latest
+   gcloud builds submit --tag gcr.io/t-replica-361407/hc-platform-backend:latest
    ```
 4. Deploy to Cloud Run in `asia-south1`:
    ```bash
-   gcloud run deploy parivarthan-backend \
-     --image gcr.io/<PROJECT_ID>/parivarthan-backend:latest \
+   gcloud run deploy hc-platform-backend \
+     --image gcr.io/t-replica-361407/hc-platform-backend:latest \
      --region asia-south1 \
      --platform managed \
      --allow-unauthenticated \
@@ -90,10 +90,10 @@ uvicorn src.main:app --reload
 # Run tests
 uv run pytest
 # Build Docker image
-docker build -t parivarthan-backend:latest .
+docker build -t hc-platform-backend:latest .
 # Deploy to Cloud Run (requires gcloud auth)
-gcloud run deploy parivarthan-backend \
-  --image gcr.io/<PROJECT_ID>/parivarthan-backend:latest \
+gcloud run deploy hc-platform-backend \
+  --image gcr.io/t-replica-361407/hc-platform-backend:latest \
   --region asia-south1 \
   --platform managed
 ```
@@ -138,9 +138,9 @@ DATABASE_URL=<prod_url> uv run alembic upgrade head
 
 ```bash
 # List recent Cloud Run revisions
-gcloud run revisions list --service parivarthan-backend --region asia-south1
+gcloud run revisions list --service hc-platform-backend --region asia-south1
 # Route 100% traffic back to a prior revision
-gcloud run services update-traffic parivarthan-backend \
+gcloud run services update-traffic hc-platform-backend \
   --region asia-south1 \
   --to-revisions <REVISION_NAME>=100
 ```
@@ -149,7 +149,14 @@ GCP Cloud Run retains all prior revisions; traffic split is instant.
 
 ### Frontend
 
-Cloudflare Pages: from dashboard, select prior deployment → "Rollback to this deployment".
+Frontend is Cloud Run too (`hc-platform-frontend`), not Cloudflare Pages — this section previously described the retired Cloudflare Pages flow, inconsistent with this same doc's own Environments table above. Same rollback mechanism as the backend:
+
+```bash
+gcloud run revisions list --service hc-platform-frontend --region asia-south1
+gcloud run services update-traffic hc-platform-frontend \
+  --region asia-south1 \
+  --to-revisions <REVISION_NAME>=100
+```
 
 ### Database
 
@@ -204,6 +211,7 @@ Migration rollback is dangerous. **Default policy**: forward-only fixes. If a mi
 
 | Date | Change | Reason |
 |---|---|---|
+| 2026-07-30 | Fixed `parivarthan-backend`/`parivarthan-api` references (never a real service — `gcloud run services list` confirms only `hc-platform`/`hc-platform-backend` exist) to the real service names throughout. Filled in the real GCP project ID (`t-replica-361407`, was a "FILL IN" placeholder). Corrected the Frontend rollback section, which still described the retired Cloudflare Pages flow despite this doc's own Environments table already saying frontend is Cloud Run. **Not fixed in this pass, deliberately**: `.github/workflows/deploy.yml` itself — ADR-0008 Task 3 explicitly holds that file pending SoJo's confirmation of current deploy mechanics, since editing it could trigger a real redeploy on the next push to `main`. | Found during a docs-currency audit; ADR-0008 had already independently identified this exact mismatch but left Task 3 unexecuted. |
 | 2026-07-12 | Production hostname filled in (`https://app.tapas.fitness`). "Cloudflare (frontend only)" section rewritten — it described the retired Cloudflare Pages flow; Cloudflare's actual role today is DNS + a Worker (`cloudflare/domain-proxy/`) fixing Cloud Run's Host-header routing, not app hosting. Frontend deploy procedure corrected (was still describing `wrangler pages deploy`). | ADR-0009 — custom domain added via Cloudflare Worker reverse proxy. |
 | 2026-06-19 | Backend changed from Cloudflare Workers (`pywrangler`) to GCP Cloud Run (`gcloud run deploy`). DB changed from AWS RDS to Supabase. First-time setup, deploy procedure, rollback, failure modes all updated. Supabase keep-alive step added to pre-pilot checklist. | Stack migration per ADR-0001 changelog 2026-06-19. |
 | 2026-04-28 | Initial template. | Deploy procedure needs to exist before first deploy. |

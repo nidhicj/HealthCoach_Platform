@@ -144,6 +144,9 @@ CREATE TABLE sessions (
     summary_s3_key    TEXT,                           -- Zoom AI Companion summary
     notes_internal  TEXT,                             -- HC private notes
     session_notes   TEXT,                             -- AI-assisted notes/recap from LLM (P5)
+    meeting_url               TEXT,                   -- manual meeting link (Unit_004 F6, PHASE-01d)
+    google_calendar_event_id    TEXT,                 -- linked Calendar event id, fetch-on-demand only (Unit_004 F6, PHASE-01e)
+    google_calendar_event_title TEXT,                 -- persisted display title (Unit_004 F6, PHASE-01f — deliberate small relaxation of "id + link only")
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -330,6 +333,62 @@ CREATE TABLE content_assignments (
 CREATE INDEX idx_content_assignments_client ON content_assignments (client_id, assigned_at DESC);
 ```
 
+### `supplement_recommendations`
+
+(Unit_002 — Supplement Recommendations, Accepted/shipped. HC-internal only; no client visibility at MVP.)
+
+```sql
+CREATE TABLE supplement_recommendations (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    hc_user_id      UUID NOT NULL REFERENCES users(id),
+    client_id       UUID NOT NULL REFERENCES clients(id),
+    name            TEXT NOT NULL,                    -- free text at MVP, backed by a mock dropdown
+    dosage          TEXT,
+    duration_days   INTEGER,
+    recommended_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    archived_at     TIMESTAMPTZ                       -- soft-delete for corrections
+);
+
+CREATE INDEX idx_supplement_rec_hc_client ON supplement_recommendations (hc_user_id, client_id);
+```
+
+### `google_calendar_connections`
+
+(Unit_004 F6 extension, PHASE-01e — Google Calendar/Meet integration. One row per HC; `credentials` Fernet-encrypted with its own key, separate from the `demographics` encryption key.)
+
+```sql
+CREATE TABLE google_calendar_connections (
+    id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    hc_user_id                 UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    google_account_email       TEXT NOT NULL,
+    scope_granted              TEXT NOT NULL,
+    credentials                JSONB NOT NULL,        -- Fernet-encrypted at the application layer (EncryptedJSON), key: google_calendar_encryption_key
+    access_token_expires_at    TIMESTAMPTZ NOT NULL,
+    connected_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revoked_at                 TIMESTAMPTZ,
+    updated_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### `diet_chart_sends`
+
+(Unit_004 F8 — Diet chart client view + version history, PHASE-01c. A frozen, permanent snapshot at the moment a chart is sent to a client — decoupled from `diet_charts`, which stays the HC's private, continuously-editable working copy per SPEC-0001 D-16. Never updated after creation; each row is one immutable send event.)
+
+```sql
+CREATE TABLE diet_chart_sends (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_id         UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    hc_user_id        UUID NOT NULL REFERENCES users(id),
+    chart_name        TEXT NOT NULL,
+    chart_parameters  JSONB NOT NULL,                 -- frozen copy of diet_charts.parameters at send time
+    sent_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_diet_chart_sends_client_sent ON diet_chart_sends (client_id, sent_at);
+```
+
 ### `llm_calls`
 
 (Per ADR-0003 §4, schema reconciled 2026-04-30.)
@@ -456,3 +515,4 @@ Each migration as its own Alembic file, named `NNNN_description.py`.
 | 2026-04-28 | Fresh draft incorporating snippets, llm_calls, consents, content libraries. MERGE-REQUIRED with existing repo file. |
 | 2026-04-30 | Reconciled llm_calls schema (model_id → model_requested/model_served, added prompt_version, request_id). Added retired_at to hc_style_snippets. Added auth_refresh_tokens (from ADR-0005). Fixed migration order (llm_calls before moms/briefs). |
 | 2026-05-05 | Added sessions.session_notes (P5), clients.code (P4 delta), llm_calls.prompt_text/completion_text (P4 delta) | P4/P5 schema additions | Diagram now matches DB schema |
+| 2026-07-30 | Added 3 tables shipped since the last update but never documented here: `supplement_recommendations` (Unit_002), `google_calendar_connections` (Unit_004 F6/PHASE-01e), `diet_chart_sends` (Unit_004 F8/PHASE-01c). Added 3 columns to `sessions`: `meeting_url`, `google_calendar_event_id`, `google_calendar_event_title` (Unit_004 F6/PHASE-01d–01f). All pulled directly from the live SQLAlchemy models (`backend/src/db/models/*.py`), not inferred from specs. | Found ~2.5 months behind shipped code during a docs-currency audit | Diagram matches DB schema again as of this date; `diet_chart_recipes`/`content_assignments`/etc. above were not re-verified in this pass — spot-checked only what the audit specifically flagged missing |

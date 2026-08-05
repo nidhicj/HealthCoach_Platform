@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Python ≥ 3.12, FastAPI ≥ 0.115, SQLAlchemy ≥ 2.0, Pydantic ≥ 2.7
-- Tests hit a real PostgreSQL DB (`parivarthan_test`) — no mocking the DB
+- Tests hit a real PostgreSQL DB (`tapas_test`) — no mocking the DB
 - Activate the Python env with `source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate` before running backend commands
 - Basic URL validation only (must look like a URL) — no platform-specific detection (Zoom vs. Meet vs. anything else) needed
 - Editable at any time, no locking — this is not part of the Freeze/Send-style "coach-reviewed gate" pattern used elsewhere in this unit; a meeting link is just logistics, not client-facing content requiring review

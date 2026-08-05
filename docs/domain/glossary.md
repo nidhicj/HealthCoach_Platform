@@ -28,7 +28,7 @@
 
 **MOM** — Minutes of Meeting. The formal post-session summary the HC sends to the client. AI-drafted, HC-edited, HC-sent. Singular form (one MOM per session, not "MOMs").
 
-**Pre-session brief** — AI-generated summary the HC reads before the session. Pulls from previous MOM, AST, snippet library, recent client check-ins. Internal — never sent to client.
+**Pre-session brief** — AI-generated summary the HC reads before an *ongoing* session (M00N) with an existing client. Pulls from previous MOM, AST, snippet library, recent client check-ins. Internal — never sent to client. Distinct from **Pre-consultation brief** below, which is a one-time, pre-relationship artifact for a Lead.
 
 **Post-meeting** — the workflow stage between session end and MOM-sent. Triage flag check, MOM draft generation, HC edit, HC send.
 
@@ -52,7 +52,19 @@
 
 **Journey stage** — high-level phase of a course (onboarding, active, plateau, off-track, completion). One enum per course at any time. Used for triage and reporting.
 
-**Lead** — a prospective client who has expressed interest but has not yet completed M000. Distinct from a client.
+**Lead** — a prospective client who has submitted a screening questionnaire but has not yet completed M000. Distinct from a Client — exists in the DB as a `leads` row with no platform account. (Unit_003 — Client Discovery Pipeline.)
+
+---
+
+## Client Discovery Pipeline terms (Unit_003)
+
+**hc_slug** — a system-generated, permanently immutable URL identifier for the HC's public intake form. Format: `firstname-lastname-XXXXX` (all lowercase, 5-char alphanumeric suffix, e.g. `a3k9m`). Generated once on first leadgen setup. No update path exists at any layer.
+
+**Pre-consultation brief** — AI-generated summary the HC reads before the *initial* consultation call with a Lead — a one-time, pre-relationship artifact, distinct from the recurring **Pre-session brief** above (which is per-M00N-session for an existing client). Inputs: the Lead's questionnaire responses + blood report text. Generated automatically when the blood report is uploaded. HC-internal — never shared with the Lead.
+
+**Standard baseline panel** — the set of blood tests required of every Lead, regardless of questionnaire responses. Configured by the HC once in their Test Panel settings.
+
+**Condition-specific add-on** — additional tests recommended on top of the baseline when a Lead's questionnaire response matches a configured keyword rule (e.g. "PCOD" → hormonal panel).
 
 ---
 
@@ -133,9 +145,16 @@
 
 ---
 
+## Platform Foundations terms (Unit_006)
+
+**Business name** — the HC's practice/business identity as shown to their clients — distinct from `users.display_name`, which is the HC's personal name as returned by Google OAuth.
+
+---
+
 ## Changelog
 
 | Date | Change |
 |---|---|
 | 2026-04-28 | Fresh draft from current ADR-0001 + HC cycle spec. MERGE-REQUIRED with existing repo file. |
 | 2026-05-05 | Added "Session data terms" section: `session_notes`, `session_notes.txt` (S3 mirror), `client_files`, `is_zoom_summary` flag — per PHASE-05 §B11. |
+| 2026-07-30 | Added terms owed by Unit_003 (`hc_slug`, `Pre-consultation brief`, `Standard baseline panel`, `Condition-specific add-on`) and Unit_006 (`Business name`) — each spec explicitly required adding its new terms here and none had been fulfilled, found during a docs-currency audit. Corrected `Lead`'s definition to match Unit_003 SPEC-0001's actual wording (previously said "expressed interest," should be "submitted a screening questionnaire" — a real drift, not just an omission). Disambiguated `Pre-session brief` from the new `Pre-consultation brief` since the two are easily confused but describe different things (recurring/existing-client vs. one-time/pre-relationship). |

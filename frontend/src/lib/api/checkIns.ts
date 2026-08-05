@@ -8,7 +8,8 @@ export const CheckInOutSchema = z.object({
   id: z.string(),
   client_id: z.string(),
   hc_user_id: z.string(),
-  payload: z.record(z.string(), z.unknown()),
+  payload: z.record(z.string(), z.unknown()).nullable(),
+  requested_at: z.string().nullable(),
   sentiment_flag: z.string().nullable(),
   created_at: z.string(),
 });
@@ -45,5 +46,13 @@ export async function flagCheckIn(
     body: JSON.stringify({ sentiment_flag }),
   });
   if (!res.ok) throw new Error(`Flag check-in failed: ${res.status}`);
+  return CheckInOutSchema.parse(await res.json());
+}
+
+export async function requestCheckIn(clientId: string): Promise<CheckInOut> {
+  const res = await fetchWithAuth(`${API_URL}/api/clients/${clientId}/check-ins/request`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Request check-in failed: ${res.status}`);
   return CheckInOutSchema.parse(await res.json());
 }

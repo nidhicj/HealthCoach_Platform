@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.integration.conftest import auth_headers
@@ -318,3 +319,91 @@ async def test_patch_mom_cannot_set_sent_status(http_client, hc_headers):
 # into final_text. Current coverage lives in tests/integration/test_mom_workflow.py
 # (test_send_mom_requires_reviewed_status, test_send_mom_emails_action_items_and_marks_sent,
 # test_send_mom_returns_422_when_client_has_no_email, test_send_mom_already_sent_is_idempotent_no_op).
+
+
+# ── Task 14: google_calendar_event_id column ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_google_calendar_event_id_orm_write_read_roundtrip(db, hc_user):
+    """Test that google_calendar_event_id field persists via ORM write + read."""
+    from datetime import datetime, timezone
+    from src.db.models import Client, Session
+
+    # Create a client
+    client = Client(
+        hc_user_id=hc_user.id,
+        full_name="Test Client for Calendar",
+    )
+    db.add(client)
+    await db.flush()
+
+    # Create a session with google_calendar_event_id set
+    event_id = "abc123xyz_calendar_event_id"
+    session = Session(
+        hc_user_id=hc_user.id,
+        client_id=client.id,
+        session_number=1,
+        scheduled_at=datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc),
+        google_calendar_event_id=event_id,
+    )
+    db.add(session)
+    await db.flush()
+    session_id = session.id
+
+    # Read it back from the ORM to verify it persists
+    read_session = (await db.execute(
+        select(Session).where(Session.id == session_id)
+    )).scalar_one_or_none()
+    assert read_session is not None
+    assert read_session.google_calendar_event_id == event_id
+
+
+@pytest.mark.asyncio
+async def test_google_calendar_event_id_defaults_to_null(db, hc_user):
+    """Test that google_calendar_event_id is NULL when not set."""
+    from datetime import datetime, timezone
+    from src.db.models import Client, Session
+
+    client = Client(
+        hc_user_id=hc_user.id,
+        full_name="Test Client for Calendar 2",
+    )
+    db.add(client)
+    await db.flush()
+
+    session = Session(
+        hc_user_id=hc_user.id,
+        client_id=client.id,
+        session_number=1,
+        scheduled_at=datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc),
+    )
+    db.add(session)
+    await db.flush()
+    session_id = session.id
+
+    read_session = (await db.execute(
+        select(Session).where(Session.id == session_id)
+    )).scalar_one_or_none()
+    assert read_session is not None
+    assert read_session.google_calendar_event_id is None
+
+
+@pytest.mark.asyncio
+async def test_google_calendar_event_id_in_session_out(http_client, hc_headers):
+    """Test that google_calendar_event_id appears in SessionOut schema."""
+    client = await _create_client(http_client, hc_headers)
+    r = await http_client.post(
+        "/api/sessions",
+        headers=hc_headers,
+        json={
+            "client_id": client["id"],
+            "session_number": 1,
+            "scheduled_at": "2026-08-01T10:00:00Z",
+        },
+    )
+    assert r.status_code == 201, r.text
+    session_data = r.json()
+    # Verify the field exists (even if None, since it's not settable via create)
+    assert "google_calendar_event_id" in session_data
+    assert session_data["google_calendar_event_id"] is None
