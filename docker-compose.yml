@@ -1,4 +1,4 @@
-name: tapas_unit006
+name: tapas_main
 services:
   postgres:
     image: postgres:17.4          # pinned minor version — update only when PG 17 EOL (Nov 2029)
@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: localdevpassword
       POSTGRES_DB: tapas_dev
     ports:
-      - "5435:5432"
+      - "5437:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,4 +19,4 @@ services:
 volumes:
   postgres_data:
     external: true
-    name: tapas_unit006_postgres_data
+    name: tapas_main_postgres_data
