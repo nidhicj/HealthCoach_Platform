@@ -20,7 +20,7 @@ export default function AuthCallbackPage() {
         if (!res.ok) throw new Error("refresh failed");
         const data = await res.json();
         setToken(data.access_token);
-        router.replace("/dashboard");
+        router.replace(data.role === "client" ? "/me" : "/dashboard");
       })
       .catch(() => {
         setError("Sign-in failed. Redirecting to sign-in…");

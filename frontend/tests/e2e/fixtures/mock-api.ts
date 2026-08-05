@@ -226,6 +226,17 @@ export async function mockAuthAndApi(page: Page) {
 
     // ── check-ins ─────────────────────────────────────────────────────────────
     if (path.startsWith("/api/check-ins") || path.startsWith("/api/clients/") && path.includes("/check-ins")) {
+      if (method === "POST" && path.endsWith("/check-ins/request")) {
+        return route.fulfill(jsonOk({
+          id: "check-in-requested-1",
+          client_id: STUB_CLIENT_ID,
+          hc_user_id: "hc-001",
+          payload: null,
+          requested_at: NOW,
+          sentiment_flag: null,
+          created_at: NOW,
+        }, 201));
+      }
       return route.fulfill(jsonOk({ items: [], next_cursor: null }));
     }
 

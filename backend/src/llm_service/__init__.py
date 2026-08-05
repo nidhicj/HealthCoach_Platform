@@ -321,7 +321,7 @@ async def generate_brief(
     cutoff_14d = datetime.now(timezone.utc) - timedelta(days=CHECKIN_TRIAGE_DAYS)
     recent_checkins = (await db.execute(
         sa.select(CheckIn)
-        .where(CheckIn.client_id == client_id, CheckIn.created_at >= cutoff_14d)
+        .where(CheckIn.client_id == client_id, CheckIn.created_at >= cutoff_14d, CheckIn.payload.isnot(None))
         .order_by(CheckIn.created_at.desc())
     )).scalars().all()
 

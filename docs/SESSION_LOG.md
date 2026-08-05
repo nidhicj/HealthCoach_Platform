@@ -62,6 +62,13 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-07-14 — Platform rename: Parivarthan → Tapas (docs sweep)
+
+**Done**:
+- Platform renamed from Parivarthan to Tapas (2026-07-14) — see `docs/decisions/0008-platform-rename-parivarthan-to-tapas.md`. Renamed throughout `docs/` and `prompts/`, including historical session logs and handover docs, per SoJo's decision to favor consistency over preserving the old name in history.
+
+---
+
 ## 2026-07-12 — Custom domain (app.tapas.fitness) via Cloudflare Worker
 
 **Done**:
@@ -203,7 +210,7 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 - `2bf190e` spec, `90197e7` backend, `0c0ce3f` frontend API, `2b701f7` client detail page, `04a39ce` roster metrics, `61bf782` review fixes, `808cbbb` ADR-0007, `cb68a65` encryption, `e01f318` decrypt logging + Cancel state
 
 **Open items / follow-ups:**
-- Reseed mock data for P11 (mock scripts at `backend/scripts/mock_p6/` still target local Postgres `parivarthan_dev` — data is intact)
+- Reseed mock data for P11 (mock scripts at `backend/scripts/mock_p6/` still target local Postgres `tapas_dev` — data is intact)
 - `health_metrics` encryption deferred (ADR-0007 §Consequences — client-side filter would break if encrypted)
 - KMS migration when platform crosses regulatory audit or 10k data principals
 - `h` column (Alembic revision ID `a1b2c3d4e5f6` is hand-typed not auto-generated — minor hygiene, non-breaking)
@@ -254,7 +261,7 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 - **Cloud Run deployment** — Service `hc-platform` live at `https://hc-platform-296472807958.asia-south1.run.app`, region `asia-south1`, project `t-replica-361407`. Ingress: all users. App handles its own auth (no Cloud Run IAM gate).
 
-- **CI/CD via Cloud Build** — Auto-created trigger (from GCP "Connect to repo") originally used buildpacks which cannot build Python/uv projects. Fixed by adding `cloudbuild.yaml` at repo root with three steps: `docker build ./backend`, push to Artifact Registry, `gcloud run services update hc-platform` with all 15 `--update-secrets` flags. Trigger updated to use this file. Push to `main` now auto-deploys. GitHub Actions is NOT in use — `.github/workflows/deploy.yml` deploys to deleted service `parivarthan-api` and is dead code.
+- **CI/CD via Cloud Build** — Auto-created trigger (from GCP "Connect to repo") originally used buildpacks which cannot build Python/uv projects. Fixed by adding `cloudbuild.yaml` at repo root with three steps: `docker build ./backend`, push to Artifact Registry, `gcloud run services update hc-platform` with all 15 `--update-secrets` flags. Trigger updated to use this file. Push to `main` now auto-deploys. GitHub Actions is NOT in use — `.github/workflows/deploy.yml` deploys to deleted service `tapas-api` and is dead code.
 
 - **`/healthz` → `/health` rename** — Discovered `/healthz` is intercepted by GFE (Google Frontend) layer at the infrastructure level (Kubernetes reserved path) and never reaches the container. Renamed route to `/health` in `backend/src/main.py`. Confirmed: `/` and `/health` reach FastAPI; `/healthz` returns Google HTML 404 from GFE.
 

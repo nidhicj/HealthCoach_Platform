@@ -86,6 +86,51 @@ async def test_client_without_linked_record_returns_404(http_client, hc_user, cl
     assert r.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_client_answer_fills_pending_row_not_a_new_one(http_client, hc_headers, client_headers, client_rec):
+    req_r = await http_client.post(f"/api/clients/{client_rec.id}/check-ins/request", headers=hc_headers)
+    pending_id = req_r.json()["id"]
+
+    ans_r = await http_client.post(
+        "/api/me/check-ins", headers=client_headers,
+        json={"payload": {"metrics": {"energy": 7}}},
+    )
+    assert ans_r.status_code == 201
+    assert ans_r.json()["id"] == pending_id  # same row, not a new one
+    assert ans_r.json()["payload"] == {"metrics": {"energy": 7}}
+    assert ans_r.json()["requested_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_client_answer_with_no_pending_request_creates_ad_hoc_row(http_client, client_headers, client_rec):
+    r = await http_client.post(
+        "/api/me/check-ins", headers=client_headers,
+        json={"payload": {"metrics": {"mood": 8}}},
+    )
+    assert r.status_code == 201
+    assert r.json()["requested_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_client_lists_own_check_ins(http_client, hc_headers, client_headers, client_rec):
+    await http_client.post(
+        "/api/me/check-ins", headers=client_headers, json={"payload": {"metrics": {"energy": 5}}},
+    )
+    r = await http_client.get("/api/me/check-ins", headers=client_headers)
+    assert r.status_code == 200
+    assert len(r.json()["items"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_client_sees_pending_request_in_own_list(http_client, hc_headers, client_headers, client_rec):
+    await http_client.post(f"/api/clients/{client_rec.id}/check-ins/request", headers=hc_headers)
+    r = await http_client.get("/api/me/check-ins", headers=client_headers)
+    items = r.json()["items"]
+    assert len(items) == 1
+    assert items[0]["payload"] is None
+    assert items[0]["requested_at"] is not None
+
+
 # ── GET /api/me/moms ──────────────────────────────────────────────────────────
 
 

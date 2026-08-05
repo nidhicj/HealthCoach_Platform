@@ -7,7 +7,7 @@
 
 ## What this product is
 
-**Parivarthan** — a webapp for independent health coaches (HCs) in India. HCs use it to:
+**Tapas** — a webapp for independent health coaches (HCs) in India. HCs use it to:
 1. Onboard and manage clients
 2. Run sessions with AI-assisted MOM (Minutes of Meeting) generation
 3. Send action items to clients
@@ -40,7 +40,7 @@
 ## Repo layout (current state)
 
 ```
-parivarthan_platform/
+tapas_platform/
 ├── .env.example                    # all env vars documented (no secrets)
 ├── .env                            # gitignored — copy from .env.example
 ├── docker-compose.yml              # local Postgres 16 on port 5432
@@ -125,7 +125,7 @@ parivarthan_platform/
 
 **JWT claims** (ES256, 15-min TTL):
 ```json
-{"iss": "https://api.parivarthan.com", "aud": "parivarthan-api",
+{"iss": "https://api.tapas.com", "aud": "tapas-api",
  "sub": "<user_id>", "role": "hc|client", "hc_id": "<hc_user_id>",
  "jti": "<uuid>", "iat": 0, "nbf": 0, "exp": 0}
 ```
@@ -167,7 +167,7 @@ async def list_clients(
 
 6. **Migrations for every schema change** — `uv run alembic revision --autogenerate -m "description"` then review before applying.
 
-7. **Tests for new logic** — TDD pattern: write failing test → implement → green. Tests run against `parivarthan_test` DB (separate from dev DB).
+7. **Tests for new logic** — TDD pattern: write failing test → implement → green. Tests run against `tapas_test` DB (separate from dev DB).
 
 8. **Spec before code** — for anything beyond a one-liner, write the spec in `docs/specs/` first (CLAUDE.md rule 9). Get confirmation before coding.
 
@@ -192,7 +192,7 @@ uv run pytest tests/unit/ -v
 uv run pytest tests/integration/ -v
 
 # Integration conftest: drops + recreates all tables on each test run
-# DB: postgresql://postgres:localdevpassword@localhost:5432/parivarthan_test
+# DB: postgresql://postgres:localdevpassword@localhost:5432/tapas_test
 ```
 
 **Current state: 37/37 passing.**
@@ -202,8 +202,8 @@ uv run pytest tests/integration/ -v
 ## Env vars (required for backend)
 
 ```bash
-DATABASE_URL=postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev
-TEST_DATABASE_URL=postgresql://postgres:localdevpassword@localhost:5432/parivarthan_test
+DATABASE_URL=postgresql://postgres:localdevpassword@localhost:5432/tapas_dev
+TEST_DATABASE_URL=postgresql://postgres:localdevpassword@localhost:5432/tapas_test
 JWT_PRIVATE_KEY=<ES256 PEM>   # generate: openssl ecparam -name prime256v1 -genkey -noout -out priv.pem
 JWT_PUBLIC_KEY=<ES256 PEM>    # generate: openssl ec -in priv.pem -pubout -out pub.pem
 GOOGLE_CLIENT_ID=<from Google Cloud Console>
@@ -313,3 +313,7 @@ test count: 37 passing
 phases complete: P0 ✅  P1 ✅  P2 ✅
 phases pending: P3, P4, P5, P6, P7, P8, P9
 ```
+
+---
+
+**Post-handover note**: Platform renamed from Parivarthan to Tapas (2026-07-14) — see `docs/decisions/0008-platform-rename-parivarthan-to-tapas.md`.

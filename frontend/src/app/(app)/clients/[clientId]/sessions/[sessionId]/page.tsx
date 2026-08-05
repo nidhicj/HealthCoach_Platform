@@ -21,6 +21,7 @@ import {
   sendMom,
   endSession,
   patchSession,
+  linkCalendarEvent,
   type SessionOut,
   type BriefOut,
   type MomOut,
@@ -33,6 +34,8 @@ import {
   type ClientFileOut,
 } from "@/lib/api/files";
 import { getClient, type ClientDetailOut } from "@/lib/api/clients";
+import { CalendarView } from "@/components/calendar/CalendarView";
+import type { CalendarEvent } from "@/lib/api/calendar";
 import { cn } from "@/lib/utils";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -139,15 +142,67 @@ function BriefTab({
   );
 }
 
+// ── Google Calendar event picker (PHASE-01e Task 16) ────────────────────────
+//
+// Reuses this file's existing modal-overlay convention (see SendDialog below):
+// a fixed, centered `bg-black/40` backdrop with a bordered panel — rather than
+// introducing the separate (and, elsewhere in this app, dev-only) shadcn/base-ui
+// Dialog primitive.
+
+function CalendarPickerDialog({
+  onClose,
+  onSelectEvent,
+  linking,
+  linkingEventId,
+  error,
+  defaultEventTitle,
+}: {
+  onClose: () => void;
+  onSelectEvent: (event: CalendarEvent) => void;
+  linking: boolean;
+  // Id of the specific event currently being linked, or null. Threaded down
+  // to CalendarView so the matching event shows a visible busy state while
+  // other events are disabled (PHASE-01f Task 4).
+  linkingEventId: string | null;
+  error: string | null;
+  // Pre-computed initial value for CreateEventForm's title field, threaded
+  // down to CalendarView (PHASE-01f Task 5).
+  defaultEventTitle: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[85vh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-xl border border-border bg-background p-6">
+        <div className="flex items-center justify-between">
+          <h3 className="font-heading text-xl font-black text-foreground">
+            Choose from Google Calendar
+          </h3>
+          <Button variant="outline" size="sm" onClick={onClose} disabled={linking}>
+            Close
+          </Button>
+        </div>
+
+        {error && <p className="font-sans text-sm text-destructive">{error}</p>}
+
+        <CalendarView
+          onSelectEvent={onSelectEvent}
+          linkingEventId={linkingEventId}
+          defaultEventTitle={defaultEventTitle}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ── tab: Session ──────────────────────────────────────────────────────────────
 
-function NotesTab({
+export function NotesTab({
   session,
   files,
   filesLoading,
   onFilesChange,
   onSessionChange,
   onNext,
+  clientFirstName,
 }: {
   session: SessionOut;
   files: ClientFileOut[];
@@ -155,6 +210,9 @@ function NotesTab({
   onFilesChange: (files: ClientFileOut[]) => void;
   onSessionChange: (session: SessionOut) => void;
   onNext: () => void;
+  // Used to pre-fill the "Choose from Google Calendar" → "Create event"
+  // form's title (PHASE-01f Task 5), e.g. "Session-3 with Asha".
+  clientFirstName: string;
 }) {
   const [notes, setNotes] = useState(session.notes_internal ?? "");
   const [notesFrozen, setNotesFrozen] = useState(false);
@@ -168,6 +226,17 @@ function NotesTab({
   const [linkDraft, setLinkDraft] = useState("");
   const [savingLink, setSavingLink] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [showCalendarPicker, setShowCalendarPicker] = useState(false);
+  // Id of the specific calendar event currently being linked, or null when no
+  // link request is in flight (PHASE-01f Task 4). Replaces a plain boolean so
+  // CalendarPickerDialog/CalendarView can show per-event busy feedback rather
+  // than just a generic "linking" state.
+  const [linkingEventId, setLinkingEventId] = useState<string | null>(null);
+  const [calendarLinkError, setCalendarLinkError] = useState<string | null>(null);
+  const [unlinking, setUnlinking] = useState(false);
+  // Default title for the "Create event" form when scheduling this session
+  // via Google Calendar, e.g. "Session-3 with Asha" (PHASE-01f Task 5).
+  const defaultEventTitle = `Session-${session.session_number} with ${clientFirstName}`;
 
   async function handleNotesSave() {
     setNotesSaving(true);
@@ -192,6 +261,37 @@ function NotesTab({
       setLinkError(err instanceof Error ? err.message : "Failed to save link.");
     } finally {
       setSavingLink(false);
+    }
+  }
+
+  async function handleSelectCalendarEvent(event: CalendarEvent) {
+    // Guard against a second click racing the first — ignore selections while
+    // one is already in flight (the grids also disable other events visually,
+    // but this is the authoritative guard).
+    if (linkingEventId !== null) return;
+    setLinkingEventId(event.id);
+    setCalendarLinkError(null);
+    try {
+      const updated = await linkCalendarEvent(session.id, event.id);
+      onSessionChange(updated);
+      setShowCalendarPicker(false);
+    } catch (err) {
+      setCalendarLinkError(err instanceof Error ? err.message : "Failed to link calendar event.");
+    } finally {
+      setLinkingEventId(null);
+    }
+  }
+
+  async function handleUnlinkCalendarEvent() {
+    setUnlinking(true);
+    setCalendarLinkError(null);
+    try {
+      const updated = await linkCalendarEvent(session.id, null);
+      onSessionChange(updated);
+    } catch (err) {
+      setCalendarLinkError(err instanceof Error ? err.message : "Failed to unlink calendar event.");
+    } finally {
+      setUnlinking(false);
     }
   }
 
@@ -280,16 +380,47 @@ function NotesTab({
                 href={session.meeting_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-1 rounded-full bg-primary px-4 py-1.5 font-sans text-xs font-bold text-primary-foreground"
+                className="mt-1 rounded-full bg-primary px-5 py-2 font-sans text-sm font-bold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
               >
-                Join call →
+                {session.google_calendar_event_title
+                  ? `Join the call — ${session.google_calendar_event_title}`
+                  : "Join call →"}
               </a>
-              <button
-                onClick={() => { setLinkDraft(session.meeting_url ?? ""); setEditingLink(true); }}
-                className="font-sans text-xs text-muted-foreground underline-offset-4 hover:underline"
-              >
-                Edit link
-              </button>
+              {/* Secondary actions cluster: kept visually tighter together (gap-2)
+                  than their gap-4 offset from the primary "Join call" action above,
+                  so the block reads as one clear CTA plus a group of related,
+                  lower-priority link-management actions (PHASE-01f Task 6). */}
+              <div className="mt-1 flex flex-col items-center gap-2">
+                {session.google_calendar_event_id && (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">via Google Calendar</Badge>
+                    <button
+                      onClick={handleUnlinkCalendarEvent}
+                      disabled={unlinking}
+                      className="font-sans text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:opacity-50"
+                    >
+                      {unlinking ? "Unlinking…" : "Unlink"}
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => { setLinkDraft(session.meeting_url ?? ""); setEditingLink(true); }}
+                    className="font-sans text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  >
+                    Edit link
+                  </button>
+                  <button
+                    onClick={() => { setCalendarLinkError(null); setShowCalendarPicker(true); }}
+                    className="font-sans text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                  >
+                    Choose from Google Calendar →
+                  </button>
+                </div>
+              </div>
+              {calendarLinkError && !showCalendarPicker && (
+                <p className="font-sans text-xs text-destructive">{calendarLinkError}</p>
+              )}
             </>
           ) : (
             <>
@@ -298,10 +429,19 @@ function NotesTab({
               </p>
               <button
                 onClick={() => { setLinkDraft(""); setEditingLink(true); }}
-                className="mt-1 rounded-full border border-border bg-background px-4 py-1.5 font-sans text-xs text-foreground hover:border-primary"
+                className="mt-1 rounded-full border border-border bg-background px-5 py-2 font-sans text-sm font-semibold text-foreground transition-colors hover:border-primary hover:bg-muted/40"
               >
                 + Add meeting link
               </button>
+              <button
+                onClick={() => { setCalendarLinkError(null); setShowCalendarPicker(true); }}
+                className="font-sans text-sm font-medium text-foreground underline-offset-4 hover:underline"
+              >
+                Choose from Google Calendar →
+              </button>
+              {calendarLinkError && !showCalendarPicker && (
+                <p className="font-sans text-xs text-destructive">{calendarLinkError}</p>
+              )}
             </>
           )}
         </div>
@@ -413,6 +553,17 @@ function NotesTab({
           </div>
         </div>
       </div>
+
+      {showCalendarPicker && (
+        <CalendarPickerDialog
+          onClose={() => setShowCalendarPicker(false)}
+          onSelectEvent={handleSelectCalendarEvent}
+          linking={linkingEventId !== null}
+          linkingEventId={linkingEventId}
+          error={calendarLinkError}
+          defaultEventTitle={defaultEventTitle}
+        />
+      )}
     </div>
   );
 }
@@ -846,6 +997,7 @@ export default function SessionPage() {
                   onFilesChange={setFiles}
                   onSessionChange={setSession}
                   onNext={() => setActiveTab("mom")}
+                  clientFirstName={(client?.full_name ?? "Client").split(" ")[0]}
                 />
               </TabsContent>
 

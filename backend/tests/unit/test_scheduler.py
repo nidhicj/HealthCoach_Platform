@@ -1,9 +1,9 @@
 """Unit tests for scheduler pure-logic functions."""
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from src.api.scheduler import _check_scheduler_token, _should_retire
+from src.api.scheduler import _check_scheduler_token, _is_saturday_ist, _should_retire
 
 NOW = datetime.now(timezone.utc)
 
@@ -77,3 +77,14 @@ def test_wrong_token_raises():
 def test_empty_token_raises():
     with pytest.raises(ValueError, match="invalid"):
         _check_scheduler_token(provided="", expected="abc123")
+
+
+# ── _is_saturday_ist ─────────────────────────────────────────────────────────
+
+
+def test_saturday_ist_is_true_on_a_saturday():
+    assert _is_saturday_ist(date(2026, 7, 18)) is True  # a Saturday
+
+
+def test_saturday_ist_is_false_on_other_days():
+    assert _is_saturday_ist(date(2026, 7, 14)) is False  # a Tuesday

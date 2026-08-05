@@ -7,7 +7,7 @@
 
 ## What this product is
 
-**Parivarthan** — a webapp for independent health coaches (HCs) in India. HCs use it to:
+**Tapas** — a webapp for independent health coaches (HCs) in India. HCs use it to:
 1. Onboard and manage clients
 2. Run sessions with AI-assisted MOM (Minutes of Meeting) generation
 3. Send action items to clients
@@ -40,7 +40,7 @@
 ## Repo layout (current state)
 
 ```
-parivarthan_platform/
+tapas_platform/
 ├── .env.example                    # all env vars documented (no secrets)
 ├── .env                            # gitignored — copy from .env.example
 ├── docker-compose.yml              # local Postgres 16 on port 5432
@@ -171,7 +171,7 @@ parivarthan_platform/
 
 **JWT claims** (ES256, 15-min TTL):
 ```json
-{"iss": "https://api.parivarthan.com", "aud": "parivarthan-api",
+{"iss": "https://api.tapas.com", "aud": "tapas-api",
  "sub": "<user_id>", "role": "hc|client", "hc_id": "<hc_user_id>",
  "jti": "<uuid>", "iat": 0, "nbf": 0, "exp": 0}
 ```
@@ -357,7 +357,7 @@ SELECT pgp_sym_decrypt(prompt_text, '<LLM_CALL_ENCRYPTION_KEY>') FROM llm_calls 
 
 8. **Migrations for every schema change** — `uv run alembic revision --autogenerate -m "description"`, review before applying.
 
-9. **Tests for new logic** — session-scoped engine (drop_all/create_all per test session), savepoint-based function-level isolation (`join_transaction_mode="create_savepoint"`). DB: `parivarthan_test`.
+9. **Tests for new logic** — session-scoped engine (drop_all/create_all per test session), savepoint-based function-level isolation (`join_transaction_mode="create_savepoint"`). DB: `tapas_test`.
 
 10. **Write PHASE file first** — for any build phase, create `docs/specs/Unit_001_HcCoreCycle/PHASE-NN-kebab-title.md` using `docs/specs/template-phase-plan.md` and get SoJo's confirmation **before** writing code (CLAUDE.md §6 rule).
 
@@ -397,8 +397,8 @@ Integration conftest: drops + recreates all tables per test session. Uses savepo
 
 ```bash
 # Postgres
-DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/parivarthan_dev
-TEST_DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/parivarthan_test
+DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas_dev
+TEST_DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas_test
 
 # Auth
 JWT_PRIVATE_KEY=<ES256 PEM>   # openssl ecparam -name prime256v1 -genkey -noout -out priv.pem
@@ -490,3 +490,7 @@ phases pending: P5, P6, P7, P8, P9
 - Phase plans: `docs/specs/Unit_NNN_PascalCaseName/PHASE-NN-kebab-title.md`
 - ADRs, diagrams, domain docs: flat in their existing folders — no per-unit subfolders
 - Every future phase starts with a PHASE file written and confirmed before any code is touched
+
+---
+
+**Post-handover note**: Platform renamed from Parivarthan to Tapas (2026-07-14) — see `docs/decisions/0008-platform-rename-parivarthan-to-tapas.md`.

@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Python ≥ 3.12, FastAPI ≥ 0.115, SQLAlchemy ≥ 2.0, Pydantic ≥ 2.7
-- Tests hit a real PostgreSQL DB (`parivarthan_test`) — no mocking the DB
+- Tests hit a real PostgreSQL DB (`tapas_test`) — no mocking the DB
 - Activate the Python env with `source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate` before running backend commands
 - No changes to the existing `generate`/`PATCH` diet chart endpoints or the `DietChart`/`ContentAssignment` models — this phase only adds new, additive pieces (D-16)
 - No client-facing display of sent snapshots in this phase — that's F2's job (D-17), not this plan's

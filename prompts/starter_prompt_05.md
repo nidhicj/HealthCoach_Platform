@@ -15,7 +15,7 @@ P0–P5 are complete and manually verified. Latest state: 189/189 tests passing 
    - `docs/domain/glossary.md` — UI terminology (HC, client, session, MOM, AST, brief, snippet, M00N, check-in, action item, triage flag, coach-reviewed gate). Read this before writing any user-facing copy or label.
    - `docs/specs/Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` §Stages 2–6 — the user journey each screen expresses. Stage 2 is the M000 first-session edge case; Stage 6 is the coach-reviewed gate UX (briefs are HC-internal; sent MOMs are visible to clients via the future client UI; client UI itself is OUT of P6 scope).
    - `docs/specs/Unit_001_HcCoreCycle/PHASE-05-hc-cycle-workflows.md` — what P5 just shipped, the patterns established, the §Patterns section. The frontend consumes those endpoints; do not re-litigate the API surface.
-6. Read the brand source: **`Poshini_Brand_Colour_Guide.docx`** in the repo (or wherever SoJo has placed it — confirm the path). The four colours, their usage rules, the typography system, and the threat-prevention rules are all design constraints. You will encode them into `.claude/skills/parivarthan-frontend.md` as part of P6 deliverables; the source-of-truth for the rules is the brand guide itself, not your interpretation of it.
+6. Read the brand source: **`Poshini_Brand_Colour_Guide.docx`** in the repo (or wherever SoJo has placed it — confirm the path). The four colours, their usage rules, the typography system, and the threat-prevention rules are all design constraints. You will encode them into `.claude/skills/tapas-frontend.md` as part of P6 deliverables; the source-of-truth for the rules is the brand guide itself, not your interpretation of it.
 7. Read `docs/specs/template-phase-plan.md` — for reference only. PHASE-06-frontend.md is already drafted; you do not write a new one.
 8. Inspect the existing `frontend/` directory in the repo. Per HANDOVER-P5 it was scaffolded in P0 with `package.json` and a Next.js skeleton but is otherwise empty. Confirm what's there and what isn't before adding files.
 
@@ -65,7 +65,7 @@ The PHASE plan lists deliverables but does not order them. The dependency graph 
 4. `frontend/src/styles/tokens.generated.css` and `frontend/src/styles/tailwind.theme.generated.ts` produced by the script
 5. `frontend/tailwind.config.ts` extending from generated theme; `frontend/src/app/globals.css` with `next/font` for Fraunces and Manrope, body defaults, Parchment background
 6. shadcn install with brand-mapped tokens (per PHASE-06 §2.2). Components from the list in §2.2 only — do not over-install.
-7. `.claude/skills/parivarthan-frontend.md` written per PHASE-06 §2.8 — the skill encodes brand rules, motion rules, banned list, per-screen checklist
+7. `.claude/skills/tapas-frontend.md` written per PHASE-06 §2.8 — the skill encodes brand rules, motion rules, banned list, per-screen checklist
 8. `.claude/mcp_servers.json` updated to add Playwright MCP per PHASE-06 §2.9; both Chromium and Firefox in the browsers config
 9. Smoke test: change a colour in `theme.yaml`, run the build script, confirm it propagates to both generated files; revert.
 
@@ -157,7 +157,7 @@ After Stage 1 (motion-lab ready) — append a brief entry:
 
 **Done**:
 - Theme tokens layer + shadcn brand mapping
-- `.claude/skills/parivarthan-frontend.md`
+- `.claude/skills/tapas-frontend.md`
 - `.claude/mcp_servers.json` with Playwright MCP
 - `/dev/motion-lab` route implementing all four motion primitives
 
@@ -271,7 +271,7 @@ Then the verbatim handoff line above. Then STOP.
 - `scripts/build-theme.mjs` working; predev/prebuild hooks wired
 - `frontend/src/styles/tokens.generated.css` and `tailwind.theme.generated.ts` produced
 - shadcn components installed with brand-mapped tokens
-- `.claude/skills/parivarthan-frontend.md` written, content matches PHASE-06 §2.8
+- `.claude/skills/tapas-frontend.md` written, content matches PHASE-06 §2.8
 - `.claude/mcp_servers.json` updated with Playwright MCP, both browsers configured
 - All routes from PHASE-06 §2.4 implemented
 - Auth + API client per PHASE-06 §2.3, access token in memory only

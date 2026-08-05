@@ -116,4 +116,20 @@ test.describe("HC core cycle", () => {
     await endBtn.click();
     await expect(page.getByText("Ended")).toBeVisible({ timeout: 5000 });
   });
+
+  test("client detail Chat tab: requesting a check-in disables the button", async ({ page }) => {
+    await page.goto(`/clients/${STUB_CLIENT_ID}`);
+    await page.waitForLoadState("networkidle");
+
+    await page.getByRole("tab", { name: "Chat" }).click();
+    await expect(page.getByRole("heading", { name: "Check-ins" })).toBeVisible();
+
+    const requestBtn = page.getByRole("button", { name: /request check-in/i });
+    await expect(requestBtn).toBeVisible();
+    await requestBtn.click();
+
+    await expect(page.getByRole("button", { name: /awaiting answer/i })).toBeVisible({
+      timeout: 5000,
+    });
+  });
 });

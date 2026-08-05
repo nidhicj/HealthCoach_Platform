@@ -25,6 +25,8 @@ class Session(Base):
     ended_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     zoom_meeting_id: Mapped[str | None] = mapped_column(Text)
     meeting_url: Mapped[str | None] = mapped_column(Text)
+    google_calendar_event_id: Mapped[str | None] = mapped_column(Text)
+    google_calendar_event_title: Mapped[str | None] = mapped_column(Text)
     transcript_s3_key: Mapped[str | None] = mapped_column(Text)
     summary_s3_key: Mapped[str | None] = mapped_column(Text)
     notes_internal: Mapped[str | None] = mapped_column(Text)

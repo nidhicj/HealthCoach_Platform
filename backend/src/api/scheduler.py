@@ -1,13 +1,17 @@
 """Scheduler endpoint — authenticated background tasks per build-plan.md §P7."""
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import and_, func, update
+from sqlalchemy import and_, func, select, update
 
+from src.api._check_in_lifecycle import get_or_create_pending_check_in
 from src.api.deps import DbDep
 from src.config import get_settings
+from src.db.models import Client
 from src.db.models.coaching import HcStyleSnippet
+from src.lib.email import send_check_in_reminder_email
 from src.telemetry.log import get_logger
 
 router = APIRouter(prefix="/internal", tags=["scheduler"])
@@ -38,12 +42,65 @@ def _check_scheduler_token(provided: str, expected: str) -> None:
         raise ValueError("invalid scheduler token")
 
 
+def _is_saturday_ist(today: date | None = None) -> bool:
+    d = today if today is not None else datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    return d.weekday() == 5  # Monday=0 ... Saturday=5
+
+
+async def _run_check_in_reminders(db, logger) -> tuple[int, int]:
+    """Send Saturday check-in reminders with per-client failure isolation.
+
+    Each client is committed independently so that one client's send failure
+    (bad address, Resend rate limit, transient network error) cannot roll
+    back the pending CheckIn rows already committed for earlier clients in
+    the same run, and cannot block reminders to later clients. Returns
+    (sent, failed) counts.
+
+    Client fields are read into plain tuples up front, before the loop does
+    any commit/rollback. `db.rollback()` expires every ORM object still held
+    in the session's identity map (not just the one that failed) — touching
+    a `Client` attribute on a later iteration after an earlier rollback would
+    trigger an implicit lazy-load, which `AsyncSession` cannot do outside
+    greenlet context and raises `MissingGreenlet`.
+    """
+    clients = (await db.execute(
+        select(Client).where(
+            Client.journey_stage != "completed",
+            Client.user_id.is_not(None),
+            Client.email.is_not(None),
+        )
+    )).scalars().all()
+    client_rows = [
+        (c.id, c.hc_user_id, c.email, c.full_name) for c in clients
+    ]
+
+    sent = 0
+    failed = 0
+    for client_id, hc_user_id, email, full_name in client_rows:
+        try:
+            await get_or_create_pending_check_in(db, client_id, hc_user_id)
+            send_check_in_reminder_email(
+                to=email,
+                client_name=full_name,
+                portal_url=f"{get_settings().frontend_url}/me/checkins",
+            )
+            await db.commit()
+            sent += 1
+        except Exception:
+            await db.rollback()
+            failed += 1
+            logger.error("check_in_reminder_failed", client_id=str(client_id))
+    return sent, failed
+
+
 # ── schemas ────────────────────────────────────────────────────────────────
 
 
 class SchedulerResult(BaseModel):
     tasks_run: list[str]
     retired_count: int
+    reminder_sent_count: int = 0
+    reminder_failed_count: int = 0
 
 
 # ── endpoint ───────────────────────────────────────────────────────────────
@@ -90,4 +147,22 @@ async def run_scheduled_tasks(request: Request, db: DbDep) -> SchedulerResult:
         threshold_days=RETIREMENT_THRESHOLD_DAYS,
     )
 
-    return SchedulerResult(tasks_run=["snippet_retirement"], retired_count=retired_count)
+    tasks_run = ["snippet_retirement"]
+    reminder_sent_count = 0
+    reminder_failed_count = 0
+    if request.headers.get("X-Scheduled-Task") == "check_in_reminders" and _is_saturday_ist():
+        reminder_sent_count, reminder_failed_count = await _run_check_in_reminders(db, logger)
+        tasks_run.append("check_in_reminders")
+        logger.info(
+            "scheduled_task_run",
+            task="check_in_reminders",
+            reminder_sent_count=reminder_sent_count,
+            reminder_failed_count=reminder_failed_count,
+        )
+
+    return SchedulerResult(
+        tasks_run=tasks_run,
+        retired_count=retired_count,
+        reminder_sent_count=reminder_sent_count,
+        reminder_failed_count=reminder_failed_count,
+    )

@@ -14,6 +14,8 @@ export const SessionOutSchema = z.object({
   ended_at: z.string().nullable(),
   zoom_meeting_id: z.string().nullable(),
   meeting_url: z.string().nullable(),
+  google_calendar_event_id: z.string().nullable(),
+  google_calendar_event_title: z.string().nullable(),
   notes_internal: z.string().nullable(),
   session_notes: z.string().nullable(),
   created_at: z.string(),
@@ -108,6 +110,24 @@ export async function patchSession(
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(`Patch session failed: ${res.status}`);
+  return SessionOutSchema.parse(await res.json());
+}
+
+// Attaches (googleEventId non-null) or detaches (googleEventId null) a Google
+// Calendar event to this session. See backend/src/api/sessions.py's
+// POST /{session_id}/calendar-link (PHASE-01e Task 15) — a non-null id is
+// re-validated server-side (event must have a Meet link) before persisting,
+// so this call can 422 if the chosen event has none.
+export async function linkCalendarEvent(
+  sessionId: string,
+  googleEventId: string | null,
+): Promise<SessionOut> {
+  const res = await fetchWithAuth(`${API_URL}/api/sessions/${sessionId}/calendar-link`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ google_event_id: googleEventId }),
+  });
+  if (!res.ok) throw new Error(`Link calendar event failed: ${res.status}`);
   return SessionOutSchema.parse(await res.json());
 }
 

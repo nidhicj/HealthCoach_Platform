@@ -2,12 +2,16 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import and_, or_, select
 
+from src.api._check_in_lifecycle import get_or_create_pending_check_in
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
+from src.config import get_settings
 from src.db.models import CheckIn, Client
+from src.lib.email import send_check_in_reminder_email
+from src.telemetry.log import get_logger
 
 router = APIRouter(tags=["check-ins"])
 
@@ -19,7 +23,8 @@ class CheckInOut(BaseModel):
     id: UUID
     client_id: UUID
     hc_user_id: UUID
-    payload: dict
+    payload: dict | None
+    requested_at: datetime | None
     sentiment_flag: str | None
     created_at: datetime
 
@@ -90,3 +95,45 @@ async def flag_check_in(
     await db.flush()
     await db.commit()
     return CheckInOut.model_validate(ci)
+
+
+@router.post("/api/clients/{client_id}/check-ins/request", status_code=status.HTTP_201_CREATED)
+async def request_check_in(
+    client_id: UUID,
+    request: Request,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> CheckInOut:
+    client = (await db.execute(
+        select(Client).where(Client.id == client_id, Client.hc_user_id == UUID(hc_id))
+    )).scalar_one_or_none()
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    row, created = await get_or_create_pending_check_in(db, client_id, UUID(hc_id))
+    if not created:
+        raise HTTPException(status_code=409, detail="A check-in request is already pending for this client")
+
+    await db.commit()
+
+    # Notify the client immediately, reusing the same reminder email the Saturday
+    # cron sends (src/api/scheduler.py::_run_check_in_reminders). The DB write above
+    # is already durable, so a client with no email on file, or a transient email
+    # send failure, must not turn a successful request into an error response —
+    # the pending check-in row exists regardless and the HC's request did succeed.
+    # Clients without an email on record are skipped silently here, mirroring the
+    # scheduler's own `Client.email.is_not(None)` eligibility filter for the same
+    # reminder email elsewhere in this codebase.
+    if client.email:
+        logger = get_logger(request_id=getattr(request.state, "request_id", ""), hc_id=hc_id)
+        try:
+            send_check_in_reminder_email(
+                to=client.email,
+                client_name=client.full_name,
+                portal_url=f"{get_settings().frontend_url}/me/checkins",
+            )
+        except Exception:
+            logger.error("check_in_request_email_failed", client_id=str(client_id))
+
+    return CheckInOut.model_validate(row)

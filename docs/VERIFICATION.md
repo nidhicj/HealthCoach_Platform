@@ -62,7 +62,7 @@ pytest tests/unit/ -q
 
 **AC5 — 5 SQL queries**
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev
 # Paste each query from docs/decisions/0006-observability.md §8
 # Expected: executes without error (empty results acceptable pre-pilot)
 ```
@@ -218,7 +218,7 @@ npm run dev
 
 Navigate to `http://localhost:3000/sign-in`
 
-- [ ] "Parivarthan" heading present — Fraunces font, bold, large
+- [ ] "Tapas" heading present — Fraunces font, bold, large
 - [ ] Tagline or subtitle text visible below heading
 - [ ] "Continue with Google" button — Marigold (#E8C547) background, not white
 - [ ] Page background is Parchment (off-white), not pure white
@@ -643,7 +643,7 @@ With at least one Open item in the kanban (create via `POST /api/action-items` i
 Confirm DB reflects the change:
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT id, status, completed_at FROM action_items WHERE id = '<item_id>';
 "
 # Expected: status = 'completed', completed_at not null for Done items
@@ -844,7 +844,7 @@ Expected:
 ### 6. Verify `llm_calls` row
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT use_case, prompt_version, model_requested, model_served,
        input_tokens, output_tokens, latency_ms, validation_failed
 FROM llm_calls
@@ -930,7 +930,7 @@ curl -s -X POST http://localhost:8000/api/clients/$CLIENT_ID/diet-chart/generate
 Verify archive in DB:
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT id, archived_at,
        (parameters->>'is_template')::boolean AS is_template
 FROM diet_charts
@@ -953,7 +953,7 @@ ORDER BY created_at;
 Covered by unit tests (the test suite exercises the fallback branch directly). At runtime, a fallback occurs when the LLM returns unparseable JSON. To check whether any fallback has fired in your dev DB:
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT id, use_case, validation_failed, model_served
 FROM llm_calls WHERE use_case = 'diet_chart_generation'
 ORDER BY created_at;
@@ -1153,7 +1153,7 @@ python -m pytest tests/ -q
 ### 2. Migration column check
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT column_name, data_type, is_nullable
 FROM information_schema.columns
 WHERE table_name = 'client_files'
@@ -1166,7 +1166,7 @@ ORDER BY ordinal_position;
 - [X] `client_files` table has all 10 columns
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT indexname FROM pg_indexes WHERE tablename = 'client_files';
 "
 # Expected: idx_client_files_session, idx_client_files_hc, idx_client_files_client
@@ -1288,7 +1288,7 @@ but not persisted. Prompt injection is covered by the automated integration test
 - [X] LLM call row exists in DB:
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT id, model, input_tokens, output_tokens FROM llm_calls WHERE id = '<llm_call_id from response>';
 "
 # Expected: 1 row with model, token counts populated
@@ -1320,7 +1320,7 @@ curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID/mom \
   | python3 -m json.tool
 
 # Check: no snippet created
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT COUNT(*) FROM hc_style_snippets WHERE hc_user_id = '$HC_ID';
 "
 # Expected: 0 (Zoom file suppresses snippet capture)
@@ -1567,7 +1567,7 @@ curl -s http://localhost:8000/api/sessions/$SESSION0_ID/brief \
 Verify no llm_calls row was written:
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT COUNT(*) FROM llm_calls WHERE session_id = '$SESSION0_ID';
 "
 # Expected: 0
@@ -1591,7 +1591,7 @@ curl -s http://localhost:8000/api/sessions/$SESSION_ID/brief \
 Verify prompt_version:
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT prompt_version, use_case FROM llm_calls
 WHERE session_id = '$SESSION_ID' AND use_case = 'brief_generation';
 "
@@ -1605,7 +1605,7 @@ WHERE session_id = '$SESSION_ID' AND use_case = 'brief_generation';
 ### 10. Migration column check
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT column_name, data_type, is_nullable
 FROM information_schema.columns
 WHERE table_name = 'sessions' AND column_name = 'session_notes';
@@ -1763,7 +1763,7 @@ export MOM_LLM_CALL_ID=<llm_call_id from response>
 ### 6. Verify `llm_calls` row
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT use_case, model_requested, model_served, fallback_count,
        input_tokens, output_tokens, latency_ms, validation_failed,
        prompt_version, snippet_count
@@ -1788,7 +1788,7 @@ Expected:
 ### 7. Verify `prompt_text` is encrypted (not plain text)
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT length(prompt_text), left(encode(prompt_text, 'hex'), 8) AS hex_prefix
 FROM llm_calls WHERE id = '$MOM_LLM_CALL_ID';
 "
@@ -1804,7 +1804,7 @@ FROM llm_calls WHERE id = '$MOM_LLM_CALL_ID';
 # Load the encryption key from .env (source it or substitute inline)
 source ../.env   # sets $LLM_CALL_ENCRYPTION_KEY in current shell
 
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT
   pgp_sym_decrypt(prompt_text, '$LLM_CALL_ENCRYPTION_KEY') AS decrypted_prompt,
   pgp_sym_decrypt(completion_text, '$LLM_CALL_ENCRYPTION_KEY') AS decrypted_completion
@@ -1820,7 +1820,7 @@ Expected:
 Then verify that error-path rows (where no LLM response arrived) store NULL — not encrypted empty string:
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT id, model_served,
   (prompt_text IS NULL) AS prompt_null,
   (completion_text IS NULL) AS completion_null
@@ -1861,7 +1861,7 @@ curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION_ID/mom \
 Then verify snippet was captured:
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT snippet_type, left(hc_modified_text, 60) AS preview, client_id
 FROM hc_style_snippets WHERE hc_user_id = '$HC_ID'
 ORDER BY created_at DESC LIMIT 5;
@@ -1887,7 +1887,7 @@ curl -s http://localhost:8000/api/sessions/$SESSION_ID/brief \
 Then check only one `llm_calls` row for brief:
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT COUNT(*) FROM llm_calls
 WHERE use_case = 'brief_generation' AND session_id = '$SESSION_ID';
 "
@@ -1918,7 +1918,7 @@ curl -s -X POST http://localhost:8000/api/sessions/$SESSION2_ID/mom/draft \
 Then check `snippet_count > 0` in `llm_calls`:
 
 ```bash
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT snippet_count, snippet_tokens FROM llm_calls
 WHERE use_case = 'mom_generation'
 ORDER BY created_at DESC LIMIT 1;
@@ -1941,14 +1941,14 @@ curl -s -X POST http://localhost:8000/api/sessions/$SESSION3_ID/mom \
   -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
   -d '{"draft_text": "I typed this myself."}' | python3 -m json.tool
 
-count_before=$(psql -t postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev \
+count_before=$(psql -t postgresql://postgres:localdevpassword@localhost:5432/tapas_dev \
   -c "SELECT COUNT(*) FROM hc_style_snippets WHERE hc_user_id = '$HC_ID';")
 
 curl -s -X PATCH http://localhost:8000/api/sessions/$SESSION3_ID/mom \
   -H "Authorization: Bearer $HC_JWT" -H "Content-Type: application/json" \
   -d '{"final_text": "I edited this significantly — many new words added here for the review."}' | python3 -m json.tool
 
-count_after=$(psql -t postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev \
+count_after=$(psql -t postgresql://postgres:localdevpassword@localhost:5432/tapas_dev \
   -c "SELECT COUNT(*) FROM hc_style_snippets WHERE hc_user_id = '$HC_ID';")
 
 echo "Before: $count_before | After: $count_after  (should be equal)"
@@ -1983,7 +1983,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 # Restart uvicorn (Ctrl-C and rerun)
 # Make one more POST /mom/draft call
 # Then:
-psql postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev -c "
+psql postgresql://postgres:localdevpassword@localhost:5432/tapas_dev -c "
 SELECT prompt_version FROM llm_calls WHERE use_case = 'mom_generation'
 ORDER BY created_at DESC LIMIT 1;
 "
@@ -2342,7 +2342,7 @@ Expected output includes: `/api/auth/google/start`, `/api/auth/google/callback`,
 Start the server:
 
 ```bash
-DATABASE_URL=postgresql://postgres:localdevpassword@localhost:5432/parivarthan_dev \
+DATABASE_URL=postgresql://postgres:localdevpassword@localhost:5432/tapas_dev \
   uv run uvicorn src.main:app --reload --port 8000
 ```
 
@@ -2385,7 +2385,7 @@ print(token)
 EOF
 ```
 
-Paste into https://jwt.io and confirm payload contains: `sub`, `role`, `hc_id`, `iss: https://api.parivarthan.com`, `aud: parivarthan-api`, `exp`
+Paste into https://jwt.io and confirm payload contains: `sub`, `role`, `hc_id`, `iss: https://api.tapas.com`, `aud: tapas-api`, `exp`
 
 ### 5. Refresh token rotation (DB check)
 
@@ -2399,7 +2399,7 @@ from src.db.models import User
 from src.db.base import Base
 import uuid
 
-DB = "postgresql+asyncpg://postgres:localdevpassword@localhost:5432/parivarthan_dev"
+DB = "postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas_dev"
 
 async def main():
     engine = create_async_engine(DB)

@@ -201,6 +201,9 @@ async def test_refresh_preserves_client_role(http_client, hc_headers, hc_user):
     refresh_r = await http_client.post("/api/auth/refresh")
     assert refresh_r.status_code == 200
 
-    claims = decode_access_token(refresh_r.json()["access_token"], public_key=get_settings().jwt_public_key)
+    body = refresh_r.json()
+    assert body["role"] == "client"
+
+    claims = decode_access_token(body["access_token"], public_key=get_settings().jwt_public_key)
     assert claims.role == "client"
     assert claims.hc_id == str(hc_user.id)
