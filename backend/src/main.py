@@ -17,6 +17,7 @@ from src.api.clients import router as clients_router
 from src.api.files import router as files_router
 from src.api.me import router as me_router
 from src.api.sessions import router as sessions_router
+from src.api.settings import router as settings_router
 from src.auth.router import router as auth_router
 from src.config import get_settings
 from src.telemetry.log import get_logger
@@ -87,6 +88,7 @@ app.include_router(me_router)
 app.include_router(diet_charts_router)
 app.include_router(supplements_router)
 app.include_router(scheduler_router)
+app.include_router(settings_router)
 app.include_router(calendar_router)
 
 

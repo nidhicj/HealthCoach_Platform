@@ -83,7 +83,7 @@ gcloud run services describe hc-platform-backend --region=asia-south1 --project=
   --format="value(status.latestReadyRevisionName)"
 ```
 
-Note: `.github/workflows/deploy.yml` deploys a differently-named, seemingly-orphaned service (`parivarthan-api`, not `hc-platform-backend`) — pushing to `main` does **not** reliably force the correct service's redeploy. Target `hc-platform-backend` directly via `gcloud run services update` as above. (This CI/service-naming inconsistency is itself unresolved — flagged for a separate follow-up.)
+Note: `.github/workflows/deploy.yml` deploys a differently-named service (`parivarthan-api`) that was never actually real — `gcloud run services list` confirms only `hc-platform`/`hc-platform-backend` exist — so pushing to `main` does **not** reliably force the correct service's redeploy. Target `hc-platform-backend` directly via `gcloud run services update` as above. (This CI/service-naming inconsistency is tracked in `docs/decisions/0008-platform-rename-parivarthan-to-tapas.md` Task 3 — held pending SoJo's confirmation of current deploy mechanics before `deploy.yml` itself is edited, since that file's change could trigger a live redeploy.)
 
 ---
 

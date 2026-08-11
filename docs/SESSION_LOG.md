@@ -4,28 +4,61 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
-## 2026-07-12/07-14 — Unit_004 One Stop Spot: PHASE-01e/01f (Calendar) + PHASE-02a (client portal foundation) shipped
+## 2026-08-04 — Unit_006 PHASE-01: Settings nav corrected to a hub + sidebar
 
-**Branch**: `feature/unit-004-one-stop-spot` (same branch as the 2026-07-06/07-10 entry below; continued, not a fresh branch)
+**Done**:
+- SoJo reviewed the PHASE-01 nav shipped the day before and flagged it as wrong: "Profile" had been added as a standalone top-level nav item next to "Settings," but business-name setup is a one-time thing an HC won't revisit often, and the top nav shouldn't grow one item per settings section (more are coming — Onboarding, and later PHASE-02/03's sections).
+- Restructured to a single "Settings" top-nav entry opening a hub: new `frontend/src/app/(app)/settings/layout.tsx` renders a left sidebar (Profile, Onboarding placeholder, Sign out) with the selected section on the right.
+- While discussing the sidebar's "Sign out" placement, traced `/settings/sessions` end-to-end at SoJo's prompting and confirmed it was non-functional as shipped: its "Sign out everywhere" button only revokes the current session (not "everywhere"), and its device-list/revoke UI calls backend endpoints (`GET /api/auth/sessions`, `DELETE /api/auth/sessions/{id}`) that were never implemented. Unlinked it from all nav (file kept for a possible real implementation later); the new sidebar's "Sign out" reuses the same working logout call, correctly labeled.
+- Verified live in a browser (not just `tsc`): minted a real access token + refresh-token DB row for the actual dev HC user, drove the running dev server via Playwright — confirmed nav/sidebar active-states, Onboarding placeholder, and a real working sign-out (session revoked, redirected to `/sign-in`).
+- Updated `PHASE-01-hc-settings-profile.md` (§2/§3/§7/§8), `SPEC-0001-platform-foundations.md` (Flow §1, Changelog), and `VERIFICATION.md` to record the correction.
 
-**Backfill note**: this entry was written 2026-07-21, retroactively, to close a gap — these three phases were fully committed and merged but never logged. Reconstructed from `git log` and each phase's own plan/self-review doc, not from memory.
+**Decided** (link ADRs):
+- No ADR changes. New convention recorded in PHASE-01 doc §8: future settings-adjacent phases (PHASE-02 deletion, PHASE-03 consent) get their own sidebar entry in `settings/layout.tsx`'s `SETTINGS_SECTIONS`, not a top-level nav item and not crammed into the Profile page.
 
-**Shipped and merged:**
-- **PHASE-01e** — Google Calendar/Meet integration (F6 extension, D-30). New `google_calendar_connections` table (Fernet-encrypted OAuth tokens, separate key from `demographics`), new `sessions.google_calendar_event_id` column. Incremental OAuth consent (`calendar.events` scope added on top of existing login scope, HC login flow itself untouched). Full month/week calendar view (`CalendarView`, `MonthGrid`, `WeekGrid`), pick-existing-event-or-create-new, linking derives `meeting_url` once at link time (PHASE-01d's field untouched otherwise). No calendar event content persisted beyond the linked event's `id` + `hangoutLink` — fetch-on-demand only. ~15 commits, `e01a072`…`dcd8853`, 2026-07-12.
-- **PHASE-01f** — Calendar polish (round 2), fixing 5 gaps SoJo found in manual testing against a live Google account (screenshots/recordings, 2026-07-13): no feedback while linking an event, blank Create-Event title, no durable display of which meeting is linked, calendar locked to "today" with no month/week navigation, low-contrast secondary-action typography. All 5 fixed; added one new persisted field (`google_calendar_event_title`) as a deliberate, SoJo-approved small relaxation of PHASE-01e's "id + hangoutLink only" rule. A 6th reported symptom (Google Meet room stuck in a join loop) was diagnosed as environment/Google-side — reproduces identically hitting the same `meet.google.com` URL directly, not a code issue — explicitly out of scope. Commits `4617d64`…`0eba9e0`, 2026-07-13.
-- **PHASE-02a** — Client portal foundation. Fixed the concrete bug D-31 named: `frontend/src/app/auth/callback/page.tsx` hardcoded `router.replace("/dashboard")` regardless of role. `/api/auth/refresh` now returns `role`; callback branches `hc → /dashboard`, `client → /me`. Stood up the first-ever client-facing route tree (`/me/*`, own layout, `ClientClaimsDep`-gated) with a real (non-stub) home page showing the client's own open action items via the already-shipped `GET /api/me/action-items`. Commits `26cfbb7`…`5d78b3b`, 2026-07-13/07-14 — includes a same-day fix (`5d78b3b`) guarding double-click and failure handling on the action-item toggle.
+**Bugs fixed mid-session**:
+- None — this was a design/IA correction, not a bug fix. (The `/settings/sessions` non-functionality was discovered, not caused, this session — it predates PHASE-01.)
 
-**Decided** (link to SPEC-0001):
-- D-30: full Google Calendar month/week view (not a narrower date-scoped picker), least-privilege incremental OAuth scope, no calendar content persisted beyond id/link.
-- D-31: OQ-7 resolved — client routes live at `/me/*` (real top-level dir, not a route group), rejecting `/portal/*`/`/client/*` for collision risk against existing `/clients/*`.
+**Pending / next session**:
+- Same as 2026-08-03's entry: PHASE-02 (account/data deletion) is next per SPEC-0001's fixed build order, needs its own brainstorming pass first. When it's designed, confirm sidebar placement with SoJo as part of that plan, not after building it (see PHASE-01 §7 lesson learned).
+- `/settings/sessions` remains an orphaned, unlinked file — no decision yet on whether to build real session management later or delete the stub.
 
-**Known limitation carried forward (not a bug)**: the Google OAuth app is still in "Testing" publishing status (no `tapas.health` domain/privacy policy yet for verification) — Google issues 7-day refresh tokens to test users, so connected HCs must reconnect Calendar weekly until verification completes. Documented in SPEC-0001 D-30, not yet resolved.
+**Context the next session needs**:
+- The Settings hub pattern (`frontend/src/app/(app)/settings/layout.tsx`) is the template for adding any future one-time-setup settings section — add to `SETTINGS_SECTIONS`, don't touch the top-level `NAV_LINKS` in `(app)/layout.tsx`.
 
-**Open / carried forward:**
-- PHASE-02b/02c/02d plans are written (committed as docs-only) but **not yet implemented** — no corresponding code, migrations, or endpoints exist for check-in request/answer lifecycle, free messaging, or the client-facing diet-chart view.
-- PHASE-02b's Design Decision 4 (the ten fixed check-in metrics) is real product copy still awaiting SoJo's explicit confirmation, not finalized unilaterally in the plan.
-- Roster Board "what's new" passive indicator (D-24) — deliberately deferred in every phase's self-review so far (02a, 02b's plan, 02c's plan) to whichever of check-ins/messaging/meals ships last; still nothing built.
-- `main` remains ahead of `origin/main` and unpushed (as of the prior entry); this branch itself is ahead of `origin/feature/unit-004-one-stop-spot` by 1 commit, not pushed.
+**Open questions for SoJo**:
+- None blocking.
+
+---
+
+## 2026-08-03 — Unit_006 PHASE-01: HC Settings & Profile
+
+**Done**:
+- Reformatted `docs/specs/Unit_006_PlatformFoundations/PHASE-01-hc-settings-profile.md` to the required 8-section `template-phase-plan.md` structure (it had been written as a raw implementation plan with no header block or numbered sections). All original Goal/Architecture/Task content preserved, nested under a new `## Implementation plan` section per CLAUDE.md §6's superpowers-output-path override.
+- Implemented PHASE-01 via `superpowers:subagent-driven-development`: Task 1 (`users.business_name` nullable column + Alembic migration), Task 2 (`GET`/`PATCH /api/settings/profile`, `claims.sub`-scoped, not `TenantDep`), Task 3 (`/settings/profile` frontend page + nav entry).
+- All 8 SPEC-0001 acceptance criteria verified and checked off. Migration confirmed applied to `tapas_dev` directly via `psql` (not just trusted from a migration-tool log).
+- Full backend suite: 273 total, 235 passing, 38 pre-existing unrelated failures (missing `pgcrypto` extension on this worktree's `tapas_test`, affects only LLM/MOM-tracking tests — confirmed unrelated by diff/stash comparison, independent grep for `pgcrypto` usage, and re-confirmed by the final review).
+
+**Decided** (link ADRs):
+- No new ADRs. Confirmed ADR-0005's `/api/me/*` namespace belongs to the client actor; this phase's `/api/settings/*` is a deliberately separate namespace for the HC's own profile.
+- `claims.sub` (not `TenantDep`/`current_tenant()`) is the correct lookup for any endpoint reading/writing the authenticated user's *own* row rather than a tenant-scoped domain resource — new convention recorded in the PHASE-01 doc's §8 Carry-over for PHASE-02 (deletion) and PHASE-03 (consent) to follow.
+
+**Bugs fixed mid-session**:
+- Pydantic v2 required-field gap: `SettingsProfilePatch.business_name: str | None = Field(max_length=200)` had no `default=None`, so an empty-body PATCH incorrectly 422'd. Fixed with `default=None`.
+- Fixing the above exposed a more serious bug: the handler's unconditional `user.business_name = body.business_name` assignment silently wiped an already-set value to `null` on any partial PATCH omitting the field. Fixed by guarding on `"business_name" in body.model_fields_set`.
+- Final whole-branch review caught a missing `if user is None: 401` guard on both handlers — the plan's justification for omitting it ("`require_role` already validated the row exists") was factually wrong; `require_role` only decodes the JWT and never touches the DB. Fixed to match the existing precedent in `backend/src/auth/router.py`.
+
+**Pending / next session**:
+- One Minor finding parked, not fixed: the frontend's "Saved" success indicator isn't cleared when the user edits the field again after a save — cosmetic only, no data-integrity/auth impact.
+- PHASE-02 (account/data deletion) is next per SPEC-0001's fixed build order (D-2) — needs its own brainstorming pass before a PHASE plan is written. `users.deleted_at` already exists as a soft-delete column and needs tracing (dead schema, or used for something narrower than account deletion?) before that phase is designed (SPEC-0001 Open questions).
+- The migration test-coverage gap identified during final review (this worktree's `tapas_test` schema is built via SQLAlchemy `create_all`, not `alembic upgrade` — so migrations are never actually exercised by the test suite, and the plan's claim that they are is wrong) is a unit-level follow-up, out of scope for PHASE-01 itself.
+
+**Context the next session needs**:
+- SDD workspace/ledger for this phase: `.superpowers/sdd/PHASE-01-hc-settings-profile/progress.md` — full record of all fix rounds and review verdicts.
+- This worktree's Postgres runs on port 5435 (not 5432) — `TEST_DATABASE_URL`/`DATABASE_URL` in `.env` are already correct, but they must be `source`d (with `set -a`) into a fresh shell before running `pytest` directly, since `conftest.py`'s `db_url` fixture reads `os.environ` directly, not via pydantic-settings' dotenv loading.
+
+**Open questions for SoJo**:
+- None blocking. PHASE-02 needs a brainstorming session before implementation, per SPEC-0001's own stated process.
 
 ---
 
@@ -67,6 +100,31 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 **Open questions for SoJo**:
 - None blocking. Cloudflare Workers' 100k req/day free-tier ceiling is a future trigger to revisit (ADR-0009 "Things to revisit"), not a current concern at pilot scale.
+
+---
+
+## 2026-07-12/07-14 — Unit_004 One Stop Spot: PHASE-01e/01f (Calendar) + PHASE-02a (client portal foundation) shipped
+
+**Branch**: `feature/unit-004-one-stop-spot` (same branch as the 2026-07-06/07-10 entry below; continued, not a fresh branch)
+
+**Backfill note**: this entry was written 2026-07-21, retroactively, to close a gap — these three phases were fully committed and merged but never logged. Reconstructed from `git log` and each phase's own plan/self-review doc, not from memory.
+
+**Shipped and merged:**
+- **PHASE-01e** — Google Calendar/Meet integration (F6 extension, D-30). New `google_calendar_connections` table (Fernet-encrypted OAuth tokens, separate key from `demographics`), new `sessions.google_calendar_event_id` column. Incremental OAuth consent (`calendar.events` scope added on top of existing login scope, HC login flow itself untouched). Full month/week calendar view (`CalendarView`, `MonthGrid`, `WeekGrid`), pick-existing-event-or-create-new, linking derives `meeting_url` once at link time (PHASE-01d's field untouched otherwise). No calendar event content persisted beyond the linked event's `id` + `hangoutLink` — fetch-on-demand only. ~15 commits, `e01a072`…`dcd8853`, 2026-07-12.
+- **PHASE-01f** — Calendar polish (round 2), fixing 5 gaps SoJo found in manual testing against a live Google account (screenshots/recordings, 2026-07-13): no feedback while linking an event, blank Create-Event title, no durable display of which meeting is linked, calendar locked to "today" with no month/week navigation, low-contrast secondary-action typography. All 5 fixed; added one new persisted field (`google_calendar_event_title`) as a deliberate, SoJo-approved small relaxation of PHASE-01e's "id + hangoutLink only" rule. A 6th reported symptom (Google Meet room stuck in a join loop) was diagnosed as environment/Google-side — reproduces identically hitting the same `meet.google.com` URL directly, not a code issue — explicitly out of scope. Commits `4617d64`…`0eba9e0`, 2026-07-13.
+- **PHASE-02a** — Client portal foundation. Fixed the concrete bug D-31 named: `frontend/src/app/auth/callback/page.tsx` hardcoded `router.replace("/dashboard")` regardless of role. `/api/auth/refresh` now returns `role`; callback branches `hc → /dashboard`, `client → /me`. Stood up the first-ever client-facing route tree (`/me/*`, own layout, `ClientClaimsDep`-gated) with a real (non-stub) home page showing the client's own open action items via the already-shipped `GET /api/me/action-items`. Commits `26cfbb7`…`5d78b3b`, 2026-07-13/07-14 — includes a same-day fix (`5d78b3b`) guarding double-click and failure handling on the action-item toggle.
+
+**Decided** (link to SPEC-0001):
+- D-30: full Google Calendar month/week view (not a narrower date-scoped picker), least-privilege incremental OAuth scope, no calendar content persisted beyond id/link.
+- D-31: OQ-7 resolved — client routes live at `/me/*` (real top-level dir, not a route group), rejecting `/portal/*`/`/client/*` for collision risk against existing `/clients/*`.
+
+**Known limitation carried forward (not a bug)**: the Google OAuth app is still in "Testing" publishing status (no `tapas.health` domain/privacy policy yet for verification) — Google issues 7-day refresh tokens to test users, so connected HCs must reconnect Calendar weekly until verification completes. Documented in SPEC-0001 D-30, not yet resolved.
+
+**Open / carried forward:**
+- PHASE-02b/02c/02d plans are written (committed as docs-only) but **not yet implemented** — no corresponding code, migrations, or endpoints exist for check-in request/answer lifecycle, free messaging, or the client-facing diet-chart view.
+- PHASE-02b's Design Decision 4 (the ten fixed check-in metrics) is real product copy still awaiting SoJo's explicit confirmation, not finalized unilaterally in the plan.
+- Roster Board "what's new" passive indicator (D-24) — deliberately deferred in every phase's self-review so far (02a, 02b's plan, 02c's plan) to whichever of check-ins/messaging/meals ships last; still nothing built.
+- `main` remains ahead of `origin/main` and unpushed (as of the prior entry); this branch itself is ahead of `origin/feature/unit-004-one-stop-spot` by 1 commit, not pushed.
 
 ---
 

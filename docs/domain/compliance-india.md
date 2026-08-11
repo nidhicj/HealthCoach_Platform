@@ -1,7 +1,5 @@
 # India Compliance — DPDP & Operational Posture
 
-> **MERGE-REQUIRED**: existing `compliance-india.md` in repo from prior sessions. This draft incorporates the 13-Nov-2025 DPDP Rules finalization and the pragmatic-prototype-scope stance per ADR-0001. Reconcile when committing.
-
 > **NOT LEGAL ADVICE.** This is the operator's working summary. Any production-facing compliance posture (privacy policy text, consent UX, breach notification procedures) requires lawyer review before launch.
 
 ---
@@ -30,7 +28,7 @@ This is the explicit pragmatic-vs-literal stance from ADR-0001. We do NOT block 
 | Hook | Implementation | Why it can't be deferred |
 |---|---|---|
 | Consent table | `consents` table per `diagrams/0002-data-model.md`. Tracks per-client, per-purpose consent with timestamps and source. | Adding consent retroactively to an in-flight system requires re-establishing consent for every existing record. Painful and arguably non-compliant. |
-| India-region data residency | AWS RDS Mumbai (ap-south-1) and S3 Mumbai. | Migrating regions is multi-day work + brief downtime. |
+| India-region data residency | Supabase Postgres (`ap-south-1` Mumbai) and Cloudflare R2 (object storage). | Migrating regions is multi-day work + brief downtime. |
 | Real deletion capability | `ON DELETE CASCADE` on every client-scoped FK. Single-transaction purge. Test suite asserting no orphan rows. | "Soft delete" is incompatible with DPDP erasure rights. Retrofitting hard delete to a soft-delete system is risky and error-prone. |
 | `client_id` traceability on snippets | `hc_style_snippets.client_id` FK with cascade. Snippets containing client context are purged on revocation. | Per ADR-0003 §7. Easy to forget when adding new tables; hard to retrofit. |
 | Purpose-of-processing log | Each `consents` row has a `purpose` field (enum: `coaching`, `analytics`, `model_training` (always false at MVP), etc.). | Future audit requires evidence of consent scope. |
@@ -90,7 +88,7 @@ The pilot HC's clients consent at M000 (first session) to:
 
 ### Consent capture mechanism (MVP)
 
-PDF, signed digitally or wet-signed, scanned to S3 Mumbai. `consents` table records the existence and scope of the signed agreement. Not scalable beyond pilot; flagged for replacement before second HC.
+PDF, signed digitally or wet-signed, scanned to Cloudflare R2. `consents` table records the existence and scope of the signed agreement. Not scalable beyond pilot; flagged for replacement before second HC.
 
 ---
 
@@ -98,15 +96,15 @@ PDF, signed digitally or wet-signed, scanned to S3 Mumbai. `consents` table reco
 
 | Data type | Source | Storage | Retention |
 |---|---|---|---|
-| HC account info (email, name) | Google OAuth | RDS Mumbai (`users` table) | Indefinite during account; deleted on HC offboarding |
-| HC profile (specialty, photo, etc.) | HC self-input | RDS Mumbai (`users` + `hc_profiles`) | Same as above |
-| Client info (name, contact, demographics) | HC entry at M000 | RDS Mumbai (`clients` table) | Until consent revoked or HC-initiated deletion |
-| Session transcripts (Zoom-imported) | Zoom webhook (post-session) | S3 Mumbai + reference in `sessions` table | 90 days, then archived; auto-purge configurable per HC |
-| MOM, briefs, action items | LLM-generated, HC-edited | RDS Mumbai (`moms`, `briefs`, `action_items`) | Indefinite during course; purged on revocation |
-| Snippet library | Captured from HC edits | RDS Mumbai (`hc_style_snippets`) | Until revocation; purged on client deletion |
-| LLM call telemetry | Backend instrumentation | RDS Mumbai (`llm_calls`) | Indefinite (no client PII; only IDs) |
-| Consent records | Operational (PDF) | S3 Mumbai + `consents` table | Indefinite (legal record) |
-| Audit log (operator actions) | Backend instrumentation | RDS Mumbai (`audit_log`) | Indefinite (legal record) |
+| HC account info (email, name) | Google OAuth | Supabase Postgres (`users` table) | Indefinite during account; deleted on HC offboarding |
+| HC profile (specialty, photo, etc.) | HC self-input | Supabase Postgres (`users` + `hc_profiles`) | Same as above |
+| Client info (name, contact, demographics) | HC entry at M000 | Supabase Postgres (`clients` table) | Until consent revoked or HC-initiated deletion |
+| Session transcripts (Zoom-imported) | Zoom webhook (post-session) | Cloudflare R2 + reference in `sessions` table | 90 days, then archived; auto-purge configurable per HC |
+| MOM, briefs, action items | LLM-generated, HC-edited | Supabase Postgres (`moms`, `briefs`, `action_items`) | Indefinite during course; purged on revocation |
+| Snippet library | Captured from HC edits | Supabase Postgres (`hc_style_snippets`) | Until revocation; purged on client deletion |
+| LLM call telemetry | Backend instrumentation | Supabase Postgres (`llm_calls`) | Indefinite (no client PII; only IDs) |
+| Consent records | Operational (PDF) | Cloudflare R2 + `consents` table | Indefinite (legal record) |
+| Audit log (operator actions) | Backend instrumentation | Supabase Postgres (`audit_log`) | Indefinite (legal record) |
 | Logs / errors | Sentry + structured logs | Sentry (verify region setting) + Cloudflare Logs | 30 days |
 
 ---
@@ -134,4 +132,5 @@ PDF, signed digitally or wet-signed, scanned to S3 Mumbai. `consents` table reco
 
 | Date | Change |
 |---|---|
-| 2026-04-28 | Fresh draft incorporating 13-Nov-2025 Rules finalization, negative-list cross-border regime, and prototype-scope pragmatic stance. MERGE-REQUIRED with existing repo file. |
+| 2026-04-28 | Fresh draft incorporating 13-Nov-2025 Rules finalization, negative-list cross-border regime, and prototype-scope pragmatic stance. |
+| 2026-07-30 | Corrected stale infrastructure references throughout: "AWS RDS Mumbai" → "Supabase Postgres (`ap-south-1` Mumbai)" (DB migrated 2026-06-19 per `decisions/0001-stack-selection.md` changelog, never reflected here) and "S3 Mumbai" → "Cloudflare R2" (actual storage backend confirmed in `backend/src/lib/s3.py`, an R2 client — this file had never been updated to match). Removed a dead "MERGE-REQUIRED" banner (git history shows one commit ever for this file; nothing to reconcile). **Flagging, not resolving**: Cloudflare R2's specific data-residency/jurisdiction configuration for the bucket in use has not been independently verified in this pass — worth confirming before treating "India-region data residency" as settled for R2-backed data specifically. |

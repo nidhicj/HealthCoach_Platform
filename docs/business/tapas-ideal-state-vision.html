@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tapas — Ideal-State Product Vision &amp; Gap Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E8EAE3;
+  --card:#F5F6F1;
+  --ink:#1B2321;
+  --ink-soft:#4A554F;
+  --ink-faint:#7C857F;
+  --indigo:#2E4470;
+  --madder:#B23A2E;
+  --brass:#A8802B;
+  --jade:#2E6B5B;
+  --rule:rgba(27,35,33,.14);
+  --rule-hard:rgba(27,35,33,.30);
+  --display:"Bricolage Grotesque",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --body:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--body);font-size:17px;line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--indigo)}
+code{font-family:var(--mono);font-size:.86em;background:rgba(46,68,112,.09);
+  padding:.1em .38em;border-radius:3px;color:var(--indigo);word-break:break-word}
+strong{font-weight:600}
+
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:246px minmax(0,1fr);gap:0;
+  max-width:1240px;margin:0 auto;padding:0 28px}
+
+/* ---------- rail ---------- */
+.rail{position:sticky;top:0;align-self:start;height:100vh;padding:36px 30px 36px 0;
+  border-right:1px solid var(--rule);display:flex;flex-direction:column}
+.rail-mark{font-family:var(--display);font-weight:800;font-size:19px;letter-spacing:-.02em;
+  line-height:1;margin-bottom:3px}
+.rail-mark span{color:var(--madder)}
+.rail-kind{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-faint);margin-bottom:26px}
+.rail nav{display:flex;flex-direction:column;gap:1px;overflow-y:auto;flex:1;margin:0 -8px;padding:0 8px}
+.rail nav a{display:flex;gap:9px;align-items:baseline;text-decoration:none;color:var(--ink-soft);
+  font-family:var(--display);font-size:13.5px;font-weight:400;padding:6px 9px;border-radius:5px;
+  border-left:2px solid transparent;transition:background .18s,color .18s}
+.rail nav a i{font-family:var(--mono);font-style:normal;font-size:10.5px;color:var(--ink-faint);
+  min-width:12px;padding-top:1px}
+.rail nav a:hover{background:rgba(46,68,112,.07);color:var(--ink)}
+.rail nav a.on{background:rgba(46,68,112,.11);color:var(--indigo);font-weight:600;
+  border-left-color:var(--indigo)}
+.rail nav a.on i{color:var(--indigo)}
+.rail-foot{padding-top:18px;margin-top:14px;border-top:1px solid var(--rule)}
+.rail-foot a{display:block;font-family:var(--display);font-size:12.5px;text-decoration:none;
+  color:var(--ink-soft);line-height:1.35}
+.rail-foot a:hover{color:var(--indigo)}
+.rail-foot em{display:block;font-family:var(--mono);font-style:normal;font-size:9px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:5px}
+
+/* ---------- main ---------- */
+main{padding:36px 0 110px 46px;min-width:0}
+
+/* ---------- masthead ---------- */
+.masthead{padding-bottom:26px;margin-bottom:34px;border-bottom:2px solid var(--ink)}
+.eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--madder);margin-bottom:16px}
+h1{font-family:var(--display);font-weight:800;letter-spacing:-.035em;line-height:.98;
+  font-size:clamp(38px,5.4vw,62px);margin:0 0 20px}
+h1 em{font-style:normal;color:var(--indigo)}
+.standfirst{font-size:19px;line-height:1.5;color:var(--ink-soft);max-width:60ch;margin:0}
+.meta{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:22px;font-family:var(--mono);
+  font-size:10.5px;letter-spacing:.06em;color:var(--ink-faint);text-transform:uppercase}
+
+/* ---------- the read ---------- */
+.read{background:var(--ink);color:var(--card);border-radius:3px;padding:26px 30px;margin-bottom:46px}
+.read h2{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  color:#C9CFBE;margin:0 0 14px;font-weight:500}
+.read p{margin:0 0 14px;font-size:20px;line-height:1.45;max-width:64ch}
+.read p:last-child{margin-bottom:0}
+.read b{color:#E8B44F;font-weight:600}
+.read .zero{color:#E88B7A;font-weight:600}
+
+/* ---------- sections ---------- */
+section{margin-bottom:58px;scroll-margin-top:24px}
+.shead{display:flex;align-items:baseline;gap:14px;padding-bottom:11px;margin-bottom:24px;
+  border-bottom:1px solid var(--rule-hard)}
+.shead b{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--madder);
+  letter-spacing:.08em}
+.shead h2{font-family:var(--display);font-weight:600;font-size:26px;letter-spacing:-.022em;
+  margin:0;line-height:1.15}
+p{margin:0 0 16px;max-width:72ch}
+.lede{font-size:18.5px;color:var(--ink-soft)}
+
+/* ---------- pillars ---------- */
+.pillars{display:grid;grid-template-columns:repeat(auto-fit,minmax(258px,1fr));gap:14px}
+.pillar{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:18px 19px 19px;
+  border-top:3px solid var(--indigo);display:flex;flex-direction:column}
+.pillar.lv0{border-top-color:var(--madder)}
+.pillar.lv1{border-top-color:var(--brass)}
+.pillar.lv2{border-top-color:var(--brass)}
+.pillar.lv3{border-top-color:var(--jade)}
+.pillar-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:9px}
+.pillar-id{font-family:var(--display);font-weight:800;font-size:12px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-faint)}
+.pillar h3{font-family:var(--display);font-weight:600;font-size:17.5px;letter-spacing:-.015em;
+  margin:0 0 9px;line-height:1.22}
+.pillar p{font-size:15px;line-height:1.5;color:var(--ink-soft);margin:0}
+.lvl{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;
+  padding:3px 7px;border-radius:2px;white-space:nowrap}
+.lvl.n0{background:rgba(178,58,46,.14);color:var(--madder)}
+.lvl.n1,.lvl.n2{background:rgba(168,128,43,.18);color:#7C5D14}
+.lvl.n3{background:rgba(46,107,91,.16);color:var(--jade)}
+
+/* ---------- maturity ladder (signature) ---------- */
+.ladder{border-top:1px solid var(--rule-hard)}
+.rung{display:grid;grid-template-columns:minmax(148px,1.1fr) 172px minmax(0,2.2fr);gap:22px;
+  align-items:start;padding:17px 0;border-bottom:1px solid var(--rule)}
+.rung-name{font-family:var(--display);font-weight:600;font-size:16px;letter-spacing:-.012em;line-height:1.25}
+.rung-name em{display:block;font-style:normal;font-family:var(--mono);font-size:9.5px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);margin-top:4px}
+.gauge{display:flex;gap:4px;padding-top:3px}
+.cell{flex:1;height:26px;border-radius:2px;position:relative;
+  background:repeating-linear-gradient(135deg,transparent 0 4px,rgba(27,35,33,.10) 4px 5px);
+  border:1px solid var(--rule)}
+.cell.fill{background:var(--indigo);border-color:var(--indigo)}
+.rung[data-lv="0"] .cell.fill{background:var(--madder);border-color:var(--madder)}
+.rung[data-lv="1"] .cell.fill,.rung[data-lv="2"] .cell.fill{background:var(--brass);border-color:var(--brass)}
+.rung[data-lv="3"] .cell.fill{background:var(--jade);border-color:var(--jade)}
+.cell.target::after{content:"";position:absolute;inset:-1px;border:1px dashed var(--rule-hard);
+  border-radius:2px}
+.rung-note{font-size:15px;line-height:1.5;color:var(--ink-soft)}
+.rung-note b{color:var(--ink)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:16px;font-family:var(--mono);
+  font-size:10px;letter-spacing:.06em;color:var(--ink-faint);text-transform:uppercase}
+.zeroflag{margin-top:26px;padding:18px 22px;border-left:3px solid var(--madder);
+  background:rgba(178,58,46,.06);border-radius:0 3px 3px 0}
+.zeroflag p{margin:0;font-size:17px}
+
+/* ---------- vulnerabilities ---------- */
+.vuln{background:var(--card);border:1px solid var(--rule);border-radius:3px;margin-bottom:14px;
+  overflow:hidden}
+.vuln-head{display:flex;gap:13px;align-items:flex-start;padding:16px 20px;
+  border-left:4px solid var(--ink-faint)}
+.vuln.crit .vuln-head{border-left-color:var(--madder)}
+.vuln.high .vuln-head{border-left-color:var(--brass)}
+.vuln.med .vuln-head{border-left-color:var(--indigo)}
+.sev{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  padding:4px 8px;border-radius:2px;white-space:nowrap;margin-top:2px}
+.crit .sev{background:var(--madder);color:#FDF6F4}
+.high .sev{background:rgba(168,128,43,.2);color:#7C5D14}
+.med .sev{background:rgba(46,68,112,.13);color:var(--indigo)}
+.vuln h3{font-family:var(--display);font-weight:600;font-size:18px;letter-spacing:-.016em;
+  margin:0;line-height:1.3}
+.vuln h3 i{font-style:normal;font-family:var(--mono);font-size:12px;color:var(--ink-faint);
+  margin-right:8px}
+.vuln-body{padding:2px 20px 18px 37px}
+.vuln-body p{font-size:15.5px;line-height:1.55;margin:0 0 12px}
+.vuln-body p:last-child{margin-bottom:0}
+.vuln-body ul{margin:0 0 12px;padding-left:19px;font-size:15.5px;line-height:1.5;color:var(--ink-soft)}
+.vuln-body li{margin-bottom:7px}
+.vuln-body li::marker{color:var(--madder)}
+.tag{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--ink-faint);border:1px solid var(--rule-hard);
+  padding:3px 7px;border-radius:2px;margin-bottom:9px}
+.pull{border-left:2px solid var(--madder);padding-left:14px;color:var(--ink);font-weight:600}
+
+/* ---------- tables ---------- */
+.tw{overflow-x:auto;margin-bottom:16px;border:1px solid var(--rule);border-radius:3px;background:var(--card)}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  text-align:left;padding:11px 16px;color:var(--ink-faint);border-bottom:1px solid var(--rule-hard);
+  font-weight:500;white-space:nowrap}
+td{padding:13px 16px;border-bottom:1px solid var(--rule);vertical-align:top;line-height:1.45;
+  color:var(--ink-soft)}
+tr:last-child td{border-bottom:none}
+td:first-child{color:var(--ink)}
+td .sev{display:inline-block;margin:0}
+
+/* ---------- disclaimer / closing ---------- */
+.note{border:1px dashed var(--rule-hard);border-radius:3px;padding:16px 20px;margin-top:20px}
+.note p{margin:0;font-size:15px;color:var(--ink-soft)}
+.note b{font-family:var(--display);color:var(--madder)}
+.closing{background:var(--card);border:1px solid var(--rule);border-top:3px solid var(--indigo);
+  border-radius:3px;padding:24px 26px}
+.closing p{font-size:17px;margin:0}
+.pair{margin-top:70px;padding-top:22px;border-top:2px solid var(--ink);display:flex;
+  justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center}
+.pair a{font-family:var(--display);font-weight:600;font-size:17px;text-decoration:none;
+  letter-spacing:-.015em}
+.pair a:hover{text-decoration:underline}
+.pair span{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-faint)}
+
+/* ---------- motion ---------- */
+.rise{opacity:0;transform:translateY(11px)}
+.rise.in{opacity:1;transform:none;transition:opacity .5s ease,transform .5s ease}
+.cell{transform:scaleX(1)}
+.gauge.arm .cell.fill{animation:pop .38s cubic-bezier(.2,.8,.3,1) both}
+.gauge.arm .cell.fill:nth-child(2){animation-delay:.05s}
+.gauge.arm .cell.fill:nth-child(3){animation-delay:.1s}
+.gauge.arm .cell.fill:nth-child(4){animation-delay:.15s}
+@keyframes pop{from{transform:scaleY(.25);opacity:.3}to{transform:none;opacity:1}}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--indigo);outline-offset:3px;border-radius:2px}
+
+@media (max-width:940px){
+  .shell{grid-template-columns:1fr;padding:0 20px}
+  .rail{position:static;height:auto;border-right:none;border-bottom:1px solid var(--rule-hard);
+    padding:22px 0 0}
+  .rail nav{flex-direction:row;overflow-x:auto;gap:4px;padding-bottom:12px;margin:0}
+  .rail nav a{white-space:nowrap;border-left:none;border-bottom:2px solid transparent}
+  .rail nav a.on{border-left:none;border-bottom-color:var(--indigo)}
+  .rail-foot{display:none}
+  main{padding:30px 0 80px}
+  .rung{grid-template-columns:1fr;gap:11px}
+  .gauge{max-width:210px}
+  .vuln-body{padding-left:20px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  .rise{opacity:1;transform:none}
+  html{scroll-behavior:auto}
+}
+@media print{
+  .rail,.pair{display:none}
+  body{background:#fff;font-size:11pt}
+  main{padding:0}
+  section{break-inside:avoid;margin-bottom:24px}
+  .read{background:#fff;color:#000;border:1px solid #000}
+  .read b,.read .zero{color:#000}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="rail-mark">Tapas<span>.</span></div>
+    <div class="rail-kind">Vision &amp; gap map</div>
+    <nav id="nav">
+      <a href="#read"><i>—</i>The read</a>
+      <a href="#pillars"><i>1</i>Six pillars</a>
+      <a href="#maturity"><i>2</i>Maturity map</a>
+      <a href="#vulns"><i>3</i>Vulnerabilities</a>
+      <a href="#priority"><i>3.7</i>Prioritized summary</a>
+      <a href="#build"><i>4</i>What gets built</a>
+      <a href="#order"><i>5</i>Why this order</a>
+    </nav>
+    <div class="rail-foot">
+      <a href="tapas-venture-strategy.html"><em>Companion doc</em>Business strategy →</a>
+    </div>
+  </aside>
+
+  <main>
+    <header class="masthead rise">
+      <div class="eyebrow">Internal · Product strategy</div>
+      <h1>Ideal-state product vision <em>&amp; gap map</em></h1>
+      <p class="standfirst">The product at full maturity — venture-scale, marketplace-moat end state — mapped against what's built today, with the security and trust vulnerabilities this specific vision introduces named before they're discovered in production instead of in design.</p>
+      <div class="meta">
+        <span>Written 2026-07-30</span>
+        <span>Six pillars · seven vulnerabilities</span>
+        <span>Companion to product overview, security review, pilot GTM</span>
+      </div>
+    </header>
+
+    <div class="read rise" id="read">
+      <h2>The read</h2>
+      <p>The product is furthest along exactly where it started — a B2B practice-management tool for a single coach. <b>Pillar A is shipped at pilot scale, Pillar B is half-built.</b></p>
+      <p>Every pillar that constitutes the <span class="zero">actual moat — C (discovery) and D (care teams) — is at zero.</span> Not behind schedule: simply not yet begun, because the current architecture was correctly built for the tool business, not the marketplace business.</p>
+      <p>Two Critical gates stand in front of them: <b>no credential verification exists anywhere</b> (blocks C), and <b>the one-client-one-coach invariant that makes today's system secure is the exact thing D has to replace</b> (blocks D).</p>
+    </div>
+
+    <section id="pillars" class="rise">
+      <div class="shead"><b>§1</b><h2>The ideal-state product, in six pillars</h2></div>
+      <div class="pillars">
+
+        <article class="pillar lv3">
+          <div class="pillar-top"><span class="pillar-id">Pillar A</span><span class="lvl n3">Shipped · 3</span></div>
+          <h3>Core practice management</h3>
+          <p>Today's HC-facing loop (Unit_001/002), matured and hardened for real scale, not just pilot scale: AI-drafted session prep, MOM, action items, check-ins, style-snippet personalization — all behind the coach-reviewed gate.</p>
+        </article>
+
+        <article class="pillar lv2">
+          <div class="pillar-top"><span class="pillar-id">Pillar B</span><span class="lvl n2">Partial · 2</span></div>
+          <h3>Full client engagement</h3>
+          <p>Today's client-facing surfaces (Unit_004), completed: check-ins/messaging, meal logging, in-app payments — a genuine WhatsApp replacement, not a partial one.</p>
+        </article>
+
+        <article class="pillar lv0">
+          <div class="pillar-top"><span class="pillar-id">Pillar C</span><span class="lvl n0">Not started · 0</span></div>
+          <h3>Discovery / marketplace layer</h3>
+          <p>Clients find and select coaches <em>through</em> Tapas, not the other way around. HC public profiles, a matching mechanism, and the take-rate billing that monetizes it. The layer that converts Tapas from a tool coaches rent into infrastructure they can't easily leave — the confirmed moat.</p>
+        </article>
+
+        <article class="pillar lv0">
+          <div class="pillar-top"><span class="pillar-id">Pillar D</span><span class="lvl n0">Not started · 0</span></div>
+          <h3>Multi-practitioner care teams</h3>
+          <p>Several HCs collaboratively serving one client — Tapas as the coordination layer between practitioners around a shared client, deepening the network effect beyond single coach-client discovery. Not yet in any spec.</p>
+        </article>
+
+        <article class="pillar lv1">
+          <div class="pillar-top"><span class="pillar-id">Pillar E</span><span class="lvl n1">Specced · 1</span></div>
+          <h3>Trust &amp; platform infrastructure</h3>
+          <p>Real deletion, consent, DSAR, audit, monetization (Unit_006, today mostly one-line-scoped) <em>plus a capability that doesn't exist in any spec today: HC credential verification.</em></p>
+        </article>
+
+        <article class="pillar lv0">
+          <div class="pillar-top"><span class="pillar-id">Pillar F</span><span class="lvl n0">Later horizon · 0</span></div>
+          <h3>Adjacent expansion</h3>
+          <p>Other wellness-practitioner verticals, other geographies. Deliberately not a near-term pillar — see the business strategy §6 for the general (not deep) treatment of what this would require.</p>
+        </article>
+
+      </div>
+    </section>
+
+    <section id="maturity" class="rise">
+      <div class="shead"><b>§2</b><h2>Maturity map — current vs. ideal</h2></div>
+      <p class="lede">Scale: <strong>0</strong> Not started · <strong>1</strong> Conceptual/specced only · <strong>2</strong> Partial build · <strong>3</strong> Shipped, pilot-scale · <strong>4</strong> Mature, hardened at scale</p>
+
+      <div class="ladder">
+        <div class="rung" data-lv="3">
+          <div class="rung-name">Core practice management<em>Pillar A</em></div>
+          <div class="gauge" data-fill="3"></div>
+          <div class="rung-note"><b>Shipped and stable for pilot scale</b> (Unit_001/002). Not yet hardened for real scale — rate limiting, session-ceiling, and the other gaps in the security review §2.1 are still open.</div>
+        </div>
+        <div class="rung" data-lv="2">
+          <div class="rung-name">Client engagement<em>Pillar B</em></div>
+          <div class="gauge" data-fill="2"></div>
+          <div class="rung-note"><b>Partial.</b> F1 (action items email), F6 (calendar), F8 (diet chart + versioning) shipped. F2 remainder (check-ins lifecycle, messaging), F3 (meal logging), F4 (payments) specced but unbuilt.</div>
+        </div>
+        <div class="rung" data-lv="0">
+          <div class="rung-name">Discovery / marketplace<em>Pillar C</em></div>
+          <div class="gauge" data-fill="0"></div>
+          <div class="rung-note"><b>Not started.</b> Exists only as an unresolved idea from Unit_003 planning (the "BumbleBFF" swipe-discovery concept) — no spec, no schema, no ADR.</div>
+        </div>
+        <div class="rung" data-lv="0">
+          <div class="rung-name">Multi-practitioner care teams<em>Pillar D</em></div>
+          <div class="gauge" data-fill="0"></div>
+          <div class="rung-note"><b>Not started, and structurally blocked by the current design.</b> ADR 0005 makes "every Client belongs to exactly one HC" a foundational, tested invariant. This pillar requires <em>replacing</em> that invariant, not extending it.</div>
+        </div>
+        <div class="rung" data-lv="1">
+          <div class="rung-name">Trust &amp; platform infrastructure<em>Pillar E</em></div>
+          <div class="gauge" data-fill="1"></div>
+          <div class="rung-note"><b>Unit_006 PHASE-01 is ready for an implementation plan;</b> PHASE-02 through PHASE-07 are one-line-scoped only. HC credential verification (§3) doesn't exist as a concept anywhere in the current spec set.</div>
+        </div>
+        <div class="rung" data-lv="0">
+          <div class="rung-name">Adjacent expansion<em>Pillar F</em></div>
+          <div class="gauge" data-fill="0"></div>
+          <div class="rung-note"><b>Not started</b>; explicitly a later horizon, not a current gap to close.</div>
+        </div>
+      </div>
+      <div class="legend">
+        <span>Filled = current maturity</span>
+        <span>Hatched = gap to ideal state (4)</span>
+      </div>
+
+      <div class="zeroflag">
+        <p>The product is furthest along exactly where it started. Every pillar that constitutes the <strong>actual moat you chose (C, D) is at zero</strong> — not behind schedule, simply not yet begun, because the current architecture was correctly built for the tool business, not the marketplace business, and hasn't needed to be anything else yet.</p>
+      </div>
+    </section>
+
+    <section id="vulns" class="rise">
+      <div class="shead"><b>§3</b><h2>Vulnerabilities the ideal state introduces</h2></div>
+      <p class="lede">The security review audited the code and specs that exist today. This is different in kind: vulnerabilities that <strong>don't exist yet because the features that would create them don't exist yet</strong> — but that the ideal-state vision, once pursued, will introduce as certainly as the current codebase introduced its own findings. Each needs designing against <em>before</em> the relevant pillar is built.</p>
+
+      <article class="vuln crit">
+        <div class="vuln-head">
+          <span class="sev">Critical</span>
+          <h3><i>3.1</i>No health-coach identity or credential verification exists at all</h3>
+        </div>
+        <div class="vuln-body">
+          <p>Onboarding is Google OAuth only (<code>auth/router.py</code>): it authenticates <em>identity</em> (this person owns this Google account) but never authorizes <em>qualification</em> (this person is actually a trained or certified health coach). Currently contained because SoJo personally selects every pilot HC by hand — the relationship layer does the vetting instead of the product.</p>
+          <p class="pull">That containment disappears completely in the marketplace model. A client discovering a coach through Tapas' own surface is trusting Tapas' selection, not SoJo's personal judgment — and an unverified account offering health guidance under implied platform endorsement is a platform liability, not just a rogue user renting software.</p>
+          <p><strong>Why this is harder than it looks:</strong> India has no single unified licensing body for "health coach" the way medicine has NMC registration. A real dietitian may hold IDA membership, a university degree in nutrition/dietetics, or an international wellness-coaching certification (ISSA, ACE, NASM, Precision Nutrition). There is no one government database to check a license number against — the pipeline has to accept multiple credential types and verify each against its issuing body, with manual review for the long tail. It cannot be a single automated lookup.</p>
+          <span class="tag">Needed before Pillar C ships</span>
+          <ul>
+            <li>A credential-submission step in onboarding (degree, certification, or professional-body membership upload)</li>
+            <li>A verification workflow — a manual review queue is sufficient at launch; it doesn't need automation on day one, but it must exist and be enforced before any client-facing discovery goes live</li>
+            <li>A "verified" status gating <em>visibility in discovery specifically</em> — unverified accounts still use practice-management tools privately, but never appear in client-facing search. This decouples "can use the software" from "can be found," so credentialing blocks only Pillar C</li>
+            <li>Re-verification/expiry and a revocation path — certifications lapse, and fraud is sometimes discovered after the fact, not at signup</li>
+          </ul>
+          <p><strong>Resolves via:</strong> a hard precondition for Pillar C, not a parallel workstream — the same logic as the pilot GTM's Phase 0.</p>
+        </div>
+      </article>
+
+      <article class="vuln crit">
+        <div class="vuln-head">
+          <span class="sev">Critical</span>
+          <h3><i>3.2</i>The access-control model doesn't support multi-practitioner care teams — the single largest new attack surface in the whole vision</h3>
+        </div>
+        <div class="vuln-body">
+          <p>Today's tenant isolation is deliberately simple: every Client belongs to exactly one HC, enforced at the query layer, verified by 10+ cross-tenant integration tests (ADR 0005). That simplicity is precisely <em>why</em> it's secure — one invariant is easy to verify and hard to get wrong, and the security review found no findings against it.</p>
+          <p>The care-team model breaks that invariant at the root. It requires a genuine many-to-many HC-client relationship with <strong>per-practitioner, per-data-category scoped permissions</strong> — not every HC on a shared client should see everything by default (a nutritionist on a shared case has no inherent reason to see another practitioner's private session notes on the same client, even though both legitimately treat that client).</p>
+          <p class="pull">It directly touches the one property the current system is most confidently correct about. Getting it wrong doesn't create a narrow bug — it creates a structural cross-tenant-style leak inside what looks, on the surface, like normal in-team collaboration.</p>
+          <p>This needs <strong>its own from-scratch authorization design</strong> — capability-based or consent-scoped grants per HC × client × data-category — before any care-team feature is built. Not an incremental patch onto the existing <code>current_tenant()</code> dependency.</p>
+        </div>
+      </article>
+
+      <article class="vuln high">
+        <div class="vuln-head">
+          <span class="sev">High</span>
+          <h3><i>3.3</i>Consent-scope creep: health data powering matching is a new purpose requiring new consent</h3>
+        </div>
+        <div class="vuln-body">
+          <p>DPDP's purpose-limitation principle means consent collected for "my coach manages my sessions" does not automatically extend to "Tapas uses my health profile to recommend coaches, or to rank me/my coach in a discovery algorithm." Any signal derived from sensitive health data for matching needs its own explicit, separately scoped consent — and the signal itself should be minimized (broad interest categories like "PCOD support," not raw clinical detail feeding a ranking model).</p>
+          <p>This intersects with a concern already on record from the original marketplace discussion: HC public profiles and any client-visible outcome claims need content moderation against false or unsubstantiated medical-effect advertising (Drugs and Magic Remedies Act, Consumer Protection Act) <strong>before</strong> anything is client-facing — not an afterthought once profiles exist.</p>
+        </div>
+      </article>
+
+      <article class="vuln high">
+        <div class="vuln-head">
+          <span class="sev">High</span>
+          <h3><i>3.4</i>Marketplace trust &amp; safety: fake profiles, review manipulation, off-platform circumvention</h3>
+        </div>
+        <div class="vuln-body">
+          <p>Once a client-facing discovery surface exists, expect three distinct problems, not one:</p>
+          <ul>
+            <li><strong>Sybil / fake HC accounts</strong> — mitigated primarily by §3.1's credentialing gate, but also needs basic anomaly detection on bulk account creation, since credentialing alone doesn't stop volume abuse of the signup flow itself</li>
+            <li><strong>Review / ranking manipulation</strong> — once any rating mechanism exists, it must be restricted to verified-transaction reviews only (a client who actually had a session), never open or anonymous reviews</li>
+            <li><strong>Off-platform circumvention</strong> — coaches and clients who meet through discovery moving to WhatsApp to avoid the take-rate. As much a business-model risk as a security one, and it can't be solved technically (two people who've exchanged names can always leave). It has to be solved by making the on-platform experience genuinely better than leaving — the AI-assisted drafting, calendar integration, and payment convenience already being built <em>are</em> the retention mechanism, not an enforcement rule</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="vuln med">
+        <div class="vuln-head">
+          <span class="sev">Medium</span>
+          <h3><i>3.5</i>Take-rate billing introduces a new financial-fraud surface at marketplace scale</h3>
+        </div>
+        <div class="vuln-body">
+          <p>Once real commission money moves through the platform, expect attribution disputes (an HC claiming a client arrived organically to avoid the fee) and a materially larger target for payment fraud than today's model, where Tapas never touches client money at all (HCs self-onboard their own Razorpay account, Unit_004 F4).</p>
+          <p>This compounds the already-flagged predictive finding in the security review §3 about Razorpay webhook signature verification and replay/idempotency — at marketplace scale, that work needs to be done rigorously once, <strong>before</strong> commission revenue depends on it, not retrofitted under pressure.</p>
+        </div>
+      </article>
+
+      <article class="vuln med">
+        <div class="vuln-head">
+          <span class="sev">Medium</span>
+          <h3><i>3.6</i>Coach-reviewed-gate integrity under volume and incentive pressure</h3>
+        </div>
+        <div class="vuln-body">
+          <p>The coach-reviewed gate (nothing AI-drafted reaches a client until the HC edits and sends it) is currently verified as a data-model invariant (<code>moms.status</code>: draft → reviewed → sent) for a small number of engaged pilot HCs who have every reason to review carefully.</p>
+          <p>At marketplace scale — more volume, and once Stage 2 take-rate monetization creates a real incentive to move faster to capture more commission-eligible clients — there's a genuine risk the gate becomes a rubber stamp: the architecture still enforces "an HC clicked send," but not "an HC meaningfully reviewed it."</p>
+          <p>Not classic infosec, but a real trust-integrity risk specific to what makes Tapas different in the first place. Worth tracking as an actual metric as usage scales — <em>time between draft and send, edit-distance between AI draft and sent version</em> — not just a launch-time architectural checkbox assumed to hold forever.</p>
+        </div>
+      </article>
+    </section>
+
+    <section id="priority" class="rise">
+      <div class="shead"><b>§3.7</b><h2>Prioritized summary</h2></div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Priority</th><th>Item</th><th>Gates</th></tr></thead>
+          <tbody>
+            <tr class="crit"><td><span class="sev">Critical</span></td><td>No HC credential verification pipeline exists</td><td>Pillar C (discovery/marketplace) cannot ship without this</td></tr>
+            <tr class="crit"><td><span class="sev">Critical</span></td><td>No access-control model for multi-practitioner care teams</td><td>Pillar D cannot be built without a from-scratch authorization redesign</td></tr>
+            <tr class="high"><td><span class="sev">High</span></td><td>No consent-scope mechanism for health-data-driven matching</td><td>Pillar C — required before any client health data feeds a recommendation/ranking signal</td></tr>
+            <tr class="high"><td><span class="sev">High</span></td><td>No content-moderation layer for HC profiles / client-visible claims</td><td>Pillar C — required before profiles are client-facing</td></tr>
+            <tr class="med"><td><span class="sev">Medium</span></td><td>No marketplace trust &amp; safety mechanisms (review integrity, off-platform retention)</td><td>Pillar C, ongoing after launch</td></tr>
+            <tr class="med"><td><span class="sev">Medium</span></td><td>Take-rate billing fraud surface not yet designed for</td><td>Stage 2 monetization (business strategy §4)</td></tr>
+            <tr class="med"><td><span class="sev">Medium</span></td><td>Coach-reviewed-gate integrity has no monitoring at scale</td><td>Cross-cutting — relevant as volume grows regardless of pillar</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <p><b>Not legal advice.</b> Several of these — credentialing, content moderation, consent-scope — sit close to real regulatory exposure: DPDP purpose limitation, Drugs and Magic Remedies Act, Consumer Protection Act. Treat this section as an engineering/product design brief, and get counsel review before Pillar C or D design work locks in specifics, consistent with <code>CLAUDE.md</code> §10.</p>
+      </div>
+    </section>
+
+    <section id="build" class="rise">
+      <div class="shead"><b>§4</b><h2>What has to get built, by pillar</h2></div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Pillar</th><th>Major initiative required</th><th>Depends on</th></tr></thead>
+          <tbody>
+            <tr><td><strong>A</strong></td><td>Hardening pass: rate limiting, session ceilings, the rest of security review §2.1</td><td>Nothing — can proceed independently, already largely scoped via the pilot GTM's Phase 0</td></tr>
+            <tr><td><strong>B</strong></td><td>Complete F2 remainder, F3, F4</td><td>Nothing new — already specced, just unbuilt</td></tr>
+            <tr><td><strong>C</strong></td><td>Discovery/marketplace surface: public HC profiles, matching mechanism, take-rate billing</td><td>§3.1 (credentialing) and §3.3/§3.4 (consent + content moderation) as hard preconditions</td></tr>
+            <tr><td><strong>D</strong></td><td>Multi-practitioner care-team data model and authorization redesign</td><td>§3.2 — cannot be scoped safely until the new access-control model is designed</td></tr>
+            <tr><td><strong>E</strong></td><td>Unit_006 PHASE-02 → PHASE-07, plus a new credentialing phase not currently in any spec</td><td>Independent, but the credentialing phase blocks Pillar C</td></tr>
+            <tr><td><strong>F</strong></td><td>Not scoped — later horizon</td><td>Everything else; business strategy §6 for the general treatment</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="order" class="rise">
+      <div class="shead"><b>§5</b><h2>Why this build order, not another</h2></div>
+      <div class="closing">
+        <p><strong>A and B come first</strong> because they're the only pillars that can honestly earn subscription revenue today — the same sequencing logic behind the pilot GTM's Phase 0 and the staged monetization model.</p>
+        <p style="margin-top:14px"><strong>E's credentialing work lands before C, not alongside it</strong>, because Pillar C without §3.1 solved isn't a smaller or safer version of the marketplace — it's the same platform-liability exposure, just live.</p>
+        <p style="margin-top:14px"><strong>D is sequenced last among the real pillars</strong> specifically because §3.2 is the largest structural risk in this entire document: building the care-team feature before the authorization model is properly designed doesn't save time, it creates a cross-tenant-style vulnerability inside a feature that will look, to everyone testing it, like it's working correctly.</p>
+      </div>
+    </section>
+
+    <div class="pair">
+      <span>Companion document</span>
+      <a href="tapas-venture-strategy.html">Business strategy for the ideal-state product →</a>
+    </div>
+  </main>
+</div>
+
+<script>
+(function(){
+  // build maturity gauges: 5 cells (0-4), fill to current level
+  document.querySelectorAll('.gauge').forEach(function(g){
+    var lv = parseInt(g.dataset.fill,10);
+    for(var i=0;i<4;i++){
+      var c=document.createElement('span');
+      c.className = 'cell' + (i < lv ? ' fill' : ' target');
+      c.setAttribute('aria-hidden','true');
+      g.appendChild(c);
+    }
+    g.setAttribute('role','img');
+    g.setAttribute('aria-label','Maturity '+lv+' of 4');
+  });
+
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if(!reduce && 'IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target);} });
+    },{rootMargin:'0px 0px -8% 0px',threshold:.05});
+    document.querySelectorAll('.rise').forEach(function(el,i){
+      el.style.transitionDelay=(Math.min(i,4)*40)+'ms'; io.observe(el);
+    });
+    var gio=new IntersectionObserver(function(es){
+      es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('arm'); gio.unobserve(e.target);} });
+    },{threshold:.4});
+    document.querySelectorAll('.gauge').forEach(function(g){gio.observe(g);});
+  } else {
+    document.querySelectorAll('.rise').forEach(function(el){el.classList.add('in');});
+  }
+
+  // scrollspy
+  var links=[].slice.call(document.querySelectorAll('#nav a'));
+  var targets=links.map(function(a){return document.querySelector(a.getAttribute('href'));}).filter(Boolean);
+  function spy(){
+    var y=window.scrollY+140, cur=targets[0];
+    targets.forEach(function(t){ if(t.offsetTop<=y) cur=t; });
+    links.forEach(function(a){ a.classList.toggle('on', a.getAttribute('href')==='#'+cur.id); });
+  }
+  var tick=false;
+  window.addEventListener('scroll',function(){
+    if(!tick){ tick=true; requestAnimationFrame(function(){spy();tick=false;}); }
+  },{passive:true});
+  spy();
+})();
+</script>
+</body>
+</html>

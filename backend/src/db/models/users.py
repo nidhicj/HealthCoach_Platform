@@ -16,6 +16,7 @@ class User(Base):
     google_sub: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     display_name: Mapped[str | None] = mapped_column(Text)
     photo_url: Mapped[str | None] = mapped_column(Text)
+    business_name: Mapped[str | None] = mapped_column(Text)
     is_operator: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     role: Mapped[str] = mapped_column(Text, nullable=False, default="hc", server_default=text("'hc'"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
