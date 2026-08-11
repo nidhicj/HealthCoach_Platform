@@ -4,6 +4,31 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-07-12/07-14 — Unit_004 One Stop Spot: PHASE-01e/01f (Calendar) + PHASE-02a (client portal foundation) shipped
+
+**Branch**: `feature/unit-004-one-stop-spot` (same branch as the 2026-07-06/07-10 entry below; continued, not a fresh branch)
+
+**Backfill note**: this entry was written 2026-07-21, retroactively, to close a gap — these three phases were fully committed and merged but never logged. Reconstructed from `git log` and each phase's own plan/self-review doc, not from memory.
+
+**Shipped and merged:**
+- **PHASE-01e** — Google Calendar/Meet integration (F6 extension, D-30). New `google_calendar_connections` table (Fernet-encrypted OAuth tokens, separate key from `demographics`), new `sessions.google_calendar_event_id` column. Incremental OAuth consent (`calendar.events` scope added on top of existing login scope, HC login flow itself untouched). Full month/week calendar view (`CalendarView`, `MonthGrid`, `WeekGrid`), pick-existing-event-or-create-new, linking derives `meeting_url` once at link time (PHASE-01d's field untouched otherwise). No calendar event content persisted beyond the linked event's `id` + `hangoutLink` — fetch-on-demand only. ~15 commits, `e01a072`…`dcd8853`, 2026-07-12.
+- **PHASE-01f** — Calendar polish (round 2), fixing 5 gaps SoJo found in manual testing against a live Google account (screenshots/recordings, 2026-07-13): no feedback while linking an event, blank Create-Event title, no durable display of which meeting is linked, calendar locked to "today" with no month/week navigation, low-contrast secondary-action typography. All 5 fixed; added one new persisted field (`google_calendar_event_title`) as a deliberate, SoJo-approved small relaxation of PHASE-01e's "id + hangoutLink only" rule. A 6th reported symptom (Google Meet room stuck in a join loop) was diagnosed as environment/Google-side — reproduces identically hitting the same `meet.google.com` URL directly, not a code issue — explicitly out of scope. Commits `4617d64`…`0eba9e0`, 2026-07-13.
+- **PHASE-02a** — Client portal foundation. Fixed the concrete bug D-31 named: `frontend/src/app/auth/callback/page.tsx` hardcoded `router.replace("/dashboard")` regardless of role. `/api/auth/refresh` now returns `role`; callback branches `hc → /dashboard`, `client → /me`. Stood up the first-ever client-facing route tree (`/me/*`, own layout, `ClientClaimsDep`-gated) with a real (non-stub) home page showing the client's own open action items via the already-shipped `GET /api/me/action-items`. Commits `26cfbb7`…`5d78b3b`, 2026-07-13/07-14 — includes a same-day fix (`5d78b3b`) guarding double-click and failure handling on the action-item toggle.
+
+**Decided** (link to SPEC-0001):
+- D-30: full Google Calendar month/week view (not a narrower date-scoped picker), least-privilege incremental OAuth scope, no calendar content persisted beyond id/link.
+- D-31: OQ-7 resolved — client routes live at `/me/*` (real top-level dir, not a route group), rejecting `/portal/*`/`/client/*` for collision risk against existing `/clients/*`.
+
+**Known limitation carried forward (not a bug)**: the Google OAuth app is still in "Testing" publishing status (no `tapas.health` domain/privacy policy yet for verification) — Google issues 7-day refresh tokens to test users, so connected HCs must reconnect Calendar weekly until verification completes. Documented in SPEC-0001 D-30, not yet resolved.
+
+**Open / carried forward:**
+- PHASE-02b/02c/02d plans are written (committed as docs-only) but **not yet implemented** — no corresponding code, migrations, or endpoints exist for check-in request/answer lifecycle, free messaging, or the client-facing diet-chart view.
+- PHASE-02b's Design Decision 4 (the ten fixed check-in metrics) is real product copy still awaiting SoJo's explicit confirmation, not finalized unilaterally in the plan.
+- Roster Board "what's new" passive indicator (D-24) — deliberately deferred in every phase's self-review so far (02a, 02b's plan, 02c's plan) to whichever of check-ins/messaging/meals ships last; still nothing built.
+- `main` remains ahead of `origin/main` and unpushed (as of the prior entry); this branch itself is ahead of `origin/feature/unit-004-one-stop-spot` by 1 commit, not pushed.
+
+---
+
 ## 2026-07-14 — Platform rename: Parivarthan → Tapas (docs sweep)
 
 **Done**:
