@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tapas — Business Strategy for the Ideal-State Product</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E8EAE3;
+  --card:#F5F6F1;
+  --ink:#1B2321;
+  --ink-soft:#4A554F;
+  --ink-faint:#7C857F;
+  --indigo:#2E4470;
+  --madder:#B23A2E;
+  --brass:#A8802B;
+  --jade:#2E6B5B;
+  --rule:rgba(27,35,33,.14);
+  --rule-hard:rgba(27,35,33,.30);
+  --display:"Bricolage Grotesque",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --body:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:24px}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--body);font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased}
+a{color:var(--indigo)}
+code{font-family:var(--mono);font-size:.86em;background:rgba(46,68,112,.09);
+  padding:.1em .38em;border-radius:3px;color:var(--indigo);word-break:break-word}
+strong{font-weight:600}
+
+.shell{display:grid;grid-template-columns:246px minmax(0,1fr);max-width:1240px;margin:0 auto;padding:0 28px}
+
+.rail{position:sticky;top:0;align-self:start;height:100vh;padding:36px 30px 36px 0;
+  border-right:1px solid var(--rule);display:flex;flex-direction:column}
+.rail-mark{font-family:var(--display);font-weight:800;font-size:19px;letter-spacing:-.02em;
+  line-height:1;margin-bottom:3px}
+.rail-mark span{color:var(--jade)}
+.rail-kind{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-faint);margin-bottom:26px}
+.rail nav{display:flex;flex-direction:column;gap:1px;overflow-y:auto;flex:1;margin:0 -8px;padding:0 8px}
+.rail nav a{display:flex;gap:9px;align-items:baseline;text-decoration:none;color:var(--ink-soft);
+  font-family:var(--display);font-size:13.5px;font-weight:400;padding:6px 9px;border-radius:5px;
+  border-left:2px solid transparent;transition:background .18s,color .18s}
+.rail nav a i{font-family:var(--mono);font-style:normal;font-size:10.5px;color:var(--ink-faint);
+  min-width:12px;padding-top:1px}
+.rail nav a:hover{background:rgba(46,107,91,.08);color:var(--ink)}
+.rail nav a.on{background:rgba(46,107,91,.13);color:var(--jade);font-weight:600;border-left-color:var(--jade)}
+.rail nav a.on i{color:var(--jade)}
+.rail-foot{padding-top:18px;margin-top:14px;border-top:1px solid var(--rule)}
+.rail-foot a{display:block;font-family:var(--display);font-size:12.5px;text-decoration:none;
+  color:var(--ink-soft);line-height:1.35}
+.rail-foot a:hover{color:var(--jade)}
+.rail-foot em{display:block;font-family:var(--mono);font-style:normal;font-size:9px;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:5px}
+
+main{padding:36px 0 110px 46px;min-width:0}
+
+.masthead{padding-bottom:26px;margin-bottom:34px;border-bottom:2px solid var(--ink)}
+.eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--jade);margin-bottom:16px}
+h1{font-family:var(--display);font-weight:800;letter-spacing:-.035em;line-height:.98;
+  font-size:clamp(38px,5.4vw,62px);margin:0 0 20px}
+h1 em{font-style:normal;color:var(--jade)}
+.standfirst{font-size:19px;line-height:1.5;color:var(--ink-soft);max-width:62ch;margin:0}
+.meta{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:22px;font-family:var(--mono);
+  font-size:10.5px;letter-spacing:.06em;color:var(--ink-faint);text-transform:uppercase}
+
+/* thesis */
+.thesis{background:var(--ink);color:var(--card);border-radius:3px;padding:30px 34px;margin-bottom:46px}
+.thesis h2{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  color:#C9CFBE;margin:0 0 16px;font-weight:500}
+.thesis p{margin:0 0 14px;font-size:21px;line-height:1.44;max-width:64ch}
+.thesis p:last-child{margin-bottom:0}
+.thesis b{color:#6FC3A5;font-weight:600}
+
+section{margin-bottom:58px;scroll-margin-top:24px}
+.shead{display:flex;align-items:baseline;gap:14px;padding-bottom:11px;margin-bottom:24px;
+  border-bottom:1px solid var(--rule-hard)}
+.shead b{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--jade);letter-spacing:.08em}
+.shead h2{font-family:var(--display);font-weight:600;font-size:26px;letter-spacing:-.022em;
+  margin:0;line-height:1.15}
+p{margin:0 0 16px;max-width:72ch}
+.lede{font-size:18.5px;color:var(--ink-soft)}
+
+/* market tiers */
+.tiers{display:grid;gap:12px}
+.tier{display:grid;grid-template-columns:64px minmax(0,1fr);gap:20px;background:var(--card);
+  border:1px solid var(--rule);border-radius:3px;padding:20px 22px;align-items:start}
+.tier-mark{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-faint);line-height:1.4;padding-top:3px}
+.tier h3{font-family:var(--display);font-weight:600;font-size:18px;letter-spacing:-.016em;margin:0 0 7px}
+.tier p{font-size:15.5px;line-height:1.52;color:var(--ink-soft);margin:0}
+.tier.now{border-left:4px solid var(--jade)}
+.tier.next{border-left:4px solid var(--brass)}
+.tier.locked{border-left:4px solid var(--rule-hard);background:transparent;border-style:dashed}
+.tier.locked h3{color:var(--ink-soft)}
+.rings{display:flex;gap:4px;margin-top:3px}
+.ring{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--ink-faint)}
+.tier.now .ring:nth-child(1){background:var(--jade);border-color:var(--jade)}
+.tier.next .ring:nth-child(1),.tier.next .ring:nth-child(2){background:var(--brass);border-color:var(--brass)}
+
+/* positioning */
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:13px;margin-bottom:18px}
+.foe{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:19px 21px}
+.foe em{font-family:var(--mono);font-style:normal;font-size:9.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-faint);display:block;margin-bottom:8px}
+.foe h3{font-family:var(--display);font-weight:600;font-size:17px;margin:0 0 8px;letter-spacing:-.015em}
+.foe p{font-size:15px;line-height:1.5;color:var(--ink-soft);margin:0}
+.reframe{border-left:3px solid var(--jade);background:rgba(46,107,91,.06);padding:20px 24px;
+  border-radius:0 3px 3px 0}
+.reframe p{margin:0;font-size:18px;line-height:1.5}
+
+/* SIGNATURE: stage gate */
+.gate-rig{background:var(--card);border:1px solid var(--rule);border-radius:3px;
+  padding:26px 28px;margin-bottom:20px}
+.gate-track{display:grid;grid-template-columns:1fr 210px 1fr;gap:0;align-items:stretch}
+.stage{padding:22px 24px;border:1px solid var(--rule);border-radius:3px;background:var(--paper)}
+.stage.s1{border-left:4px solid var(--jade)}
+.stage.s2{border-left:4px solid var(--indigo);opacity:.96}
+.stage em{font-family:var(--mono);font-style:normal;font-size:9.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-faint);display:block;margin-bottom:9px}
+.stage h3{font-family:var(--display);font-weight:800;font-size:22px;letter-spacing:-.025em;margin:0 0 4px}
+.stage .price{font-family:var(--mono);font-size:14px;color:var(--jade);margin-bottom:11px;font-weight:500}
+.stage.s2 .price{color:var(--indigo)}
+.stage p{font-size:15px;line-height:1.5;color:var(--ink-soft);margin:0}
+.gate{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:0 18px;position:relative}
+.gate::before,.gate::after{content:"";position:absolute;top:50%;height:2px;width:18px;
+  background:var(--rule-hard)}
+.gate::before{left:0}.gate::after{right:0}
+.gate-badge{width:100%;text-align:center;border:2px dashed var(--brass);border-radius:3px;
+  padding:14px 12px;background:rgba(168,128,43,.09)}
+.gate-badge b{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.16em;
+  text-transform:uppercase;color:#7C5D14;margin-bottom:7px}
+.gate-badge span{display:block;font-family:var(--display);font-weight:600;font-size:14.5px;
+  line-height:1.32;color:var(--ink)}
+.gate-note{margin-top:14px;font-size:13.5px;line-height:1.45;color:var(--ink-soft);text-align:center}
+.gate-rule{margin-top:20px;padding-top:16px;border-top:1px solid var(--rule);font-size:15.5px;
+  color:var(--ink-soft)}
+.gate-rule strong{color:var(--ink)}
+
+/* sequence */
+.seq{counter-reset:step;display:grid;gap:0}
+.step{display:grid;grid-template-columns:52px minmax(0,1fr);gap:20px;padding:20px 0;
+  border-bottom:1px solid var(--rule);position:relative}
+.step:last-child{border-bottom:none}
+.step::before{counter-increment:step;content:counter(step,decimal-leading-zero);
+  font-family:var(--mono);font-size:13px;font-weight:600;color:var(--jade);padding-top:2px}
+.step h3{font-family:var(--display);font-weight:600;font-size:18px;margin:0 0 6px;letter-spacing:-.016em}
+.step p{font-size:15.5px;line-height:1.52;color:var(--ink-soft);margin:0;max-width:70ch}
+.step.later::before{color:var(--ink-faint)}
+.step.later h3{color:var(--ink-soft)}
+
+/* geo */
+.geo{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:13px;margin-bottom:18px}
+.geo-card{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:20px 22px;
+  border-top:3px solid var(--indigo)}
+.geo-card h3{font-family:var(--display);font-weight:800;font-size:20px;margin:0 0 4px;letter-spacing:-.02em}
+.geo-card .rule{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-faint);margin-bottom:12px}
+.geo-card p{font-size:15px;line-height:1.52;color:var(--ink-soft);margin:0 0 11px}
+.geo-card p:last-child{margin-bottom:0}
+.geo-card b{color:var(--ink)}
+
+/* proof points */
+.proof{display:grid;gap:11px}
+.pp{display:grid;grid-template-columns:26px minmax(0,1fr);gap:15px;background:var(--card);
+  border:1px solid var(--rule);border-radius:3px;padding:16px 19px;align-items:start}
+.pp span{font-family:var(--mono);font-size:15px;color:var(--jade);line-height:1.35}
+.pp p{margin:0;font-size:15.5px;line-height:1.5;color:var(--ink-soft)}
+.pp p b{color:var(--ink);font-weight:600}
+
+/* tables */
+.tw{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--card)}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;text-align:left;
+  padding:11px 16px;color:var(--ink-faint);border-bottom:1px solid var(--rule-hard);font-weight:500}
+td{padding:14px 16px;border-bottom:1px solid var(--rule);vertical-align:top;line-height:1.48;
+  color:var(--ink-soft)}
+tr:last-child td{border-bottom:none}
+td:first-child{color:var(--ink);font-weight:600;border-left:3px solid var(--brass)}
+tr.top td:first-child{border-left-color:var(--madder)}
+
+.note{border:1px dashed var(--rule-hard);border-radius:3px;padding:16px 20px;margin-top:6px}
+.note p{margin:0;font-size:15px;color:var(--ink-soft)}
+.note b{font-family:var(--display);color:var(--jade)}
+
+.pair{margin-top:70px;padding-top:22px;border-top:2px solid var(--ink);display:flex;
+  justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center}
+.pair a{font-family:var(--display);font-weight:600;font-size:17px;text-decoration:none;letter-spacing:-.015em}
+.pair a:hover{text-decoration:underline}
+.pair span{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-faint)}
+
+.rise{opacity:0;transform:translateY(11px)}
+.rise.in{opacity:1;transform:none;transition:opacity .5s ease,transform .5s ease}
+a:focus-visible{outline:2px solid var(--jade);outline-offset:3px;border-radius:2px}
+
+@media (max-width:940px){
+  .shell{grid-template-columns:1fr;padding:0 20px}
+  .rail{position:static;height:auto;border-right:none;border-bottom:1px solid var(--rule-hard);padding:22px 0 0}
+  .rail nav{flex-direction:row;overflow-x:auto;gap:4px;padding-bottom:12px;margin:0}
+  .rail nav a{white-space:nowrap;border-left:none;border-bottom:2px solid transparent}
+  .rail nav a.on{border-left:none;border-bottom-color:var(--jade)}
+  .rail-foot{display:none}
+  main{padding:30px 0 80px}
+  .gate-track{grid-template-columns:1fr;gap:14px}
+  .gate{padding:0}
+  .gate::before,.gate::after{display:none}
+  .tier{grid-template-columns:1fr;gap:10px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  .rise{opacity:1;transform:none}
+  html{scroll-behavior:auto}
+}
+@media print{
+  .rail,.pair{display:none}
+  body{background:#fff;font-size:11pt}
+  main{padding:0}
+  section{break-inside:avoid;margin-bottom:24px}
+  .thesis{background:#fff;color:#000;border:1px solid #000}
+  .thesis b{color:#000}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="rail-mark">Tapas<span>.</span></div>
+    <div class="rail-kind">Business strategy</div>
+    <nav id="nav">
+      <a href="#thesis"><i>1</i>The thesis</a>
+      <a href="#market"><i>2</i>Market sizing</a>
+      <a href="#position"><i>3</i>Positioning</a>
+      <a href="#money"><i>4</i>Monetization</a>
+      <a href="#growth"><i>5</i>Growth sequencing</a>
+      <a href="#geo"><i>6</i>Outside India</a>
+      <a href="#capital"><i>7</i>Capital strategy</a>
+      <a href="#risks"><i>8</i>Moat risks</a>
+    </nav>
+    <div class="rail-foot">
+      <a href="tapas-ideal-state-vision.html"><em>Companion doc</em>Vision &amp; gap map →</a>
+    </div>
+  </aside>
+
+  <main>
+    <header class="masthead rise">
+      <div class="eyebrow">Internal · Venture strategy</div>
+      <h1>Business strategy for the <em>ideal-state product</em></h1>
+      <p class="standfirst">Why it wins, how it makes money, how it grows, and what it would take to sell outside India. A different horizon from the pilot GTM plan — that plan is tactical execution for the next 4–6 weeks; this is the destination it's a first step toward.</p>
+      <div class="meta">
+        <span>Written 2026-07-30</span>
+        <span>Venture-scale ambition</span>
+        <span>Marketplace / network-effect moat</span>
+        <span>Staged subscription → take-rate</span>
+      </div>
+    </header>
+
+    <section id="thesis" class="rise" style="margin-bottom:46px">
+      <div class="thesis">
+        <h2>§1 · The thesis</h2>
+        <p>Tapas becomes the coordination layer independent health coaches and their clients can't operate outside of — not because it's the best note-taking tool, but because it's <b>where coaches are found</b> and <b>where multi-practitioner care actually gets organized.</b></p>
+        <p>A pure practice-management competitor — Practice Better, Healthie, Kore App — can copy any single feature in a quarter. None of them can copy a two-sided network without solving the same cold-start problem Tapas will already have solved by the time they notice it's worth copying.</p>
+      </div>
+    </section>
+
+    <section id="market" class="rise">
+      <div class="shead"><b>§2</b><h2>Market sizing, staged</h2></div>
+      <div class="tiers">
+        <div class="tier now">
+          <div class="tier-mark">Reachable<br>today<div class="rings"><span class="ring"></span><span class="ring"></span><span class="ring"></span></div></div>
+          <div>
+            <h3>Immediate SAM — solo independent coaches in India</h3>
+            <p>Solo health coaches, dietitians and nutritionists running their own 1:1 client roster — the exact profile the pilot GTM targets, reachable today through professional bodies (IDA: ~13,000 members, 23 chapters) and direct outreach.</p>
+          </div>
+        </div>
+        <div class="tier next">
+          <div class="tier-mark">Supply-side<br>expansion<div class="rings"><span class="ring"></span><span class="ring"></span><span class="ring"></span></div></div>
+          <div>
+            <h3>Expanding TAM — adjacent independent practitioners</h3>
+            <p>Fitness trainers, therapists and counselors, physiotherapists running solo practices — everyone sharing the same administrative-overhead problem. Not a near-term build target (Pillar F, later horizon), but the moat logic extends to any 1:1, WhatsApp-dependent practitioner category.</p>
+          </div>
+        </div>
+        <div class="tier locked">
+          <div class="tier-mark">Unlocks with<br>Pillar C<div class="rings"><span class="ring"></span><span class="ring"></span><span class="ring"></span></div></div>
+          <div>
+            <h3>Demand-side TAM — people searching for a coach</h3>
+            <p>Everyone currently finding a health coach through word-of-mouth, Instagram, or generic directories — a market Tapas doesn't participate in at all today, because there's no client-facing discovery surface yet.</p>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:20px">Intentionally staged, not a single number: the demand-side TAM only becomes real once Pillar C is built. Quoting it as current addressable market today would be exactly the kind of overclaiming the pilot GTM strategy was built to avoid.</p>
+    </section>
+
+    <section id="position" class="rise">
+      <div class="shead"><b>§3</b><h2>Competitive positioning at the ideal-state level</h2></div>
+      <p class="lede">Today's tactical positioning is feature-level — the coach-reviewed AI gate and the (unbuilt) macro-formula engine versus specific competitor gaps. That's right <em>for a pilot conversation with one coach.</em> It's wrong for the venture-scale story.</p>
+
+      <div class="reframe" style="margin-bottom:22px">
+        <p><strong>The category reframe:</strong> Tapas isn't a better practice-management tool. It's the infrastructure layer that neither a pure-SaaS incumbent nor a pure-marketplace newcomer can replicate quickly.</p>
+      </div>
+
+      <div class="split">
+        <div class="foe">
+          <em>Attacking from SaaS</em>
+          <h3>Practice Better, Healthie</h3>
+          <p>Would need to solve the two-sided cold-start problem from a standing start — with an installed base that has no reason to expect a marketplace from them.</p>
+        </div>
+        <div class="foe">
+          <em>Attacking from marketplace</em>
+          <h3>A marketplace-first newcomer</h3>
+          <p>Would need to solve the practice-management depth Tapas already has a multi-year head start on by the time it matters.</p>
+        </div>
+      </div>
+      <p>The moat isn't any single feature — it's that the two halves (deep practice tooling + real discovery liquidity) are much harder to build <em>together</em> than either alone, and Tapas is sequencing toward both from tooling that already works.</p>
+    </section>
+
+    <section id="money" class="rise">
+      <div class="shead"><b>§4</b><h2>Monetization architecture — staged</h2></div>
+
+      <div class="gate-rig">
+        <div class="gate-track">
+          <div class="stage s1">
+            <em>Stage 1 · Now → pilot → early growth</em>
+            <h3>Subscription only</h3>
+            <div class="price">₹999/mo founding · ₹2,499 standard</div>
+            <p>Funds the business and drives supply-side growth — coaches and their existing clients living inside Tapas — which is precisely the inventory Pillar C will eventually need.</p>
+          </div>
+
+          <div class="gate">
+            <div class="gate-badge">
+              <b>Trigger condition</b>
+              <span>Real client-side density inside Tapas</span>
+            </div>
+            <div class="gate-note">Not a calendar date. Enough clients <em>actively using</em> their <code>/me</code> portal — not invited-and-dormant — that discovery would have genuine inventory to match against.</div>
+          </div>
+
+          <div class="stage s2">
+            <em>Stage 2 · Once Pillar C exists</em>
+            <h3>Take-rate, layered on</h3>
+            <div class="price">Commission / lead-fee · not a replacement</div>
+            <p>Applies only to clients acquired <em>through the discovery surface specifically.</em> Existing subscribers and their existing clients are unaffected and never double-charged.</p>
+          </div>
+        </div>
+
+        <div class="gate-rule">
+          <p style="margin:0"><strong>Why the gate matters:</strong> launching Pillar C before the trigger condition is met means launching a marketplace with no supply worth discovering — the classic mistake of building the demand side before the supply side is real.</p>
+          <p style="margin:12px 0 0"><strong>Why attribution works:</strong> only discovery-sourced clients are technically distinguishable as commission-eligible, so the boundary between "we brought you this" and "you already had this" is clean by construction.</p>
+        </div>
+      </div>
+      <p>Stage 2 is subject to the §3.1 / §3.2 preconditions in the vision &amp; gap map — credentialing and access-control redesign are hard gates, not launch-day nice-to-haves.</p>
+    </section>
+
+    <section id="growth" class="rise">
+      <div class="shead"><b>§5</b><h2>Growth sequencing</h2></div>
+      <div class="seq">
+        <div class="step">
+          <div>
+            <h3>Supply-side first</h3>
+            <p>Get coaches and their existing clients living inside Tapas. Precisely what the pilot GTM already targets — nothing changes here.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h3>Demand-side ignition</h3>
+            <p>Once Stage 2's trigger condition is met, launch Pillar C to a subset of verified coaches first — opt-in, not platform-wide on day one — and validate the discovery mechanic and the credentialing/moderation pipeline at small scale before opening broadly.</p>
+          </div>
+        </div>
+        <div class="step later">
+          <div>
+            <h3>Adjacent expansion — later horizon</h3>
+            <p>Other practitioner verticals, other geographies. Only after the marketplace moat is proven in its first category and its first market.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="geo" class="rise">
+      <div class="shead"><b>§6</b><h2>Expansion outside India — general considerations only</h2></div>
+      <p class="lede">India remains the confirmed core market. This section is intentionally high-level, not a deep compliance analysis, per explicit scope for this document.</p>
+
+      <div class="geo">
+        <div class="geo-card">
+          <h3>EU</h3>
+          <div class="rule">GDPR instead of / alongside DPDP</div>
+          <p>In general terms: EU data residency or an approved international-transfer mechanism, a Data Protection Officer once processing reaches scale, more granular consent standards, and health data treated as <b>special category data</b> — a materially higher bar than DPDP currently sets.</p>
+          <p>Directionally, Tapas' deletion-first, consent-table-from-day-one architecture points the right way rather than needing to be retrofitted. But <b>DPDP compliance should not be assumed to imply GDPR compliance</b> without its own review.</p>
+        </div>
+        <div class="geo-card">
+          <h3>US</h3>
+          <div class="rule">HIPAA scope · payment rails · incumbents</div>
+          <p>HIPAA applies to healthcare providers, plans, clearinghouses and their business associates — whether Tapas is in scope at all depends on how clinical the platform becomes, the same wellness-vs-clinical line already flagged regarding DISHA. <b>A pure coaching/wellness tool may sit outside HIPAA entirely.</b></p>
+          <p>Payment rails would need to change (Razorpay is India-specific; Stripe or equivalent for US/EU) — real but well-understood integration work, not a novel problem.</p>
+          <p>The competitive landscape differs materially: Practice Better, Healthie, TrueCoach and CoachAccountable are US-native incumbents, so <b>the India-specific whitespace — the Kore App-shaped gap — doesn't transfer as an advantage.</b></p>
+        </div>
+      </div>
+
+      <div class="note">
+        <p><b>Bottom line.</b> Nothing here is a near-term concern, and no architecture decision needs to change today because of it. This exists so the current build doesn't quietly get designed into an India-only corner over the next few phases, given the architecture already deliberately keeps this door open. Not legal advice — a real compliance review is a distinct, later project if either market becomes an actual near-term target.</p>
+      </div>
+    </section>
+
+    <section id="capital" class="rise">
+      <div class="shead"><b>§7</b><h2>Capital strategy implications</h2></div>
+      <p class="lede">Venture-scale ambition with a marketplace thesis implies an eventual fundraise conversation — and that conversation needs actual proof points, not a pitch deck built on the vision alone.</p>
+      <div class="proof">
+        <div class="pp"><span>◆</span><p><b>Active-HC count and week-over-week engagement</b> — already tracked via the pilot GTM's §7 KPIs; this data starts accumulating from wave 1.</p></div>
+        <div class="pp"><span>◆</span><p><b>Client-side portal activation rate</b> — the leading indicator that Pillar C would have real inventory once built.</p></div>
+        <div class="pp"><span>◆</span><p><b>A working, credentialed-only discovery surface at small scale</b> (§5 step 2) with at least a handful of real take-rate transactions — proof the Stage 2 model actually functions, not just that it's designed.</p></div>
+        <div class="pp"><span>◆</span><p><b>A clean account of the §3.2 access-control redesign</b> if care-team features are live by fundraise time. Investors evaluating a marketplace thesis in a health-data category ask about this specifically, and "we haven't designed it yet" is a materially worse answer than "here's the model and here's how it's tested."</p></div>
+      </div>
+    </section>
+
+    <section id="risks" class="rise">
+      <div class="shead"><b>§8</b><h2>Risks specific to the marketplace moat</h2></div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Risk</th><th>Mitigation</th></tr></thead>
+          <tbody>
+            <tr class="top">
+              <td>Access-control failure in the care-team model creating a health-data leak</td>
+              <td>The single largest technical risk in this whole strategy (vision §3.2) — Pillar D is sequenced last among the real pillars specifically because of it.</td>
+            </tr>
+            <tr>
+              <td>Regulatory exposure on the discovery/matching surface — Drugs and Magic Remedies Act, Consumer Protection Act, DPDP purpose limitation</td>
+              <td>Credentialing, content moderation and consent-scope work (vision §3.1/§3.3) treated as hard preconditions, not launch-day nice-to-haves.</td>
+            </tr>
+            <tr>
+              <td>Cold-start — a marketplace with no demand-side liquidity is worthless; one with no verified supply is worse</td>
+              <td>Staged sequencing (§5): supply-side proven first, then an opt-in small-scale discovery launch before broad rollout.</td>
+            </tr>
+            <tr>
+              <td>Cultural resistance to commission models in a trust-sensitive health category</td>
+              <td>Take-rate applies only to discovery-sourced clients, never to the existing subscription relationship — framed explicitly as "we only earn more when we bring you something new," not a tax on the practice they already have.</td>
+            </tr>
+            <tr>
+              <td>Off-platform circumvention undermining Stage 2 revenue</td>
+              <td>Retention through genuine on-platform value — AI drafting, calendar, payments — not technical enforcement (vision §3.4).</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="pair">
+      <span>Companion document</span>
+      <a href="tapas-ideal-state-vision.html">Ideal-state product vision &amp; gap map →</a>
+    </div>
+  </main>
+</div>
+
+<script>
+(function(){
+  var reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(!reduce&&'IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){
+      es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});
+    },{rootMargin:'0px 0px -8% 0px',threshold:.05});
+    document.querySelectorAll('.rise').forEach(function(el,i){
+      el.style.transitionDelay=(Math.min(i,4)*40)+'ms';io.observe(el);
+    });
+  } else {
+    document.querySelectorAll('.rise').forEach(function(el){el.classList.add('in');});
+  }
+  var links=[].slice.call(document.querySelectorAll('#nav a'));
+  var targets=links.map(function(a){return document.querySelector(a.getAttribute('href'));}).filter(Boolean);
+  function spy(){
+    var y=window.scrollY+140,cur=targets[0];
+    targets.forEach(function(t){if(t.offsetTop<=y)cur=t;});
+    links.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+cur.id);});
+  }
+  var tick=false;
+  window.addEventListener('scroll',function(){
+    if(!tick){tick=true;requestAnimationFrame(function(){spy();tick=false;});}
+  },{passive:true});
+  spy();
+})();
+</script>
+</body>
+</html>
