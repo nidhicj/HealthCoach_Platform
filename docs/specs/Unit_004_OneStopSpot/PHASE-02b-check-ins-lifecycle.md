@@ -36,12 +36,12 @@
 **Interfaces:**
 - Produces: `CheckIn.requested_at: datetime | None`, `CheckIn.payload: dict | None` — Tasks 2–4 consume both.
 
-- [ ] **Step 1.1: Check current migration head**
+- [x] **Step 1.1: Check current migration head**
 
 Run: `cd backend && alembic heads`
 Expected: single head, currently `a1b2c3d4e5f6` (per the existing chain) — confirm before generating a new revision so it chains correctly.
 
-- [ ] **Step 1.2: Generate the migration**
+- [x] **Step 1.2: Generate the migration**
 
 Run: `cd backend && alembic revision -m "add_requested_at_to_check_ins"`
 
@@ -73,7 +73,7 @@ def downgrade() -> None:
     op.drop_column("check_ins", "requested_at")
 ```
 
-- [ ] **Step 1.3: Update the model**
+- [x] **Step 1.3: Update the model**
 
 In `backend/src/db/models/coaching.py`, `CheckIn` class:
 
@@ -91,7 +91,7 @@ class CheckIn(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 ```
 
-- [ ] **Step 1.4: Run — apply and verify**
+- [x] **Step 1.4: Run — apply and verify**
 
 Run: `cd backend && alembic upgrade head`
 Expected: applies cleanly, no errors
@@ -102,7 +102,7 @@ DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas
 ```
 Expected: applies cleanly against `tapas_dev` too
 
-- [ ] **Step 1.5: Commit**
+- [x] **Step 1.5: Commit**
 
 ```bash
 git add backend/alembic/versions/ backend/src/db/models/coaching.py
@@ -122,7 +122,7 @@ git commit -m "feat(check-ins): add requested_at + nullable payload for HC-reque
 - Produces: `async def get_or_create_pending_check_in(db: AsyncSession, client_id: UUID, hc_user_id: UUID) -> tuple[CheckIn, bool]` — returns `(row, created)`; `created=False` means a pending row already existed (caller decides what that means: 409 for the HC endpoint, "already-pending" for the cron). Tasks 3, 4, 5 all consume this.
 - `CheckInOut.payload: dict | None` (was `dict`) and `CheckInOut.requested_at: datetime | None` — Tasks 3/4/5's endpoints all return this schema.
 
-- [ ] **Step 2.1: Write the failing test**
+- [x] **Step 2.1: Write the failing test**
 
 ```python
 # backend/tests/unit/test_check_in_lifecycle.py
@@ -168,12 +168,12 @@ async def test_returns_existing_pending_row_without_creating_new_one():
     db.add.assert_not_called()
 ```
 
-- [ ] **Step 2.2: Run — confirm failure**
+- [x] **Step 2.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/unit/test_check_in_lifecycle.py -v`
 Expected: FAIL — module doesn't exist
 
-- [ ] **Step 2.3: Implement**
+- [x] **Step 2.3: Implement**
 
 ```python
 # backend/src/api/_check_in_lifecycle.py
@@ -234,17 +234,17 @@ class CheckInOut(BaseModel):
     model_config = {"from_attributes": True}
 ```
 
-- [ ] **Step 2.4: Run — confirm pass**
+- [x] **Step 2.4: Run — confirm pass**
 
 Run: `cd backend && pytest tests/unit/test_check_in_lifecycle.py -v`
 Expected: both PASS
 
-- [ ] **Step 2.5: Full backend suite — confirm no regressions**
+- [x] **Step 2.5: Full backend suite — confirm no regressions**
 
 Run: `cd backend && pytest -x`
 Expected: same pass count as before (schema change is additive; no existing test asserts a closed/exact response shape for `CheckInOut` — confirmed via reading `test_me.py`/`test_check_ins.py`)
 
-- [ ] **Step 2.6: Commit**
+- [x] **Step 2.6: Commit**
 
 ```bash
 git add backend/src/api/_check_in_lifecycle.py backend/src/api/check_ins.py backend/tests/unit/test_check_in_lifecycle.py
@@ -263,7 +263,7 @@ git commit -m "feat(check-ins): shared get-or-create-pending helper + nullable s
 - Consumes: `get_or_create_pending_check_in` (Task 2).
 - Produces: `POST /api/clients/{client_id}/check-ins/request -> CheckInOut` (201) or 409 if already pending — Task 7 (frontend `requestCheckIn`) consumes this.
 
-- [ ] **Step 3.1: Write the failing tests**
+- [x] **Step 3.1: Write the failing tests**
 
 Add to `backend/tests/integration/test_check_ins.py`, in a new `# ── POST /api/clients/{id}/check-ins/request ──` section. `_make_client` is already defined at module scope in this exact file (line 12) — call it directly, no import needed:
 
@@ -299,12 +299,12 @@ async def test_request_check_in_cross_tenant_returns_404(http_client, hc_headers
     assert r.status_code == 404
 ```
 
-- [ ] **Step 3.2: Run — confirm failure**
+- [x] **Step 3.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/integration/test_check_ins.py -k request -v`
 Expected: FAIL — 404 (route doesn't exist)
 
-- [ ] **Step 3.3: Implement**
+- [x] **Step 3.3: Implement**
 
 Add to `backend/src/api/check_ins.py`:
 
@@ -334,12 +334,12 @@ async def request_check_in(
     return CheckInOut.model_validate(row)
 ```
 
-- [ ] **Step 3.4: Run — confirm pass**
+- [x] **Step 3.4: Run — confirm pass**
 
 Run: `cd backend && pytest tests/integration/test_check_ins.py -v`
 Expected: all PASS
 
-- [ ] **Step 3.5: Commit**
+- [x] **Step 3.5: Commit**
 
 ```bash
 git add backend/src/api/check_ins.py backend/tests/integration/test_check_ins.py
@@ -358,7 +358,7 @@ git commit -m "feat(check-ins): HC can request a check-in from a client (PHASE-0
 - Consumes: `get_or_create_pending_check_in` is NOT used here (client fill-in is a distinct lookup, not get-or-create) — new local query for "my own pending row, if any."
 - Produces: `GET /api/me/check-ins -> PaginatedList[CheckInOut]` — Task 9 (`/me/checkins` page) consumes this.
 
-- [ ] **Step 4.1: Write the failing tests**
+- [x] **Step 4.1: Write the failing tests**
 
 ```python
 @pytest.mark.asyncio
@@ -406,12 +406,12 @@ async def test_client_sees_pending_request_in_own_list(http_client, hc_headers, 
     assert items[0]["requested_at"] is not None
 ```
 
-- [ ] **Step 4.2: Run — confirm failure**
+- [x] **Step 4.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/integration/test_me.py -k check_in -v`
 Expected: FAIL — current `submit_check_in` always inserts a fresh row; `GET /api/me/check-ins` doesn't exist
 
-- [ ] **Step 4.3: Implement**
+- [x] **Step 4.3: Implement**
 
 Replace `submit_check_in` in `backend/src/api/me.py` and add the new list endpoint:
 
@@ -483,12 +483,12 @@ async def list_my_check_ins(
 
 (`CheckInOut` needs importing into `me.py` — it already is, per the existing `from src.api.check_ins import CheckInOut` at the top of the file.)
 
-- [ ] **Step 4.4: Run — confirm pass**
+- [x] **Step 4.4: Run — confirm pass**
 
 Run: `cd backend && pytest tests/integration/test_me.py -v`
 Expected: all PASS
 
-- [ ] **Step 4.5: Commit**
+- [x] **Step 4.5: Commit**
 
 ```bash
 git add backend/src/api/me.py backend/tests/integration/test_me.py
@@ -508,7 +508,7 @@ git commit -m "feat(me): client answers fill the pending request row; add GET /a
 - Consumes: `get_or_create_pending_check_in` (Task 2), `send_check_in_reminder_email` (this task).
 - Produces: `SchedulerResult.tasks_run` gains `"check_in_reminders"` when it runs.
 
-- [ ] **Step 5.1: Write the failing unit test for the pure day-check function**
+- [x] **Step 5.1: Write the failing unit test for the pure day-check function**
 
 ```python
 # add to backend/tests/unit/test_scheduler.py
@@ -524,12 +524,12 @@ def test_saturday_ist_is_false_on_other_days():
     assert _is_saturday_ist(date(2026, 7, 14)) is False  # a Tuesday
 ```
 
-- [ ] **Step 5.2: Run — confirm failure**
+- [x] **Step 5.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/unit/test_scheduler.py -k saturday -v`
 Expected: FAIL — function doesn't exist
 
-- [ ] **Step 5.3: Write the failing integration test**
+- [x] **Step 5.3: Write the failing integration test**
 
 Uses this repo's existing `client_rec` fixture (`backend/tests/integration/conftest.py:172`) — already linked to `hc_user`/`client_user` (so `user_id` is set); the tests set `client_rec.email` inline, matching the same inline-mutation style `test_me.py`'s `_make_mom_sent` helper already uses for `client.email`:
 
@@ -614,12 +614,12 @@ async def test_scheduled_tasks_still_emails_client_with_existing_pending_request
     assert len(count_r.json()["items"]) == 1
 ```
 
-- [ ] **Step 5.4: Run — confirm failure**
+- [x] **Step 5.4: Run — confirm failure**
 
 Run: `cd backend && pytest tests/integration/test_scheduler.py -v`
 Expected: FAIL — no such logic in `run_scheduled_tasks` yet
 
-- [ ] **Step 5.5: Implement**
+- [x] **Step 5.5: Implement**
 
 Add to `backend/src/lib/email.py`:
 
@@ -730,18 +730,20 @@ on:
   workflow_dispatch:
 ```
 
-(No change needed to the job body — `run_scheduled_tasks` itself checks `_is_saturday_ist()` regardless of which cron fired it, so both trigger times safely hit the same endpoint. Note: the snippet-retirement task now runs twice on Saturdays — once from each cron. This is harmless since `_should_retire` is already idempotent, retiring an already-retired snippet is a no-op; not worth adding trigger-source detection to avoid.)
+~~(No change needed to the job body — `run_scheduled_tasks` itself checks `_is_saturday_ist()` regardless of which cron fired it, so both trigger times safely hit the same endpoint. Note: the snippet-retirement task now runs twice on Saturdays — once from each cron. This is harmless since `_should_retire` is already idempotent, retiring an already-retired snippet is a no-op; not worth adding trigger-source detection to avoid.)~~
 
-- [ ] **Step 5.6: Run — confirm pass**
+**Corrected during implementation (2026-07-30) — this reasoning was wrong for the reminder task, only right for retirement.** `_should_retire` running twice on Saturdays is genuinely harmless (idempotent). But gating `check_in_reminders` purely on `_is_saturday_ist()` is NOT harmless: the daily cron (`0 1 * * *`) also fires on Saturdays, so with no way to distinguish which cron triggered the request, **every eligible client received the reminder email twice each Saturday** — a real, deterministic production bug caught in task review, not by any test written against this plan. Fixed by adding a trigger-source header (`X-Scheduled-Task: check_in_reminders`, set by the workflow step only when `github.event.schedule == '0 4 * * 6'` or the trigger is a manual `workflow_dispatch`) and requiring it, ANDed with `_is_saturday_ist()` as defense-in-depth, before running the reminder task. See `backend/src/api/scheduler.py`'s `run_scheduled_tasks` and `.github/workflows/scheduler.yml` as shipped — do not follow the code block above as written for the reminder gating.
+
+- [x] **Step 5.6: Run — confirm pass**
 
 Run: `cd backend && pytest tests/unit/test_scheduler.py tests/integration/test_scheduler.py -v`
 Expected: all PASS
 
-- [ ] **Step 5.7: Full backend suite — confirm no regressions**
+- [x] **Step 5.7: Full backend suite — confirm no regressions**
 
 Run: `cd backend && pytest -x`
 
-- [ ] **Step 5.8: Commit**
+- [x] **Step 5.8: Commit**
 
 ```bash
 git add backend/src/lib/email.py backend/src/api/scheduler.py .github/workflows/scheduler.yml backend/tests/unit/test_scheduler.py backend/tests/integration/test_scheduler.py
@@ -760,15 +762,15 @@ git commit -m "feat(check-ins): Saturday 9:30am IST reminder creates pending req
 **Interfaces:**
 - Produces: `listMyCheckIns(): Promise<{items: CheckInOut[]; next_cursor: string|null}>`, `submitMyCheckIn(payload: dict): Promise<CheckInOut>` in `me.ts`; `requestCheckIn(clientId: string): Promise<CheckInOut>` in `checkIns.ts` — Tasks 7 and 9 consume these.
 
-- [ ] **Step 6.1: Write the failing tests**
+- [x] **Step 6.1: Write the failing tests**
 
 Check `frontend/src/lib/api/checkIns.ts`'s existing `CheckInOutSchema` shape first (it needs `payload`/`requested_at` made nullable to match Task 2's backend change) — read the file before editing; extend its schema and add tests mirroring the pattern already used for `me-api.test.ts` (Task 3 of PHASE-02a) — one test per new function, asserting the exact URL/method/body, same style as that file's existing 3 tests. (Full test code omitted here for brevity of this already-long task — write it in the exact style of `frontend/tests/unit/me-api.test.ts`'s existing tests, one `it(...)` block per function, mocking `fetchWithAuth`.)
 
-- [ ] **Step 6.2: Run — confirm failure**
+- [x] **Step 6.2: Run — confirm failure**
 
 Run: `cd frontend && npx vitest run tests/unit/me-api.test.ts tests/unit/checkIns-api.test.ts`
 
-- [ ] **Step 6.3: Implement**
+- [x] **Step 6.3: Implement**
 
 In `frontend/src/lib/api/checkIns.ts`, update `CheckInOutSchema` (currently declares `payload: z.record(z.string(), z.unknown())` non-nullable, no `requested_at` field):
 
@@ -823,11 +825,11 @@ export async function submitMyCheckIn(payload: Record<string, unknown>): Promise
 }
 ```
 
-- [ ] **Step 6.4: Run — confirm pass**
+- [x] **Step 6.4: Run — confirm pass**
 
 Run: `cd frontend && npx vitest run`
 
-- [ ] **Step 6.5: Commit**
+- [x] **Step 6.5: Commit**
 
 ```bash
 git add frontend/src/lib/api/checkIns.ts frontend/src/lib/api/me.ts frontend/tests/unit/
@@ -845,7 +847,7 @@ git commit -m "feat(check-ins): frontend API wrappers for request/submit/list (P
 - Consumes: `requestCheckIn` (Task 6), `listClientCheckIns` (already exists, `checkIns.ts`).
 - Produces: a `ChatTab` component within this file — PHASE-02c adds a Text sub-tab next to Check-ins inside it.
 
-- [ ] **Step 7.1: Add tab state**
+- [x] **Step 7.1: Add tab state**
 
 In `frontend/src/app/(app)/clients/[clientId]/page.tsx`, right after line 120 (`const [client, setClient] = useState<ClientDetailOut | null>(null);`):
 
@@ -853,7 +855,7 @@ In `frontend/src/app/(app)/clients/[clientId]/page.tsx`, right after line 120 (`
   const [activeTab, setActiveTab] = useState("summary");
 ```
 
-- [ ] **Step 7.2: Add the Tabs import**
+- [x] **Step 7.2: Add the Tabs import**
 
 Add to the import block at the top of the file:
 
@@ -862,7 +864,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { listClientCheckIns, requestCheckIn, type CheckInOut } from "@/lib/api/checkIns";
 ```
 
-- [ ] **Step 7.3: Wrap the existing Summary content — opening insertion**
+- [x] **Step 7.3: Wrap the existing Summary content — opening insertion**
 
 Immediately after the `<>` fragment open (currently line 322, right before the `{/* Client header */}` comment), insert:
 
@@ -877,7 +879,7 @@ Immediately after the `<>` fragment open (currently line 322, right before the `
 
 Every line of existing content from the old `{/* Client header */}` comment through the end of the Details section (the ~660 lines currently between the old line 323 and line 984) is **unchanged** — only its indentation nesting level changes (it's now inside `<TabsContent value="summary">`), no JSX content itself is edited.
 
-- [ ] **Step 7.4: Wrap the existing Summary content — closing insertion + new Chat tab**
+- [x] **Step 7.4: Wrap the existing Summary content — closing insertion + new Chat tab**
 
 Immediately before the fragment's closing `</>`  (currently line 985), insert:
 
@@ -889,7 +891,7 @@ Immediately before the fragment's closing `</>`  (currently line 985), insert:
           </Tabs>
 ```
 
-- [ ] **Step 7.5: Add the `ChatTab` component**
+- [x] **Step 7.5: Add the `ChatTab` component**
 
 Add below the `export default function ClientDetailPage()` closing brace (matching this file's existing convention of colocating tab-content components in the same file, same pattern as `NotesTab` in `sessions/[sessionId]/page.tsx`):
 
@@ -962,15 +964,15 @@ function ChatTab({ clientId }: { clientId: string }) {
 
 (Raw JSON display for the payload is intentionally minimal for this first slice — a nicer per-metric rendering is easy follow-up polish once the metric list in Design Decision 4 is confirmed; not blocking this task.)
 
-- [ ] **Step 7.5: E2E — extend `mockAuthAndApi` and add a test**
+- [x] **Step 7.5: E2E — extend `mockAuthAndApi` and add a test**
 
 In `frontend/tests/e2e/fixtures/mock-api.ts`, extend the existing check-ins catch-all (currently `if (path.startsWith("/api/check-ins") ...)`) to also handle the new request route, and add to `core-cycle.spec.ts` (or a new small spec) a test clicking the "Chat" tab and the "Request check-in" button, asserting the button becomes "Awaiting answer".
 
-- [ ] **Step 7.6: Run full frontend suite**
+- [x] **Step 7.6: Run full frontend suite**
 
 Run: `cd frontend && npx vitest run && npx playwright test`
 
-- [ ] **Step 7.7: Commit**
+- [x] **Step 7.7: Commit**
 
 ```bash
 git add "frontend/src/app/(app)/clients/[clientId]/page.tsx" frontend/tests/e2e/
@@ -988,7 +990,7 @@ git commit -m "feat(client-detail): 2-tab Summary/Chat shell with Check-ins view
 **Interfaces:**
 - Consumes: `listMyCheckIns`, `submitMyCheckIn` (Task 6).
 
-- [ ] **Step 8.1: Add the nav link**
+- [x] **Step 8.1: Add the nav link**
 
 In `frontend/src/app/me/layout.tsx`, change the `<nav>` block to include a link (mirrors `(app)/layout.tsx`'s `NAV_LINKS` pattern, scaled down to what exists so far):
 
@@ -1005,7 +1007,7 @@ In `frontend/src/app/me/layout.tsx`, change the `<nav>` block to include a link 
 
 (Add `import Link from "next/link";` to the top of the file.)
 
-- [ ] **Step 8.2: Implement the page**
+- [x] **Step 8.2: Implement the page**
 
 ```tsx
 // frontend/src/app/me/checkins/page.tsx
@@ -1126,15 +1128,15 @@ export default function CheckInsPage() {
 }
 ```
 
-- [ ] **Step 8.3: E2E test**
+- [x] **Step 8.3: E2E test**
 
 Add to `frontend/tests/e2e/auth.spec.ts` or a new `checkins.spec.ts`: mock `/api/me/check-ins` GET returning one pending item and POST returning the answered version; visit `/me/checkins`; select 3 metrics; submit; assert the pending banner disappears and the answer shows under "Past check-ins".
 
-- [ ] **Step 8.4: Run full suite**
+- [x] **Step 8.4: Run full suite**
 
 Run: `cd frontend && npx vitest run && npx playwright test`
 
-- [ ] **Step 8.5: Commit**
+- [x] **Step 8.5: Commit**
 
 ```bash
 git add frontend/src/app/me/checkins/ frontend/src/app/me/layout.tsx frontend/tests/e2e/
@@ -1157,3 +1159,25 @@ git commit -m "feat(me): /me/checkins page — answer pending requests, see hist
 - `_check_in_lifecycle.py`'s existence as a separate tiny module (rather than inlining in `check_ins.py`) is solely to dodge a circular import — flagged so a future reader isn't confused by the split.
 
 **Execution:** Subagent-driven, per SoJo's standing instruction — no execution-choice question needed.
+
+---
+
+## Shipped (2026-07-30)
+
+All 8 tasks complete, individually reviewed, and re-reviewed clean after fix rounds where findings surfaced. Commits `810aaab..6f93aae` on `feature/unit-004-one-stop-spot` (not pushed). Full backend suite: 327/327 passing. Frontend: 120/123 (3 known pre-existing failures unrelated to this phase — see below).
+
+**Real bugs found and fixed during task review, not caught by any test written against this plan's own code samples:**
+- **Task 3**: `CheckIn.payload`'s `JSONB` column defaulted to `none_as_null=False` — `payload=None` stored a JSON `null` literal, not a real SQL `NULL`, silently breaking every `payload IS NULL` "pending" check. Fixed via `JSONB(none_as_null=True)` on the Task 1 model (`backend/src/db/models/coaching.py`), no migration needed.
+- **Task 3**: that same fix exposed two pre-existing, unrelated code paths (`backend/src/api/clients.py`'s `GET /{id}/ast`, `backend/src/llm_service/__init__.py`'s MOM/recap builder) that unconditionally called `.get()` on `payload` — would 500 the first time a pending check-in existed in production. Fixed by filtering both queries to `CheckIn.payload.isnot(None)` (not a null-coalesce — that would have wrongly suppressed the `no_recent_checkin` triage flag for an unanswered request).
+- **Task 5**: the pre-existing daily cron also fires on Saturdays; gating the reminder purely on `_is_saturday_ist()` (see the struck-through, corrected note on Task 5's own Step 5.5 above) meant **every eligible client would have received the reminder email twice each Saturday**. Fixed via an `X-Scheduled-Task` trigger-source header.
+- **Task 8**: the empty-state copy promised "check in any time from here" with no actual UI to do it, and both the load and submit paths silently swallowed failures. Fixed with a `showForm`-gated ad-hoc affordance and distinct `loadError`/`submitError` states.
+
+**Whole-phase review** (`opus`, base `810aaab`, head `6f93aae`) independently re-traced both the payload-guard fix (confirmed exactly 2 call sites repo-wide, both closed, no third gap) and the duplicate-email fix (traced all 5 trigger cases, confirmed fail-closed) and found them sound. It also surfaced items not caught by any single task's own scope:
+- **`_run_check_in_reminders` has no per-client failure isolation** (`backend/src/api/scheduler.py`) — one client's Resend failure mid-loop rolls back the whole batch, so already-sent emails become orphaned from their DB row and a re-run re-mails everyone who succeeded. **Not yet fixed — real production risk, tracked as a follow-up.**
+- **The HC's manual "Request check-in" sends no client email** — D-24's own text is ambiguous on whether it should. Product decision needed, not made here.
+- No `answered_at` timestamp — can't distinguish "answered promptly" from "answered whenever" in the schema as shipped.
+- The 10 metric keys are stored as their display labels, not stable slugs — any future copy change (D-22 explicitly calls the list provisional) silently forks historical data.
+- A stale pending request has no expiry and no HC-side cancel/withdraw.
+- The `X-Scheduled-Task` cron-literal match (`"0 4 * * 6"`) is untested end-to-end — a future cron-time edit would silently stop reminders from firing.
+
+None of the above block this phase's own scope; all are logged in `.superpowers/sdd/progress.md` and flagged to SoJo for follow-up sequencing.
