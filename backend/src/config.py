@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     llm_call_encryption_key: str = ""
     demographics_encryption_key: str = ""
+    google_calendar_encryption_key: str = ""
 
     r2_account_id: str = ""
     r2_access_key_id: str = ""

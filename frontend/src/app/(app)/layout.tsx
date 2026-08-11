@@ -13,8 +13,14 @@ const NAV_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/action-items", label: "Action Items" },
   { href: "/settings/diet-chart-templates", label: "Diet Charts" },
-  { href: "/settings/sessions", label: "Settings" },
+  { href: "/settings/profile", label: "Settings" },
 ] as const;
+
+// The "Settings" nav item stays highlighted across every section of the
+// settings hub (profile, onboarding, ...), not just its own href — unlike
+// "Diet Charts", which is a separate top-level item despite also living
+// under /settings/*.
+const SETTINGS_HUB_PREFIXES = ["/settings/profile", "/settings/onboarding"];
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -65,7 +71,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {/* overflow-x-auto keeps nav from expanding <html> width on 375px screens */}
           <div className="flex min-w-0 flex-1 items-center justify-end gap-3 overflow-x-auto sm:gap-6">
             {NAV_LINKS.map(({ href, label }) => {
-              const active = pathname?.startsWith(href) ?? false;
+              const active =
+                href === "/settings/profile"
+                  ? SETTINGS_HUB_PREFIXES.some((prefix) => pathname?.startsWith(prefix) ?? false)
+                  : (pathname?.startsWith(href) ?? false);
               return (
                 <Link
                   key={href}

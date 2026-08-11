@@ -81,6 +81,27 @@ async def test_ast_no_checkin_in_14_days_triggers_flag(http_client, hc_headers, 
 
 
 @pytest.mark.asyncio
+async def test_ast_pending_checkin_excluded_from_summary(http_client, hc_headers, hc_user, client_rec, db):
+    """A pending (payload=None) check-in within the 14-day window must not count as a
+    real check-in: it should not appear in status_summary and must not suppress
+    'no_recent_checkin'."""
+    pending_checkin = CheckIn(
+        client_id=client_rec.id,
+        hc_user_id=hc_user.id,
+        payload=None,
+        created_at=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    db.add(pending_checkin)
+    await db.flush()
+
+    r = await http_client.get(f"/api/clients/{client_rec.id}/ast", headers=hc_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert "no_recent_checkin" in body["triage_flags"]
+    assert body["status_summary"] == "No recent check-ins."
+
+
+@pytest.mark.asyncio
 async def test_ast_cross_tenant_returns_404(http_client, hc2_headers, client_rec):
     """Different HC cannot access the AST → 404."""
     r = await http_client.get(f"/api/clients/{client_rec.id}/ast", headers=hc2_headers)

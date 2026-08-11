@@ -159,7 +159,7 @@ Add `"SupplementRecommendation"` to `__all__`.
 - [ ] **Step 3: Generate the Alembic migration**
 
 ```bash
-cd /mnt/hdd/yourProjects/OnGoing/Poshini/parivarthan_platform/backend
+cd /mnt/hdd/yourProjects/OnGoing/Poshini/tapas_platform/backend
 source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
 alembic revision --autogenerate -m "add_supplement_recommendations"
 ```
@@ -428,7 +428,7 @@ async def test_delete_supplement_cross_tenant_returns_404(http_client, hc_header
 - [ ] **Step 2: Run the tests — confirm they all fail with import errors**
 
 ```bash
-cd /mnt/hdd/yourProjects/OnGoing/Poshini/parivarthan_platform/backend
+cd /mnt/hdd/yourProjects/OnGoing/Poshini/tapas_platform/backend
 source /mnt/hdd/yourProjects/venv/hc_pf/bin/activate
 pytest tests/integration/test_supplements.py -v 2>&1 | head -30
 ```
@@ -760,7 +760,7 @@ export async function deleteSupplement(
 - [ ] **Step 2: Type-check**
 
 ```bash
-cd /mnt/hdd/yourProjects/OnGoing/Poshini/parivarthan_platform/frontend
+cd /mnt/hdd/yourProjects/OnGoing/Poshini/tapas_platform/frontend
 npm run type-check 2>&1 | tail -20
 ```
 
@@ -1117,7 +1117,7 @@ In the JSX, locate the closing `</section>` of the "Closed action items" section
 - [ ] **Step 6: Type-check**
 
 ```bash
-cd /mnt/hdd/yourProjects/OnGoing/Poshini/parivarthan_platform/frontend
+cd /mnt/hdd/yourProjects/OnGoing/Poshini/tapas_platform/frontend
 npm run type-check 2>&1 | tail -20
 ```
 

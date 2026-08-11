@@ -2,7 +2,8 @@ name: Scheduled Tasks
 
 on:
   schedule:
-    - cron: '0 1 * * *'   # 01:00 UTC = 06:30 IST, daily
+    - cron: '0 1 * * *'   # 01:00 UTC = 06:30 IST, daily (snippet retirement)
+    - cron: '0 4 * * 6'   # 04:00 UTC = 09:30 IST, Saturdays only (check-in reminders)
   workflow_dispatch:        # manual trigger for testing without waiting for cron
 
 jobs:
@@ -11,11 +12,20 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Trigger snippet retirement sweep
+      - name: Trigger scheduled tasks
         run: |
+          RUN_REMINDERS="false"
+          if [ "${{ github.event.schedule }}" = "0 4 * * 6" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RUN_REMINDERS="true"
+          fi
+          SCHEDULED_TASK_HEADER=""
+          if [ "$RUN_REMINDERS" = "true" ]; then
+            SCHEDULED_TASK_HEADER="check_in_reminders"
+          fi
           HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
             -X POST "${{ secrets.API_BASE_URL }}/internal/scheduled-tasks" \
             -H "X-Scheduler-Token: ${{ secrets.SCHEDULER_SECRET }}" \
+            -H "X-Scheduled-Task: $SCHEDULED_TASK_HEADER" \
             -H "Content-Type: application/json")
           echo "HTTP status: $HTTP_STATUS"
           cat /tmp/response.json

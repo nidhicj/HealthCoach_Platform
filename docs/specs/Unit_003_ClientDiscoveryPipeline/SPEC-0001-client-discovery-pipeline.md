@@ -81,7 +81,7 @@ flowchart TD
         S2 --> S3[HC configures questionnaire]
         S3 --> S4[HC configures test panel\nbaseline + condition rules]
         S4 --> S5[HC configures settings\nfee, scheduling link, expiry]
-        S5 --> S6[Intake link live:\nTapas.app/intake/:slug]
+        S5 --> S6[Intake link live:\ntapas.app/intake/:slug]
     end
 
     subgraph Funnel["Lead Intake Funnel"]
@@ -122,7 +122,7 @@ flowchart TD
 
 ### Stage 2 — Lead completes questionnaire
 
-1. Lead opens `parivarthan.app/intake/:slug` on any device (mobile-first design).
+1. Lead opens `tapas.app/intake/:slug` on any device (mobile-first design).
 2. Page renders: HC's name, HC's profile photo, questionnaire. No platform branding that confuses the Lead about who they are engaging with.
 3. Consent notice displayed before the submit button is reachable: *"Your responses will be shared only with [HC Name] for the purpose of your initial health consultation. We do not share your information with any third party."* Lead must tick acknowledgement.
 4. Lead submits.
@@ -151,11 +151,11 @@ Fires immediately after Stage 2 with no HC involvement.
 7. System generates `lead_upload_tokens` row (raw token never stored — SHA-256 hash stored; 14-day expiry).
 8. System sends email to Lead via Resend:
    - Subject: "Your health screening next steps — [HC Name]"
-   - Body: bulleted list of recommended tests, brief explanation, upload link `parivarthan.app/upload/:raw_token`, 14-day deadline.
+   - Body: bulleted list of recommended tests, brief explanation, upload link `tapas.app/upload/:raw_token`, 14-day deadline.
 
 ### Stage 4 — Lead uploads blood report
 
-1. Lead opens `parivarthan.app/upload/:token`.
+1. Lead opens `tapas.app/upload/:token`.
 2. System validates token server-side before rendering any UI (hash match, not expired, not yet used). Invalid states show a plain-language message only — no upload UI shown.
 3. Page renders: HC name, upload instructions, consent notice for health data storage, file upload area.
 4. Lead selects files. Client-side pre-validation: PDF/JPEG/PNG only, ≤10 MB per file, ≤5 files, ≤30 MB total.
@@ -406,7 +406,7 @@ Blood report files are stored on behalf of the Lead and accessible only to the H
 - [ ] `POST /api/leadgen/config/init` with either `users.first_name` or `users.last_name` null returns a structured "profile incomplete" response, not a 500 or raw DB error
 - [ ] `PATCH /api/leadgen/config` with `hc_slug` in the body silently ignores the field — slug in DB unchanged
 - [ ] No endpoint exists that updates `hc_slug` — verified by grepping for any PATCH/PUT route that writes `hc_slug`
-- [ ] Intake link `parivarthan.app/intake/:slug` returns 200 with questionnaire config for a configured HC
+- [ ] Intake link `tapas.app/intake/:slug` returns 200 with questionnaire config for a configured HC
 
 ### Lead questionnaire submission
 

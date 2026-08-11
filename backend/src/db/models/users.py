@@ -18,6 +18,7 @@ class User(Base):
     photo_url: Mapped[str | None] = mapped_column(Text)
     first_name: Mapped[str | None] = mapped_column(Text)  # temporary — see Unit_003 PHASE-01 Global Constraints
     last_name: Mapped[str | None] = mapped_column(Text)   # temporary — see Unit_003 PHASE-01 Global Constraints
+    business_name: Mapped[str | None] = mapped_column(Text)
     is_operator: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     role: Mapped[str] = mapped_column(Text, nullable=False, default="hc", server_default=text("'hc'"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())

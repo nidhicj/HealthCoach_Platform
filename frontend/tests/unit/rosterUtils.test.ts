@@ -19,6 +19,8 @@ const baseSession = (overrides: Partial<SessionOut>): SessionOut => ({
   ended_at: null,
   zoom_meeting_id: null,
   meeting_url: null,
+  google_calendar_event_id: null,
+  google_calendar_event_title: null,
   notes_internal: null,
   session_notes: null,
   created_at: new Date().toISOString(),
@@ -87,7 +89,11 @@ describe("buildFlaggedSet", () => {
 
 describe("findMilestone", () => {
   it("finds a milestone session within last 7 days", () => {
-    const s = baseSession({ session_number: 10, scheduled_at: new Date(Date.now() - 86400000).toISOString() });
+    const s = baseSession({
+      session_number: 10,
+      scheduled_at: new Date(Date.now() - 86400000).toISOString(),
+      ended_at: new Date(Date.now() - 86400000).toISOString(),
+    });
     const result = findMilestone([s], [baseClient({})]);
     expect(result).toEqual({ clientName: "Priya S", sessionNumber: 10 });
   });
