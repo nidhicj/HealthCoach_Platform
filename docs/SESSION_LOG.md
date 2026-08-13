@@ -4,6 +4,44 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-08-12 — Unit_003: main sync, merge conflict resolution, and cross-worktree tooling
+
+**Branch**: `feature/unit-003-client-discovery-pipeline`
+
+**Done**:
+- Merged `main` into this branch (137 commits behind at the start of the session) and resolved all 7 conflicts by hand, one at a time, with SoJo: `users.py` (kept both `first_name`/`last_name` and `business_name` — verified dropping the temp columns would have broken `leadgen.py`'s profile-completeness gate, since main's `/settings/profile` has no field to satisfy it), `email.py` (two unrelated functions git had sliced into 4 alternating hunks — kept both whole), `main.py` (router registration, additive), `SESSION_LOG.md` (reordered chronologically, not just concatenated), this file's own `SPEC-0001` (WIP rewrite vs. the parivarthan→tapas rename — no real conflict), and the two `Unit_006_PlatformFoundations` spec files (a rename-detection artifact from an old misfiled `Unit_005_PlatformFoundations` dir — took main's version outright). Merge concluded as `ea7bbc0`.
+- Found and fixed a real Alembic multi-head split (`5e8385088f08` vs. `b8cb150db2b2`) that the merge itself gave no error for — two migration chains had independently branched off `97ef9da99879` and were never reconciled. Fixed with an empty merge revision, `4bc4af4` (`77bada58d4b1`), generated via the real `alembic merge` command (not hand-authored) and verified with `alembic heads` before/after.
+- Built cross-worktree tooling, live-tested end to end: a `post-merge` git hook (lives once in the shared common `.git/hooks/`, so it's active for all 5 `tapas_*` worktrees automatically) that (a) auto-fetches into every sibling worktree and writes `/mnt/hdd/.../Poshini/SYNC_STATUS.md` with commits-behind-`main` per branch, and (b) checks for Alembic multi-head splits after every merge and prints a loud terminal warning (with the exact heads, filenames, and a ready-to-run fix command) if found — silent otherwise. Neither auto-merges nor auto-fixes; both stay deliberate, attended steps. Added a scoped section to the global `~/.claude/CLAUDE.md` (not this repo's) telling every Claude session to check `SYNC_STATUS.md` at the start of substantive work in a `tapas_*` worktree.
+- Mid-session, a peer Claude Code session working in `tapas_unit004` messaged this session directly (first real use of cross-session messaging in this workflow): flagged a real bug in the hook (staleness was compared against `origin/main` instead of local `main`, understating it in the window after a local merge before pushing) — verified and fixed on the spot — and asked about an unrelated uncommitted `docker-compose.yml` edit sitting in its own worktree, which was confirmed not to be from this session.
+- Published an HTML field guide (artifact) walking through why each of the 7 conflicts happened and 5 general levers to have fewer of them (sync cadence, claim-before-touch, file splitting, one-table-one-owner, migration branching), plus a correction to an initial hexagonal-architecture proposal: it would not have prevented the `users.py` or Alembic conflicts, since those are data-ownership problems, not application-code-boundary problems.
+
+**Decided**:
+- Merge (not rebase) was the right call for syncing this branch — 33 commits were already pushed to origin, and rebasing would have forced a `--force-push` plus per-commit conflict resolution across 102 commits instead of once.
+- `.env.example` conflict resolved by adopting main's generic-template convention (worktree-specific values belong in local, gitignored `.env`, which this worktree already had set correctly) rather than keeping unit-003-specific values committed to the template.
+- The multi-worktree sync automation stays intentionally "detect + notify" only, never "auto-fix" or "auto-merge" — discussed explicitly with SoJo; an unattended merge risks clobbering uncommitted work or leaving a worktree mid-conflict with nobody there to resolve it.
+
+**Bugs fixed mid-session**: see the Alembic multi-head split and the hook's `origin/main` vs. local `main` staleness bug above — both covered under Done, not repeated here.
+
+**Pending / next session**:
+- **Not yet pushed**: this branch is 138 commits ahead of `origin/feature/unit-003-client-discovery-pipeline`, all local. Push is SoJo's call, not done automatically this session.
+- **The "claims" mechanism was designed and then deliberately deferred, not just left undone.** Plan: a shared file outside any single worktree (or a dedicated git ref) that every worktree's Claude session checks/writes before touching a shared resource. Two gaps surfaced once the design got specific: (1) a plain shared file is a best-effort convention, not a lock — two sessions could still race on the same check — and (2) any check that lives purely as a `CLAUDE.md` instruction depends on a Claude session actually reading and following it, which this very session demonstrated is not reliable (dropped the standing preflight-block requirement partway through, despite it being a "no exceptions" rule). A `pre-commit` hook that mechanically warns when staged changes touch a flagged shared path (not dependent on a session choosing to comply) was proposed as a partial fix for the second gap — explicitly declined for now. SoJo's call: handle coordination manually until this has actually caused a real collision, rather than build speculative infrastructure for a race that hasn't happened yet.
+- **Alembic sync monitoring**: SoJo prefers a separate, periodic (cron-style) check that polls each worktree's actual running Postgres container's applied migration state (`alembic_version`) against the codebase — a different, complementary check to the `post-merge` hook's static file-based head count, and explicitly not something to build this session either. Noted for whenever it's actually wanted.
+- **No ADR written yet** for the cross-worktree sync protocol, even though the `post-merge` hook's own header comment references one ("once it's written up as an ADR") — that reference is currently aspirational, not real. Should become `docs/decisions/000X-cross-worktree-sync-protocol.md` per CLAUDE.md §1 rule 14 before this convention is treated as fully locked in.
+- The hook lives only in this machine's local `.git/hooks/` (not git-tracked) — won't survive a fresh clone. Fixable later via `core.hooksPath` + a tracked `.githooks/` dir; explicitly deferred this session to avoid scope creep beyond what was asked.
+- PHASE-02 (public intake questionnaire + lab recommendation + email) is still the actual next feature work for this unit — untouched this session, which was entirely merge/infra, not product work.
+
+**Context the next session needs**:
+- This worktree's Postgres still runs on port 5436 per `.env` (`COMPOSE_PROJECT_NAME=tapas_unit003`) — unchanged by this session.
+- `SYNC_STATUS.md` at `/mnt/hdd/yourProjects/OnGoing/Poshini/SYNC_STATUS.md` is the live source of truth for how stale any `tapas_*` branch is relative to `main` — check it before assuming this branch (or any sibling) is current.
+- The full reasoning behind the sync-protocol design (why merge over rebase, why detect-only over auto-merge, the file-organization vs. shared-data-ownership distinction) lives in this session's conversation, not yet in a doc — see the ADR gap above.
+
+**Open questions for SoJo**:
+- When to build the claims-file mechanism, and which of the two designs (plain external file vs. dedicated git ref) to use.
+- When to write the ADR formalizing this session's sync protocol.
+- Whether/when to push this branch now that it's synced with main.
+
+---
+
 ## 2026-08-04 — Unit_006 PHASE-01: Settings nav corrected to a hub + sidebar
 
 **Done**:
