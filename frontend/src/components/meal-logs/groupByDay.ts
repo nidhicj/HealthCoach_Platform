@@ -4,11 +4,20 @@ const SLOT_ORDER: Record<MealSlot, number> = Object.fromEntries(
   MEAL_SLOTS.map((slot, i) => [slot, i]),
 ) as Record<MealSlot, number>;
 
+const IST_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 function dayKey(log: MealLogOut): string {
-  // Decision 3/1: captured_at's date when present, else logged_at's — both read in local time,
-  // matching this app's IST-first assumption elsewhere (e.g. PHASE-02b's Saturday cron).
+  // Decision 3/1: captured_at's date when present, else logged_at's — both computed in
+  // Asia/Kolkata (IST, UTC+5:30) explicitly, not the browser's ambient local timezone and not
+  // UTC, matching this app's IST-first assumption elsewhere (e.g. PHASE-02b's Saturday cron).
+  // en-CA formats as YYYY-MM-DD, which sorts correctly as a plain string.
   const iso = log.captured_at ?? log.logged_at;
-  return new Date(iso).toISOString().slice(0, 10);
+  return IST_DATE_FORMATTER.format(new Date(iso));
 }
 
 export function groupMealLogsByDay(logs: MealLogOut[]): { day: string; entries: MealLogOut[] }[] {
