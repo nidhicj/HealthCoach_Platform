@@ -22,6 +22,7 @@ from src.api.leadgen import router as leadgen_router
 from src.api.me import router as me_router
 from src.api.sessions import router as sessions_router
 from src.api.settings import router as settings_router
+from src.api.upload import router as upload_router
 from src.auth.router import router as auth_router
 from src.config import get_settings
 from src.lib.rate_limit import limiter
@@ -112,6 +113,7 @@ app.include_router(supplements_router)
 app.include_router(scheduler_router)
 app.include_router(leadgen_router)
 app.include_router(intake_router)
+app.include_router(upload_router)
 app.include_router(settings_router)
 app.include_router(calendar_router)
 
