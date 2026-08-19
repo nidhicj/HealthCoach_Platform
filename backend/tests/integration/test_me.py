@@ -9,6 +9,21 @@ import pytest
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 
+async def _log_meal(http_client, headers, meal_slot: str = "breakfast", filename: str = "meal.jpg") -> dict:
+    """Submit a meal log via the real client-facing endpoint (POST /api/me/meal-logs),
+    mocking storage/EXIF the same way test_client_can_log_meal_with_photo does. Returns
+    the created meal log's JSON body."""
+    with patch("src.api.me.s3_put", new_callable=AsyncMock), \
+         patch("src.api.me.extract_capture_time", return_value=None):
+        r = await http_client.post(
+            "/api/me/meal-logs", headers=headers,
+            data={"meal_slot": meal_slot},
+            files={"photo": (filename, b"\xff\xd8\xff", "image/jpeg")},
+        )
+    assert r.status_code == 201, r.text
+    return r.json()
+
+
 async def _make_session(http_client, headers, client_id: str, num: int = 1) -> dict:
     r = await http_client.post(
         "/api/sessions", headers=headers,
@@ -662,3 +677,31 @@ async def test_client_cannot_see_other_clients_meal_logs(http_client, hc_user, c
     r = await http_client.get("/api/me/meal-logs", headers=client_headers)
     assert r.status_code == 200
     assert r.json()["items"] == []
+
+
+# ── GET /api/me/meal-logs/{id}/photo (PHASE-03 Task 8) ─────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_client_can_download_own_meal_photo(http_client, client_headers, client_rec):
+    meal = await _log_meal(http_client, client_headers)
+    with patch("src.api.me.s3_get", new_callable=AsyncMock, return_value=b"\xff\xd8\xff-fake"):
+        r = await http_client.get(f"/api/me/meal-logs/{meal['id']}/photo", headers=client_headers)
+    assert r.status_code == 200
+    assert r.content == b"\xff\xd8\xff-fake"
+
+
+@pytest.mark.asyncio
+async def test_client_photo_download_with_non_latin1_filename_returns_200(http_client, client_headers, client_rec):
+    """Client-side mirror of Task 7's test_photo_download_with_non_latin1_filename_returns_200
+    (test_meal_logs.py). photo_original_filename is stored raw/unsanitized and Starlette
+    encodes response headers as latin-1, so a plain filename="{name}" Content-Disposition
+    header raises UnicodeEncodeError and 500s the endpoint for non-Latin-1 filenames (e.g.
+    Devanagari, common for phone-camera uploads from Indian users). Must use RFC 5987
+    (filename*=UTF-8''...) encoding instead — same bug/fix as get_meal_log_photo and this
+    module's own get_my_message_attachment."""
+    meal = await _log_meal(http_client, client_headers, filename="तस्वीर.jpg")
+    with patch("src.api.me.s3_get", new_callable=AsyncMock, return_value=b"\xff\xd8\xff"):
+        r = await http_client.get(f"/api/me/meal-logs/{meal['id']}/photo", headers=client_headers)
+    assert r.status_code == 200, r.text
+    assert "filename*=UTF-8''" in r.headers["content-disposition"]

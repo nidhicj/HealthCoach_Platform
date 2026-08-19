@@ -416,3 +416,35 @@ async def list_my_meal_logs(
         next_cursor = encode_cursor(rows[-1].logged_at, rows[-1].id)
 
     return PaginatedList(items=[MealLogOut.model_validate(r) for r in rows], next_cursor=next_cursor)
+
+
+@router.get("/meal-logs/{meal_log_id}/photo")
+async def get_my_meal_log_photo(
+    meal_log_id: UUID,
+    claims: ClientClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> Response:
+    client = await _resolve_client(db, claims, hc_id)
+    meal_log = (await db.execute(
+        select(MealLog).where(MealLog.id == meal_log_id, MealLog.client_id == client.id)
+    )).scalar_one_or_none()
+    if meal_log is None:
+        raise HTTPException(status_code=404, detail="Meal log not found")
+
+    content = await s3_get(meal_log.photo_storage_path)
+    # RFC 5987 encoding: photo_original_filename is stored raw/unsanitized,
+    # and Starlette encodes response headers as latin-1 — a plain
+    # filename="{name}" header raises UnicodeEncodeError and 500s this
+    # endpoint for any non-Latin-1 filename (e.g. Devanagari, common for
+    # phone-camera uploads from Indian users). Same bug/fix as
+    # meal_logs.py:get_meal_log_photo (Task 7) and this module's own
+    # get_my_message_attachment. photo_original_filename is NOT NULL on the
+    # model, but "meal photo" is kept as a defensive fallback to match that
+    # endpoint's style.
+    filename = meal_log.photo_original_filename or "meal photo"
+    return Response(
+        content=content,
+        media_type=meal_log.photo_mime_type,
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(filename)}"},
+    )
