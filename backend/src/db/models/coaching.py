@@ -1,4 +1,4 @@
-"""moms, briefs, action_items, check_ins — the core coaching cycle tables."""
+"""moms, briefs, action_items, check_ins, client_messages — the core coaching cycle tables."""
 from datetime import date, datetime
 from uuid import UUID
 
@@ -99,3 +99,18 @@ class HcStyleSnippet(Base):
     retired_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     relevance_tags: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     use_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+
+class ClientMessage(Base):
+    __tablename__ = "client_messages"
+    __table_args__ = (Index("idx_client_messages_client_sent", "client_id", "sent_at"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
+    client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    hc_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    direction: Mapped[str] = mapped_column(Text, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    attachment_storage_path: Mapped[str | None] = mapped_column(Text)
+    attachment_original_filename: Mapped[str | None] = mapped_column(Text)
+    attachment_mime_type: Mapped[str | None] = mapped_column(Text)
+    sent_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
