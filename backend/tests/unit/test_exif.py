@@ -1,5 +1,5 @@
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 
 import piexif  # dev-only, test-fixture generation — NOT added as a runtime dependency
 from PIL import Image
@@ -19,9 +19,16 @@ def _jpeg_with_datetime_original(dt_str: str) -> bytes:
 
 
 def test_extracts_datetime_original_from_jpeg():
+    # EXIF DateTimeOriginal is camera-local wall-clock time, no offset info.
+    # This codebase's IST-first assumption means "2026:07:15 08:30:00" is
+    # 08:30 IST, which is 03:00 UTC (IST = UTC+5:30). The result must be a
+    # tz-aware datetime whose UTC instant is correct — a naive-equality
+    # assertion here would have missed the original 5h30m bug (C1).
     photo = _jpeg_with_datetime_original("2026:07:15 08:30:00")
     result = extract_capture_time(photo, "image/jpeg")
-    assert result == datetime(2026, 7, 15, 8, 30, 0)
+    assert result is not None
+    assert result.tzinfo is not None
+    assert result.astimezone(timezone.utc) == datetime(2026, 7, 15, 3, 0, 0, tzinfo=timezone.utc)
 
 
 def test_returns_none_for_jpeg_with_no_exif():

@@ -620,6 +620,46 @@ async def test_meal_log_uses_extracted_capture_time_when_present(http_client, cl
 
 
 @pytest.mark.asyncio
+async def test_meal_log_stores_correct_utc_instant_for_evening_ist_capture(
+    http_client, client_headers, client_rec,
+):
+    """PHASE-03 final review Finding C1: a real EXIF-bearing JPEG posted through the
+    actual endpoint, WITHOUT mocking extract_capture_time (only s3_put is mocked) —
+    this round-trip is the only thing that would have caught the original 5h30m bug,
+    where a naive datetime written to a TIMESTAMPTZ column got encoded by asyncpg as
+    the server process's own timezone (UTC in production) instead of being correctly
+    converted from IST. A late-evening IST capture time is the case that silently
+    misfiled meals into the wrong day."""
+    import io
+
+    import piexif
+    from PIL import Image
+
+    img = Image.new("RGB", (4, 4))
+    exif_dict = {"Exif": {piexif.ExifIFD.DateTimeOriginal: b"2026:07:15 20:30:00"}}
+    exif_bytes = piexif.dump(exif_dict)
+    buf = io.BytesIO()
+    img.save(buf, format="jpeg", exif=exif_bytes)
+    photo_bytes = buf.getvalue()
+
+    with patch("src.api.me.s3_put", new_callable=AsyncMock):
+        r = await http_client.post(
+            "/api/me/meal-logs", headers=client_headers,
+            data={"meal_slot": "dinner"},
+            files={"photo": ("dinner.jpg", photo_bytes, "image/jpeg")},
+        )
+    assert r.status_code == 201, r.text
+    captured_at = r.json()["captured_at"]
+    assert captured_at is not None
+    # 2026-07-15 20:30:00 IST == 2026-07-15 15:00:00 UTC (IST = UTC+5:30).
+    # The pre-fix behavior would have produced 2026-07-15T20:30:00Z instead.
+    from datetime import datetime, timezone
+
+    parsed = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+    assert parsed.astimezone(timezone.utc) == datetime(2026, 7, 15, 15, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.asyncio
 async def test_meal_log_rejects_oversized_photo(http_client, client_headers, client_rec):
     """Mirrors test_client_send_message_rejects_oversized_attachment: me.py is a
     client-facing/untrusted surface, so the size check must reject before the
@@ -689,6 +729,30 @@ async def test_client_can_download_own_meal_photo(http_client, client_headers, c
         r = await http_client.get(f"/api/me/meal-logs/{meal['id']}/photo", headers=client_headers)
     assert r.status_code == 200
     assert r.content == b"\xff\xd8\xff-fake"
+
+
+@pytest.mark.asyncio
+async def test_client_cannot_download_other_clients_meal_photo(
+    http_client, hc_user, client_headers, client_rec, db,
+):
+    """Client-side mirror of test_meal_logs.py::test_photo_download_cross_tenant_returns_404
+    (PHASE-03 final review Finding I2.4): the client-facing download-proxy must scope on
+    the caller's own client_id, not just hc_id — a second real client account under the
+    same HC, built the same way test_client_cannot_see_other_clients_meal_logs does,
+    proves a client cannot fetch another client's meal photo."""
+    from src.db.models import Client
+    from tests.integration.conftest import _make_user, auth_headers
+
+    other_user = await _make_user(db, "client")
+    other_client = Client(hc_user_id=hc_user.id, full_name="Other Client", user_id=other_user.id)
+    db.add(other_client)
+    await db.flush()
+    other_headers = auth_headers(other_user.id, "client", hc_id=str(hc_user.id))
+
+    meal = await _log_meal(http_client, client_headers)
+
+    r = await http_client.get(f"/api/me/meal-logs/{meal['id']}/photo", headers=other_headers)
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio

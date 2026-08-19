@@ -7,12 +7,18 @@ from __future__ import annotations
 
 import io
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from PIL import ExifTags, Image
 
 _DATETIME_ORIGINAL_TAG = next(
     tag_id for tag_id, name in ExifTags.TAGS.items() if name == "DateTimeOriginal"
 )
+
+# EXIF DateTimeOriginal is camera-local wall-clock time with no offset info.
+# This codebase assumes IST throughout for its India-first users (e.g. s3.py,
+# the check-in reminder cron) — treat capture times the same way.
+_IST = ZoneInfo("Asia/Kolkata")
 
 # EXIF's own datetime string format, e.g. "2026:07:15 08:30:00" — colons in the date
 # portion, not hyphens, per the EXIF 2.3 spec.
@@ -36,6 +42,11 @@ def extract_capture_time(image_bytes: bytes, mime_type: str) -> datetime | None:
             raw_value = exif_ifd.get(_DATETIME_ORIGINAL_TAG)
             if not raw_value:
                 return None
-            return datetime.strptime(raw_value, _EXIF_DATETIME_FORMAT)
+            naive = datetime.strptime(raw_value, _EXIF_DATETIME_FORMAT)
+            # Interpret as IST rather than leaving it naive — asyncpg encodes
+            # naive datetimes via .astimezone(utc), i.e. in the server
+            # process's own timezone (UTC in production), which would
+            # otherwise silently shift every capture time by up to 5h30m.
+            return naive.replace(tzinfo=_IST)
     except Exception:
         return None

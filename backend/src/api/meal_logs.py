@@ -1,5 +1,5 @@
 """HC-side meal_logs list/react endpoints. Client-side submit lives in me.py."""
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import quote
 from uuid import UUID
 
@@ -108,7 +108,7 @@ async def react_to_meal_log(
         raise HTTPException(status_code=404, detail="Meal log not found")
 
     meal_log.hc_reaction = body.reaction
-    meal_log.reacted_at = datetime.now(tz=meal_log.logged_at.tzinfo)
+    meal_log.reacted_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(meal_log)
