@@ -49,6 +49,12 @@ def build_message_attachment_key(client_id: UUID, message_id: UUID, filename: st
     return f"client-{client_id}/messages/{message_id}/{sanitized_file}"
 
 
+def build_meal_photo_key(client_id: UUID, meal_log_id: UUID, filename: str) -> str:
+    """Returns R2 key: client-{client_id}/meal-logs/{meal_log_id}/{sanitized_filename}"""
+    sanitized_file = _sanitize(filename, max_len=200)
+    return f"client-{client_id}/meal-logs/{meal_log_id}/{sanitized_file}"
+
+
 # ── Sig V4 signing ────────────────────────────────────────────────────────────
 
 

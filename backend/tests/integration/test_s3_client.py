@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.lib.s3 import _sanitize, build_message_attachment_key, build_session_file_key, s3_delete, s3_put
+from src.lib.s3 import _sanitize, build_meal_photo_key, build_message_attachment_key, build_session_file_key, s3_delete, s3_put
 
 
 # ── Key builder tests ─────────────────────────────────────────────────────────
@@ -81,6 +81,24 @@ def test_build_message_attachment_key_sanitizes_filename():
     client_id = uuid.uuid4()
     message_id = uuid.uuid4()
     key = build_message_attachment_key(client_id, message_id, "my photo (1)!.jpg")
+    assert " " not in key and "(" not in key and "!" not in key
+
+
+def test_build_meal_photo_key_structure():
+    """build_meal_photo_key produces the expected path structure."""
+    import uuid
+    client_id = uuid.uuid4()
+    meal_log_id = uuid.uuid4()
+    key = build_meal_photo_key(client_id, meal_log_id, "breakfast.jpg")
+    assert key == f"client-{client_id}/meal-logs/{meal_log_id}/breakfast.jpg"
+
+
+def test_build_meal_photo_key_sanitizes_filename():
+    """Filenames with spaces and special chars are sanitized."""
+    import uuid
+    client_id = uuid.uuid4()
+    meal_log_id = uuid.uuid4()
+    key = build_meal_photo_key(client_id, meal_log_id, "my meal (1)!.heic")
     assert " " not in key and "(" not in key and "!" not in key
 
 
