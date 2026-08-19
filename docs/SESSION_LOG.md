@@ -4,6 +4,72 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-08-19 — Unit_004 PHASE-03: Logged Meals (photo-based meal logging, both directions)
+
+**Done**:
+- Executed the pre-written `PHASE-03-logged-meals.md` plan (Tasks 1-13) via
+  `superpowers:subagent-driven-development`, immediately following PHASE-02c in the same
+  session: `meal_logs` table + model, EXIF capture-time extraction (Pillow), S3 key-builder,
+  `backend/src/api/meal_logs.py` (HC-side list/react/photo-download), client-side extensions to
+  `backend/src/api/me.py` (submit/list/photo-download), shared `groupMealLogsByDay`/`MealCard`
+  frontend building blocks, a third "Logged Meals" sub-tab inside the HC-side `ChatTab`, and a
+  new Text/Meals two-tab restructuring of the client-facing `/me/chat` page.
+- Two real plan-vs-reality ordering/architecture defects found and ruled on before dispatch
+  (not discovered mid-task): Task 4/Task 5 had a circular module dependency (swapped execution
+  order); Task 12 assumed Check-ins was already nested inside `/me/chat` per D-31's original
+  intent, but it actually shipped as a separate top-level route — built a Text/Meals two-tab
+  switcher instead of the assumed three.
+- Each task individually reviewed, with fix rounds where findings surfaced — see PHASE-03's own
+  "Shipped" section for the full list (EXIF sub-IFD bug, MealLog NOT NULL constraint bug, a
+  vacuous cross-client leakage test caught via mutation testing, an IST-vs-UTC day-grouping bug).
+- **Final whole-plan review** (opus) caught a genuinely serious cross-task Critical bug no
+  single task's reviewer could see: `extract_capture_time` returned a naive datetime, and
+  asyncpg encodes naive datetimes in the *server's own timezone* — silently shifting every
+  EXIF-bearing capture time by up to 5h30m, so any meal photographed at/after 18:30 IST was
+  misfiled into the wrong day with zero error signal. Fixed with explicit IST interpretation and
+  a new round-trip test that exercises the real extraction path (the only test that would have
+  caught it). Also fixed in the same pass: unified three-way-split timezone display into shared
+  helpers, added missing RTL test coverage for both new UI surfaces (discovering and fixing one
+  more bug — a submit button whose own disabled-state made its "photo required" validation
+  unreachable), and closed a gap where `MealCard` unconditionally showed a client their own
+  meal's HC reaction — never authorized by any product decision.
+- Full backend suite: 404/404 passing. Frontend vitest: 160/160 passing (22 files). `tsc
+  --noEmit`: zero new errors.
+
+**Decided** (link ADRs):
+- No new ADRs. `backend/.venv` (not the shared cross-worktree `hc_pf` venv) documented as what
+  this phase's code was actually verified against — `hc_pf` is missing Pillow/piexif and was
+  deliberately left untouched (shared infrastructure, out of this session's blast radius).
+
+**Pending / next session**:
+- Per SoJo's explicit instruction this session, build order is PHASE-02c → PHASE-03 → PHASE-04.
+  PHASE-04 (Payments) is next — fully independent of everything else in Unit_004 per the SPEC's
+  own build sequence, so no dependency-risk pre-check is expected to be needed the way it was
+  for PHASE-03's frontend tasks.
+- **Needs SoJo's explicit product sign-off, not resolved this session**: should a client be able
+  to see the HC's reaction (happy/neutral/sad emoji) on their own logged meal? Currently
+  defaults to hidden (`MealCard`'s `showReaction` prop, conservative default) pending that call.
+- Not yet fixed, flagged as follow-ups (see PHASE-03's "Shipped" section for full detail): all
+  six items already listed in the phase-plan's own "Known follow-ups" section (D-26's three
+  pinned questions, schema-gap provisional defaults, D-24 Roster Board indicator, HEIC EXIF
+  support, GPS EXIF stripping, S3 cascade-delete purge), plus `ClientMessage` still missing from
+  the shared cascade-delete test, no pagination UI on either meal-log list, and two small
+  constant-duplication cosmetic gaps (`valid_slots` location, MIME accept-list not shared).
+
+**Context the next session needs**:
+- SDD ledger for this phase (full task-by-task record, all review findings, all rulings):
+  `.superpowers/sdd/PHASE-03-logged-meals/progress.md` (will be deleted once this entry is
+  read and confirmed — git history is the durable record after that).
+- The stale `SPEC-0001-one-stop-spot.md` F5 table row flagged in PHASE-02c's session-log entry
+  is still unresolved — carrying that open item forward.
+
+**Open questions for SoJo**:
+- Client-visible HC reactions on meal logs — see "Pending" above.
+- Should the stale SPEC-0001 F5 table row be corrected now, or left until F5 (WhatsApp) is
+  actually built? (Same open question as PHASE-02c's entry — still open.)
+
+---
+
 ## 2026-08-19 — Unit_004 PHASE-02c: Free Messaging (Text tab, both directions)
 
 **Done**:

@@ -59,11 +59,11 @@ Per this repo's convention (see PHASE-02b Design Decision 4, PHASE-02c Design De
 **Interfaces:**
 - Produces: `MealLog(id, client_id, hc_user_id, meal_slot, description, photo_storage_path, photo_original_filename, photo_mime_type, captured_at, logged_at, hc_reaction, reacted_at)` — every task below consumes this model.
 
-- [ ] **Step 1.1: Check current migration head**
+- [x] **Step 1.1: Check current migration head**
 
 Run: `cd backend && alembic heads`. **Do not assume it's `c8af0b7b55f9`** — per the Global Constraints note above, re-verify against whatever PHASE-02b/02c have actually landed by execution time, and set `down_revision` accordingly.
 
-- [ ] **Step 1.2: Generate and write the migration**
+- [x] **Step 1.2: Generate and write the migration**
 
 Run: `cd backend && alembic revision -m "add_meal_logs_table"`
 
@@ -115,7 +115,7 @@ def downgrade() -> None:
     op.drop_table("meal_logs")
 ```
 
-- [ ] **Step 1.3: Add the model**
+- [x] **Step 1.3: Add the model**
 
 In `backend/src/db/models/coaching.py`, update the module docstring to include `meal_logs` and add:
 
@@ -140,14 +140,14 @@ class MealLog(Base):
 
 Add `MealLog` to `backend/src/db/models/__init__.py`'s import from `coaching` and to `__all__`, matching how `ClientMessage` was added there in PHASE-02c Task 1.
 
-- [ ] **Step 1.4: Run — apply and verify**
+- [x] **Step 1.4: Run — apply and verify**
 
 ```bash
 cd backend && alembic upgrade head
 DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas_dev alembic upgrade head
 ```
 
-- [ ] **Step 1.5: Commit**
+- [x] **Step 1.5: Commit**
 
 ```bash
 git add backend/alembic/versions/ backend/src/db/models/coaching.py backend/src/db/models/__init__.py
@@ -165,7 +165,7 @@ git commit -m "feat(meal-logs): meal_logs table + model (PHASE-03 Task 1)"
 **Interfaces:**
 - Produces: `build_meal_photo_key(client_id: UUID, meal_log_id: UUID, filename: str) -> str` — Task 4 consumes this.
 
-- [ ] **Step 2.1: Write the failing test**
+- [x] **Step 2.1: Write the failing test**
 
 ```python
 def test_build_meal_photo_key_structure():
@@ -183,11 +183,11 @@ def test_build_meal_photo_key_sanitizes_filename():
     assert " " not in key and "(" not in key and "!" not in key
 ```
 
-- [ ] **Step 2.2: Run — confirm failure**
+- [x] **Step 2.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/unit/test_s3.py -k meal_photo -v`
 
-- [ ] **Step 2.3: Implement**
+- [x] **Step 2.3: Implement**
 
 Add to `backend/src/lib/s3.py`, right below `build_message_attachment_key` (if PHASE-02c has landed by then) or below `build_session_file_key` otherwise:
 
@@ -198,7 +198,7 @@ def build_meal_photo_key(client_id: UUID, meal_log_id: UUID, filename: str) -> s
     return f"client-{client_id}/meal-logs/{meal_log_id}/{sanitized_file}"
 ```
 
-- [ ] **Step 2.4: Run — confirm pass, then commit**
+- [x] **Step 2.4: Run — confirm pass, then commit**
 
 ```bash
 cd backend && pytest tests/unit/test_s3.py -v
@@ -218,11 +218,11 @@ git commit -m "feat(meal-logs): S3 key-builder for meal photos (PHASE-03 Task 2)
 **Interfaces:**
 - Produces: `extract_capture_time(image_bytes: bytes, mime_type: str) -> datetime | None` — Task 4 consumes this. Returns `None` (never raises) whenever EXIF is absent, unparseable, or the format isn't supported (per Decision 5, this includes all HEIC images in this plan) — Decision 1's missing-EXIF path always has a value to fall back to.
 
-- [ ] **Step 3.1: Add the dependency**
+- [x] **Step 3.1: Add the dependency**
 
 In `backend/pyproject.toml`, add `"Pillow>=10.0",` to the `dependencies` list (alongside `resend>=2.0`, etc.). Run `cd backend && uv sync` (or this repo's equivalent lockfile-sync command — check `backend/README.md` or existing CI config for the exact command if `uv` isn't confirmed) to install it before writing tests that import `PIL`.
 
-- [ ] **Step 3.2: Write the failing tests**
+- [x] **Step 3.2: Write the failing tests**
 
 ```python
 # backend/tests/unit/test_exif.py
@@ -272,12 +272,12 @@ def test_returns_none_for_corrupt_bytes_without_raising():
 
 Add `piexif` as a **dev-only** test dependency (`backend/pyproject.toml`'s `[dependency-groups] dev` list) — it's used solely to *construct* EXIF-bearing JPEG fixtures for this test file, never imported by application code.
 
-- [ ] **Step 3.3: Run — confirm failure**
+- [x] **Step 3.3: Run — confirm failure**
 
 Run: `cd backend && pytest tests/unit/test_exif.py -v`
 Expected: FAIL — module doesn't exist
 
-- [ ] **Step 3.4: Implement**
+- [x] **Step 3.4: Implement**
 
 ```python
 # backend/src/lib/exif.py
@@ -320,7 +320,7 @@ def extract_capture_time(image_bytes: bytes, mime_type: str) -> datetime | None:
         return None
 ```
 
-- [ ] **Step 3.5: Run — confirm pass, then commit**
+- [x] **Step 3.5: Run — confirm pass, then commit**
 
 ```bash
 cd backend && pytest tests/unit/test_exif.py -v
@@ -340,7 +340,7 @@ git commit -m "feat(meal-logs): EXIF capture-time extraction helper, Pillow depe
 - Consumes: `build_meal_photo_key` (Task 2), `extract_capture_time` (Task 3), `s3_put` (existing).
 - Produces: `MealLogOut{id, client_id, hc_user_id, meal_slot, description, photo_original_filename, photo_mime_type, captured_at, logged_at, hc_reaction, reacted_at}`, defined in `meal_logs.py` (Task 5) and imported into `me.py` — same cross-import pattern as `CheckInOut`/`MessageOut`.
 
-- [ ] **Step 4.1: Write the failing tests**
+- [x] **Step 4.1: Write the failing tests**
 
 ```python
 ALLOWED_MEAL_PHOTO_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}  # see meal_logs.py, Task 5
@@ -409,11 +409,11 @@ async def test_meal_log_uses_extracted_capture_time_when_present(http_client, cl
     assert r.json()["captured_at"] is not None
 ```
 
-- [ ] **Step 4.2: Run — confirm failure**
+- [x] **Step 4.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/integration/test_me.py -k meal_log -v`
 
-- [ ] **Step 4.3: Implement**
+- [x] **Step 4.3: Implement**
 
 Add to the imports at the top of `backend/src/api/me.py`:
 
@@ -476,13 +476,13 @@ async def submit_my_meal_log(
 
 (`File` needs importing from `fastapi` alongside the existing `Form`/`UploadFile` imports in `me.py` if not already present.)
 
-- [ ] **Step 4.4: Run — confirm pass, then full backend suite**
+- [x] **Step 4.4: Run — confirm pass, then full backend suite**
 
 ```bash
 cd backend && pytest tests/integration/test_me.py -v && pytest -x
 ```
 
-- [ ] **Step 4.5: Commit**
+- [x] **Step 4.5: Commit**
 
 ```bash
 git add backend/src/api/me.py backend/tests/integration/test_me.py
@@ -501,7 +501,7 @@ git commit -m "feat(me): client submits a meal log with mandatory photo + EXIF c
 **Interfaces:**
 - Produces: `MealLogOut` (consumed by `me.py`, Task 4), `GET /api/clients/{client_id}/meal-logs -> PaginatedList[MealLogOut]`, `POST /api/clients/{client_id}/meal-logs/{meal_log_id}/react -> MealLogOut` — Task 10 (frontend HC wrappers) consumes both.
 
-- [ ] **Step 5.1: Write the failing tests**
+- [x] **Step 5.1: Write the failing tests**
 
 ```python
 # backend/tests/integration/test_meal_logs.py
@@ -580,12 +580,12 @@ async def test_react_rejects_invalid_value(http_client, hc_headers, client_heade
     assert r.status_code == 422
 ```
 
-- [ ] **Step 5.2: Run — confirm failure**
+- [x] **Step 5.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/integration/test_meal_logs.py -v`
 Expected: FAIL — module/routes don't exist
 
-- [ ] **Step 5.3: Implement**
+- [x] **Step 5.3: Implement**
 
 ```python
 # backend/src/api/meal_logs.py
@@ -712,13 +712,13 @@ from src.api.meal_logs import router as meal_logs_router
 app.include_router(meal_logs_router)
 ```
 
-- [ ] **Step 5.4: Run — confirm pass, then full backend suite**
+- [x] **Step 5.4: Run — confirm pass, then full backend suite**
 
 ```bash
 cd backend && pytest tests/integration/test_meal_logs.py -v && pytest -x
 ```
 
-- [ ] **Step 5.5: Commit**
+- [x] **Step 5.5: Commit**
 
 ```bash
 git add backend/src/api/meal_logs.py backend/src/main.py backend/tests/integration/test_meal_logs.py
@@ -737,7 +737,7 @@ git commit -m "feat(meal-logs): HC-side list + 3-option react endpoints (PHASE-0
 - Consumes: `MealLogOut` (Task 5).
 - Produces: `GET /api/me/meal-logs -> PaginatedList[MealLogOut]` — Task 12 (client-facing frontend view) consumes this.
 
-- [ ] **Step 6.1: Write the failing tests**
+- [x] **Step 6.1: Write the failing tests**
 
 ```python
 @pytest.mark.asyncio
@@ -766,11 +766,11 @@ async def test_client_cannot_see_other_clients_meal_logs(http_client, hc_headers
     assert r.json()["items"] == []
 ```
 
-- [ ] **Step 6.2: Run — confirm failure**
+- [x] **Step 6.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/integration/test_me.py -k "meal_log and list" -v`
 
-- [ ] **Step 6.3: Implement**
+- [x] **Step 6.3: Implement**
 
 Add to `backend/src/api/me.py`:
 
@@ -805,7 +805,7 @@ async def list_my_meal_logs(
     return PaginatedList(items=[MealLogOut.model_validate(r) for r in rows], next_cursor=next_cursor)
 ```
 
-- [ ] **Step 6.4: Run — confirm pass, then commit**
+- [x] **Step 6.4: Run — confirm pass, then commit**
 
 ```bash
 cd backend && pytest tests/integration/test_me.py -v
@@ -825,7 +825,7 @@ git commit -m "feat(me): client lists own meal logs (PHASE-03 Task 6)"
 - Consumes: `s3_get` (existing).
 - Produces: raw photo bytes with `Content-Disposition: inline` — Task 11 (HC frontend) renders these as `<img src="...">`.
 
-- [ ] **Step 7.1: Write the failing test**
+- [x] **Step 7.1: Write the failing test**
 
 ```python
 @pytest.mark.asyncio
@@ -850,11 +850,11 @@ async def test_photo_download_cross_tenant_returns_404(http_client, hc_headers, 
     assert r.status_code == 404
 ```
 
-- [ ] **Step 7.2: Run — confirm failure**
+- [x] **Step 7.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/integration/test_meal_logs.py -k photo -v`
 
-- [ ] **Step 7.3: Implement**
+- [x] **Step 7.3: Implement**
 
 Add to `backend/src/api/meal_logs.py` (needs `Response` from `fastapi` and `s3_get` imported):
 
@@ -886,7 +886,7 @@ async def get_meal_log_photo(
     )
 ```
 
-- [ ] **Step 7.4: Run — confirm pass, then commit**
+- [x] **Step 7.4: Run — confirm pass, then commit**
 
 ```bash
 cd backend && pytest tests/integration/test_meal_logs.py -v
@@ -905,7 +905,7 @@ git commit -m "feat(meal-logs): HC-side photo download-proxy (PHASE-03 Task 7)"
 **Interfaces:**
 - Produces: the client's own version of Task 7, scoped to their own `client_id` via `ClientClaimsDep` — Task 12 (client frontend) renders these.
 
-- [ ] **Step 8.1: Write the failing test**
+- [x] **Step 8.1: Write the failing test**
 
 ```python
 @pytest.mark.asyncio
@@ -918,11 +918,11 @@ async def test_client_can_download_own_meal_photo(http_client, client_headers, c
     assert r.content == b"\xff\xd8\xff-fake"
 ```
 
-- [ ] **Step 8.2: Run — confirm failure**
+- [x] **Step 8.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/integration/test_me.py -k meal_photo -v`
 
-- [ ] **Step 8.3: Implement**
+- [x] **Step 8.3: Implement**
 
 Add to `backend/src/api/me.py`:
 
@@ -949,7 +949,7 @@ async def get_my_meal_log_photo(
     )
 ```
 
-- [ ] **Step 8.4: Run — confirm pass, then full backend suite, then commit**
+- [x] **Step 8.4: Run — confirm pass, then full backend suite, then commit**
 
 ```bash
 cd backend && pytest tests/integration/test_me.py -v && pytest -x
@@ -967,7 +967,7 @@ git commit -m "feat(me): client-side photo download-proxy (PHASE-03 Task 8)"
 **Interfaces:**
 - Produces: `MealLogOutSchema`/`MealLogOut` type, `listClientMealLogs(clientId)`, `reactToMealLog(clientId, mealLogId, reaction)`, `mealLogPhotoUrl(clientId, mealLogId)` (HC-side); `listMyMealLogs()`, `submitMyMealLog(input)`, `myMealLogPhotoUrl(mealLogId)` (client-side) — Tasks 11/12 consume these.
 
-- [ ] **Step 9.1: Implement**
+- [x] **Step 9.1: Implement**
 
 ```ts
 // frontend/src/lib/api/mealLogs.ts
@@ -1054,11 +1054,11 @@ export function myMealLogPhotoUrl(mealLogId: string): string {
 }
 ```
 
-- [ ] **Step 9.2: Unit test the schema/wrappers**
+- [x] **Step 9.2: Unit test the schema/wrappers**
 
 Add `frontend/tests/unit/mealLogs-api.test.ts`, one `it(...)` per exported function, mocking `fetchWithAuth` — same style as `frontend/tests/unit/me-api.test.ts`'s existing tests.
 
-- [ ] **Step 9.3: Run — confirm pass, then commit**
+- [x] **Step 9.3: Run — confirm pass, then commit**
 
 ```bash
 cd frontend && npx vitest run tests/unit/mealLogs-api.test.ts
@@ -1079,7 +1079,7 @@ git commit -m "feat(meal-logs): frontend API wrappers, HC + client side (PHASE-0
 - Produces: `groupMealLogsByDay(logs: MealLogOut[]): { day: string; entries: MealLogOut[] }[]` (Decision 3: groups by `captured_at`'s date if present, else `logged_at`'s date; within a day, sub-sorts by the fixed slot order, then `logged_at` ascending within a shared slot) — consumed by both Task 11 (HC view) and Task 12 (client view), so the grouping logic is written once, not duplicated.
 - `MealCard` — one meal's photo/description/slot label/reaction, used read-only in both HC and client views (the HC view additionally overlays the reaction picker, added in Task 11, on top of this shared card).
 
-- [ ] **Step 10.1: Write the failing test**
+- [x] **Step 10.1: Write the failing test**
 
 ```ts
 // frontend/tests/unit/groupByDay.test.ts
@@ -1131,11 +1131,11 @@ describe("groupMealLogsByDay", () => {
 });
 ```
 
-- [ ] **Step 10.2: Run — confirm failure**
+- [x] **Step 10.2: Run — confirm failure**
 
 Run: `cd frontend && npx vitest run tests/unit/groupByDay.test.ts`
 
-- [ ] **Step 10.3: Implement**
+- [x] **Step 10.3: Implement**
 
 ```ts
 // frontend/src/components/meal-logs/groupByDay.ts
@@ -1207,7 +1207,7 @@ export function MealCard({
 }
 ```
 
-- [ ] **Step 10.4: Run — confirm pass, then commit**
+- [x] **Step 10.4: Run — confirm pass, then commit**
 
 ```bash
 cd frontend && npx vitest run
@@ -1226,7 +1226,7 @@ git commit -m "feat(meal-logs): shared day-grouping helper + MealCard component 
 - Consumes: `listClientMealLogs`, `reactToMealLog`, `mealLogPhotoUrl` (Task 9), `groupMealLogsByDay`, `MealCard` (Task 10).
 - Produces: a third `TabsTrigger`/`TabsContent` pair inside `ChatTab`, alongside PHASE-02c's Text and PHASE-02b's Check-ins.
 
-- [ ] **Step 11.1: Add the third sub-tab**
+- [x] **Step 11.1: Add the third sub-tab**
 
 **This step's exact diff depends on PHASE-02b/02c's real shipped `ChatTab` code**, which does not exist yet as of this plan being written (see top-of-file dependency callout). The shape assumed here, based on their plan documents: `ChatTab` holds `subTab` state and a `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent` switcher with `"text"` and `"checkins"` values (PHASE-02c Task 5). Add a third value:
 
@@ -1244,7 +1244,7 @@ git commit -m "feat(meal-logs): shared day-grouping helper + MealCard component 
 
 If the real shipped `ChatTab` uses a different state/component shape, adapt this insertion point accordingly — the important thing this task must produce either way is a `LoggedMealsView` reachable as a third peer of Text/Check-ins.
 
-- [ ] **Step 11.2: Implement `LoggedMealsView`**
+- [x] **Step 11.2: Implement `LoggedMealsView`**
 
 ```tsx
 function LoggedMealsView({ clientId }: { clientId: string }) {
@@ -1304,11 +1304,11 @@ function LoggedMealsView({ clientId }: { clientId: string }) {
 
 Add imports: `listClientMealLogs, reactToMealLog, mealLogPhotoUrl, type MealLogOut` from `@/lib/api/mealLogs`; `groupMealLogsByDay` from `@/components/meal-logs/groupByDay`; `MealCard` from `@/components/meal-logs/MealCard`.
 
-- [ ] **Step 11.3: E2E — extend mocks + add a test**
+- [x] **Step 11.3: E2E — extend mocks + add a test**
 
 Extend `frontend/tests/e2e/fixtures/mock-api.ts` with `/api/clients/{id}/meal-logs` GET/POST-react handlers; add a test clicking the "Logged Meals" sub-tab, asserting a day heading and a meal card render, clicking a reaction face, asserting it highlights.
 
-- [ ] **Step 11.4: Run full frontend suite, then commit**
+- [x] **Step 11.4: Run full frontend suite, then commit**
 
 ```bash
 cd frontend && npx vitest run && npx playwright test
@@ -1326,7 +1326,7 @@ git commit -m "feat(client-detail): Logged Meals sub-view inside Chat tab, HC si
 **Interfaces:**
 - Consumes: `listMyMealLogs`, `submitMyMealLog`, `myMealLogPhotoUrl` (Task 9), `groupMealLogsByDay`, `MealCard` (Task 10).
 
-- [ ] **Step 12.1: Add the third sub-tab to `/me/chat`**
+- [x] **Step 12.1: Add the third sub-tab to `/me/chat`**
 
 Per D-31: "`/me/chat` ← messaging (D-25) + meal-logging (F3) nested inside, mirrors D-20's own Text/Check-ins/Logged Meals grouping." **This assumes PHASE-02c's `/me/chat/page.tsx` already has its own sub-tab switcher by the time this task runs** — if PHASE-02c shipped `/me/chat` as a single Text-only view with no switcher yet (plausible, since PHASE-02c's own plan only mentions Text), this task must *add* the switcher, not just a third branch of one. Check the real file before writing this diff.
 
@@ -1343,7 +1343,7 @@ Target shape (adapt to what's actually there):
         </TabsContent>
 ```
 
-- [ ] **Step 12.2: Implement `MyMealLogsView`**
+- [x] **Step 12.2: Implement `MyMealLogsView`**
 
 ```tsx
 function MyMealLogsView() {
@@ -1439,11 +1439,11 @@ Note on `capture="environment"`: this is the soft, non-blocking nudge described 
 
 Add imports: `listMyMealLogs, submitMyMealLog, myMealLogPhotoUrl, MEAL_SLOTS, MEAL_SLOT_LABELS, type MealLogOut, type MealSlot` from `@/lib/api/mealLogs`; `groupMealLogsByDay` from `@/components/meal-logs/groupByDay`; `MealCard` from `@/components/meal-logs/MealCard`; `Button` from `@/components/ui/button`.
 
-- [ ] **Step 12.3: E2E test**
+- [x] **Step 12.3: E2E test**
 
 Add to a new or existing `/me/chat` e2e spec: mock `/api/me/meal-logs` GET/POST; visit `/me/chat`, switch to the "Logged Meals" sub-tab, attempt submit with no photo (assert the inline error), then submit with a photo attached (assert it appears under today's day group).
 
-- [ ] **Step 12.4: Run full frontend suite, then commit**
+- [x] **Step 12.4: Run full frontend suite, then commit**
 
 ```bash
 cd frontend && npx vitest run && npx playwright test
@@ -1461,7 +1461,7 @@ git commit -m "feat(me): meal-logging + history nested in /me/chat, client side 
 **Interfaces:**
 - None new — this verifies Task 1's `ON DELETE CASCADE` foreign key actually fires, per CLAUDE.md §9 principle 8 ("deletion is real") and the spec's §7 compliance note ("when a client is deleted, cascade-delete... meal logs").
 
-- [ ] **Step 13.1: Write the failing test**
+- [x] **Step 13.1: Write the failing test**
 
 ```python
 @pytest.mark.asyncio
@@ -1488,11 +1488,11 @@ async def test_deleting_client_cascades_to_meal_logs(http_client, hc_headers, cl
 
 Note: this test does **not** verify the underlying S3 photo object is also deleted — `ON DELETE CASCADE` only removes the DB row, not the R2 object at `photo_storage_path`. Whether client deletion should also purge S3 objects (across every table that stores one — `client_files`, and now `meal_logs`) is a pre-existing gap this plan doesn't newly introduce or newly fix; flagging it in Self-review rather than silently scoping it into this task.
 
-- [ ] **Step 13.2: Run — confirm failure, then implement if needed, then pass**
+- [x] **Step 13.2: Run — confirm failure, then implement if needed, then pass**
 
 Run: `cd backend && pytest tests/integration/test_clients.py -k meal_log_cascade -v`. If Task 1's `ondelete="CASCADE"` FK is correct, this should pass with zero additional code — it's a verification task, not new logic.
 
-- [ ] **Step 13.3: Full backend suite, then commit**
+- [x] **Step 13.3: Full backend suite, then commit**
 
 ```bash
 cd backend && pytest -x
@@ -1532,3 +1532,90 @@ git commit -m "test(meal-logs): verify DPDP deletion cascade for meal_logs (PHAS
 - S3 object deletion on client-delete cascade (pre-existing gap, not newly introduced) — noted in Task 13.
 
 **Execution:** Subagent-driven, per SoJo's standing instruction — no execution-choice question needed.
+
+---
+
+## Shipped (2026-08-19)
+
+All 13 tasks complete, individually reviewed (with fix rounds where findings surfaced), plus a
+final whole-plan review that caught one Critical cross-task defect no single task's reviewer
+could see. Commits `7a1691e..3e78259` (tasks) then `719e4d3..6b90b9f` (final-review fix wave)
+on `feature/unit-004-one-stop-spot` (not pushed). Full backend suite: 404/404 passing. Frontend
+vitest: 160/160 passing (22 files). `tsc --noEmit`: zero new errors.
+
+**The dependency risk flagged at the top of this file was real but resolved cleanly.**
+PHASE-02c shipped in the same session immediately before this plan, giving `ChatTab` exactly
+the assumed `subTab`/`Tabs` shape (Task 11 applied cleanly, no adaptation). `/me/chat` shipped
+as the "plausible" Text-only case with no switcher — Task 12 correctly added one from scratch,
+and further discovered Check-ins was never actually nested inside `/me/chat` at all (a separate
+top-level `/me/checkins` route), contrary to D-31's original three-tab intent — resolved by
+building a Text/Meals two-tab switcher only, leaving the existing `/me/checkins` route
+untouched rather than attempting an unrequested IA rework.
+
+**Real bugs found and fixed during task review, not caught by any test written against this
+plan's own code samples:**
+- **Task 3**: the plan's own EXIF-extraction sample code called `img.getexif()` directly, which
+  never returns `DateTimeOriginal` (it lives in the Exif sub-IFD via a pointer tag, not IFD0) —
+  fixed with `exif.get_ifd(ExifTags.IFD.Exif)`, independently reproduced against real Pillow
+  behavior by the task reviewer.
+- **Task 4**: the plan's flush-then-set-storage-fields pattern (working fine for PHASE-02c's
+  `ClientMessage`) violates `MealLog`'s NOT NULL photo columns — fixed via client-side UUID
+  generation before a single insert, the first client-side PK generation in this codebase, but
+  a legitimate, well-commented fix for a genuinely different constraint shape.
+- **Task 6**: the cross-client leakage test for sensitive health data had zero discriminating
+  power (no second client's meal log ever existed to leak) — fixed with a genuine second client
+  account, verified via mutation testing (sabotaged the real scoping filter, confirmed the test
+  catches it, reverted).
+- **Task 10**: the day-grouping helper's own comment claimed IST-local bucketing but the code
+  used `toISOString()` (always UTC) — fixed with explicit `Asia/Kolkata` targeting; two
+  pre-existing test fixtures needed timestamp corrections (independently re-verified as
+  legitimate restorations of each test's original claim, not weakened coverage).
+- Task 13's plan called a `DELETE /api/clients/{id}` endpoint that doesn't exist (Unit_006's
+  account-deletion phase hasn't shipped) — redirected to extend `test_models.py`'s existing
+  ORM-based cascade test instead.
+
+**Whole-plan final review** (`opus`, base `ff06948`, head `3e78259`) independently re-verified
+D-26 compliance repo-wide (five slots/three reactions consistent across DB/backend/frontend
+with zero drift, no rated/unrated split anywhere), confirmed zero bare `<img>` tags for meal
+photos anywhere in the diff (the exact pattern that produced PHASE-02c's own Critical), and
+found one genuinely cross-task Critical defect plus 4 Important issues:
+- **Critical**: `extract_capture_time` returned a naive datetime; asyncpg encodes naive
+  datetimes in the *server's own timezone*, silently shifting every EXIF-bearing capture time
+  by up to 5h30m for this India-first product. Combined with the (correct) IST-aware grouping
+  logic, any meal photographed at or after 18:30 IST was misfiled into the next calendar day
+  with no error signal — invisible to every task's own tests since each sat on a different side
+  of the boundary. Fixed by interpreting the naive EXIF value as `Asia/Kolkata` explicitly, with
+  a new round-trip integration test that posts a real EXIF-bearing JPEG through the full
+  pipeline without mocking the extraction step (the only test that would have caught this).
+- This repo's documented shared Python env (`hc_pf`) can no longer import the backend at all
+  (missing Pillow/piexif, only installed in this worktree's own `backend/.venv`). Left the
+  shared cross-worktree venv untouched; documented `backend/.venv` as verified-against instead.
+- Both new UI surfaces (`LoggedMealsView`, `MyMealLogsView`) had zero working automated
+  coverage, and one e2e test wasn't marked `test.fixme()` despite depending on the same
+  pre-existing BFF-proxy gap its sibling correctly was. Added real RTL component tests for both
+  views and fixme'd the mislabeled e2e test. Discovered and fixed one more bug while writing
+  these tests: the "Log meal" submit button's `disabled` condition made its own "photo required"
+  inline-validation error unreachable by any click.
+- Timezone display was split three ways (correct IST grouping, but browser-local day-heading
+  labels and meal-time labels, duplicated across two files). Unified into shared
+  `formatDayHeading`/`formatMealTime` helpers, both explicitly targeting `Asia/Kolkata`.
+- `MealCard` unconditionally showed the HC's reaction, so a client could see it on their own
+  logged meal — nothing in D-26 or this plan's Design Decisions authorized client visibility.
+  Added a `showReaction` prop defaulting to `false` (conservative — client-side view doesn't
+  pass it); HC-side view passes it explicitly. **Flagged for SoJo's explicit product sign-off —
+  this default was a controller ruling, not a resolved product decision.**
+
+None of the above block this phase's own scope; all are logged in `.superpowers/sdd/PHASE-03-logged-meals/progress.md`.
+
+**Not yet fixed — flagged as follow-ups, not blocking:**
+- All six items already listed in this file's own "Known follow-ups" section above (D-26's
+  three pinned questions, schema-gap provisional defaults, D-24 Roster Board indicator, HEIC
+  EXIF support, GPS EXIF stripping, S3 cascade-delete purge) remain open.
+- `ClientMessage` (PHASE-02c) was also never added to `test_models.py`'s cascade-delete test —
+  a pre-existing gap this session's Task 13 discovered but correctly left out of scope; added
+  `MealLog` to that same test but did not retroactively add `ClientMessage`.
+- No pagination UI on either meal-log list view, despite both endpoints returning `next_cursor`
+  — matches the identical, already-accepted PHASE-02c gap.
+- `valid_slots` in `me.py` duplicates `meal_logs.py`'s constants as a function-local literal
+  instead of importing a shared one; frontend hardcodes the same MIME-type accept-list as the
+  backend with no shared source. Both cosmetic, not correctness gaps.
