@@ -634,12 +634,31 @@ async def test_client_lists_own_meal_logs(http_client, client_headers, client_re
 
 
 @pytest.mark.asyncio
-async def test_client_cannot_see_other_clients_meal_logs(http_client, hc_headers, client_headers, client_rec, db):
-    # Another client row exists for the same HC, but HC cannot log a meal on a
-    # client's behalf — no such endpoint exists (client-only action). This test
-    # just confirms the list is scoped to the caller's own client row via
-    # ClientClaimsDep, even with sibling client rows present.
-    await http_client.post("/api/clients", headers=hc_headers, json={"full_name": "Other"})
+async def test_client_cannot_see_other_clients_meal_logs(http_client, hc_user, client_headers, client_rec, db):
+    # There's no HC-side "log a meal for a client" endpoint (meal logs are
+    # client-submitted only, per Task 4) — so to prove the scoping filter is
+    # keyed on client.id (not just hc_id), a second real client account, under
+    # the same HC, must submit its own meal log via the real endpoint. No
+    # shared second-client fixture exists yet, so it's built inline here the
+    # same way client_rec/client_headers build the first one (conftest.py).
+    from src.db.models import Client
+    from tests.integration.conftest import _make_user, auth_headers
+
+    other_user = await _make_user(db, "client")
+    other_client = Client(hc_user_id=hc_user.id, full_name="Other Client", user_id=other_user.id)
+    db.add(other_client)
+    await db.flush()
+    other_headers = auth_headers(other_user.id, "client", hc_id=str(hc_user.id))
+
+    with patch("src.api.me.s3_put", new_callable=AsyncMock), \
+         patch("src.api.me.extract_capture_time", return_value=None):
+        other_r = await http_client.post(
+            "/api/me/meal-logs", headers=other_headers,
+            data={"meal_slot": "dinner"},
+            files={"photo": ("other.jpg", b"\xff\xd8\xff", "image/jpeg")},
+        )
+    assert other_r.status_code == 201  # sanity check: the other client's meal log genuinely exists
+
     r = await http_client.get("/api/me/meal-logs", headers=client_headers)
     assert r.status_code == 200
     assert r.json()["items"] == []
