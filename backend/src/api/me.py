@@ -1,6 +1,7 @@
 """Client-facing /api/me/* endpoints. Requires role=client JWT."""
 from datetime import datetime, timezone
 from typing import Annotated
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Form, HTTPException, Query, Response, UploadFile, status
@@ -239,6 +240,13 @@ async def submit_my_message(
                 status_code=400,
                 detail=f"Unsupported attachment type. Allowed: {sorted(ALLOWED_ATTACHMENT_MIME_TYPES)}",
             )
+        # Starlette populates .size from the multipart part before the body is
+        # read into memory — check it first so a client (untrusted) can't force
+        # a large allocation before the size limit is enforced. Keep the
+        # post-read check below too as a fallback for any case where .size
+        # isn't populated.
+        if attachment.size is not None and attachment.size > MAX_ATTACHMENT_SIZE_BYTES:
+            raise HTTPException(status_code=400, detail="Attachment exceeds the 10 MB limit")
         content = await attachment.read()
         if len(content) > MAX_ATTACHMENT_SIZE_BYTES:
             raise HTTPException(status_code=400, detail="Attachment exceeds the 10 MB limit")
@@ -304,8 +312,13 @@ async def get_my_message_attachment(
         raise HTTPException(status_code=404, detail="Attachment not found")
 
     content = await s3_get(msg.attachment_storage_path)
+    # RFC 5987 encoding — see the matching comment in src/api/messages.py's
+    # get_client_message_attachment for why a plain filename="{name}" header
+    # 500s on non-Latin-1 filenames (Starlette encodes response headers as
+    # latin-1, and attachment_original_filename is stored raw/unsanitized).
+    filename = msg.attachment_original_filename or "attachment"
     return Response(
         content=content,
         media_type=msg.attachment_mime_type or "application/octet-stream",
-        headers={"Content-Disposition": f'inline; filename="{msg.attachment_original_filename}"'},
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(filename)}"},
     )

@@ -1,8 +1,9 @@
 """HC-side client_messages endpoints. Client-side counterpart lives in me.py."""
 from datetime import datetime
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Form, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, computed_field
 from sqlalchemy import and_, or_, select
 
@@ -11,6 +12,7 @@ from src.config import get_settings
 from src.db.models import Client, ClientMessage, User
 from src.lib.email import send_message_notification_email
 from src.lib.s3 import build_message_attachment_key, s3_get, s3_put
+from src.telemetry.log import get_logger
 
 router = APIRouter(tags=["messages"])
 
@@ -67,6 +69,7 @@ async def _get_hc_display_name(db: DbDep, hc_id: str) -> str:
 @router.post("/api/clients/{client_id}/messages", status_code=status.HTTP_201_CREATED)
 async def send_client_message(
     client_id: UUID,
+    request: Request,
     claims: HcClaimsDep,
     hc_id: TenantDep,
     db: DbDep,
@@ -86,6 +89,12 @@ async def send_client_message(
                 status_code=400,
                 detail=f"Unsupported attachment type. Allowed: {sorted(ALLOWED_ATTACHMENT_MIME_TYPES)}",
             )
+        # Starlette populates .size from the multipart part before the body is
+        # read into memory — check it first so an oversized upload is rejected
+        # without forcing a full read/allocation. Keep the post-read check below
+        # too as a fallback for any case where .size isn't populated.
+        if attachment.size is not None and attachment.size > MAX_ATTACHMENT_SIZE_BYTES:
+            raise HTTPException(status_code=400, detail="Attachment exceeds the 10 MB limit")
         content = await attachment.read()
         if len(content) > MAX_ATTACHMENT_SIZE_BYTES:
             raise HTTPException(status_code=400, detail="Attachment exceeds the 10 MB limit")
@@ -104,15 +113,24 @@ async def send_client_message(
     await db.commit()
     await db.refresh(msg)
 
+    # Notify the client the HC replied. The DB write above is already durable,
+    # so a missing API key or a transient Resend outage must not turn a
+    # successful send into an error response — messages are immutable once
+    # sent (D-25, no PATCH/DELETE), so a client-side retry on a 500 here would
+    # create a permanent duplicate message with no way to clean it up.
     if client.email:
         coach_name = await _get_hc_display_name(db, hc_id)
-        send_message_notification_email(
-            to=client.email,
-            client_name=client.full_name,
-            coach_name=coach_name,
-            preview=body[:200],
-            portal_url=f"{get_settings().frontend_url}/me/chat",
-        )
+        logger = get_logger(request_id=getattr(request.state, "request_id", ""), hc_id=hc_id)
+        try:
+            send_message_notification_email(
+                to=client.email,
+                client_name=client.full_name,
+                coach_name=coach_name,
+                preview=body[:200],
+                portal_url=f"{get_settings().frontend_url}/me/chat",
+            )
+        except Exception:
+            logger.error("message_notification_email_failed", client_id=str(client_id))
 
     return MessageOut.model_validate(msg)
 
@@ -164,8 +182,14 @@ async def get_client_message_attachment(
         raise HTTPException(status_code=404, detail="Attachment not found")
 
     content = await s3_get(msg.attachment_storage_path)
+    # RFC 5987 encoding: attachment_original_filename is stored raw/unsanitized
+    # (only the S3 key goes through _sanitize()), and Starlette encodes response
+    # headers as latin-1 — a plain `filename="{name}"` header raises
+    # UnicodeEncodeError and 500s this endpoint for any non-Latin-1 filename
+    # (e.g. Devanagari characters, common for phone-camera uploads).
+    filename = msg.attachment_original_filename or "attachment"
     return Response(
         content=content,
         media_type=msg.attachment_mime_type or "application/octet-stream",
-        headers={"Content-Disposition": f'inline; filename="{msg.attachment_original_filename}"'},
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(filename)}"},
     )

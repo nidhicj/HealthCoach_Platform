@@ -270,3 +270,70 @@ async def test_get_message_attachment_returns_404_when_message_has_no_attachment
         f"/api/clients/{client['id']}/messages/{msg_id}/attachment", headers=hc_headers,
     )
     assert r2.status_code == 404
+
+
+# ── Final-review fixes (PHASE-02c cross-cutting pass) ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_hc_reply_succeeds_even_if_notification_email_fails(http_client, hc_headers, db):
+    """Finding 2: messages are immutable once sent (D-25) — a transient email
+    failure (or missing Resend API key) must not turn a successful send into a
+    500, since the frontend would retry and create a permanent duplicate."""
+    import sqlalchemy as sa
+    from src.db.models import Client
+    client = await _make_client(http_client, hc_headers)
+    row = (await db.execute(sa.select(Client).where(Client.id == client["id"]))).scalar_one()
+    row.email = "client@example.com"
+    await db.flush()
+    await db.commit()
+
+    with patch("src.api.messages.send_message_notification_email", side_effect=RuntimeError("resend down")):
+        r = await http_client.post(
+            f"/api/clients/{client['id']}/messages", headers=hc_headers,
+            data={"body": "Great progress this week!"},
+        )
+    assert r.status_code == 201, r.text
+    assert r.json()["body"] == "Great progress this week!"
+
+
+@pytest.mark.asyncio
+async def test_get_message_attachment_with_non_latin1_filename_returns_200(http_client, hc_headers):
+    """Finding 3: attachment_original_filename is stored raw (unsanitized).
+    Starlette encodes response headers as latin-1, so a plain
+    filename="{name}" Content-Disposition header raises UnicodeEncodeError
+    for non-Latin-1 filenames (e.g. Devanagari, common for phone-camera
+    uploads from Indian users) — this must use RFC 5987 encoding instead."""
+    client = await _make_client(http_client, hc_headers)
+    with patch("src.api.messages.s3_put", new_callable=AsyncMock):
+        r = await http_client.post(
+            f"/api/clients/{client['id']}/messages", headers=hc_headers,
+            data={"body": "photo"},
+            files={"attachment": ("तस्वीर.jpg", b"\xff\xd8\xff", "image/jpeg")},
+        )
+    assert r.status_code == 201, r.text
+    msg_id = r.json()["id"]
+
+    with patch("src.api.messages.s3_get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = b"\xff\xd8\xff"
+        r2 = await http_client.get(
+            f"/api/clients/{client['id']}/messages/{msg_id}/attachment", headers=hc_headers,
+        )
+    assert r2.status_code == 200, r2.text
+    assert "filename*=UTF-8''" in r2.headers["content-disposition"]
+
+
+@pytest.mark.asyncio
+async def test_send_message_rejects_oversized_attachment(http_client, hc_headers):
+    """Finding 4: the size check must reject an oversized attachment (HC-side
+    endpoint; me.py's client-facing endpoint is the higher-risk copy of this
+    same bug, fixed identically)."""
+    client = await _make_client(http_client, hc_headers)
+    oversized = b"\x00" * (10 * 1024 * 1024 + 1)
+    r = await http_client.post(
+        f"/api/clients/{client['id']}/messages", headers=hc_headers,
+        data={"body": "big file"},
+        files={"attachment": ("big.jpg", oversized, "image/jpeg")},
+    )
+    assert r.status_code == 400
+    assert "10 MB" in r.json()["detail"]

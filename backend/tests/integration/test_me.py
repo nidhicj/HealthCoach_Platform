@@ -479,6 +479,49 @@ async def test_client_get_message_attachment_returns_404_when_no_attachment(http
     assert r2.status_code == 404
 
 
+# ── Final-review fixes (PHASE-02c cross-cutting pass) ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_client_get_message_attachment_with_non_latin1_filename_returns_200(
+    http_client, client_headers, client_rec,
+):
+    """Finding 3 (duplicated in me.py): same RFC 5987 fix as messages.py's
+    get_client_message_attachment — see the comment there for why a plain
+    filename="{name}" header 500s on non-Latin-1 filenames."""
+    with patch("src.api.me.s3_put", new_callable=AsyncMock):
+        r = await http_client.post(
+            "/api/me/messages", headers=client_headers,
+            data={"body": "photo"},
+            files={"attachment": ("खाना.jpg", b"\xff\xd8\xff", "image/jpeg")},
+        )
+    assert r.status_code == 201, r.text
+    msg_id = r.json()["id"]
+
+    with patch("src.api.me.s3_get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = b"\xff\xd8\xff"
+        r2 = await http_client.get(
+            f"/api/me/messages/{msg_id}/attachment", headers=client_headers,
+        )
+    assert r2.status_code == 200, r2.text
+    assert "filename*=UTF-8''" in r2.headers["content-disposition"]
+
+
+@pytest.mark.asyncio
+async def test_client_send_message_rejects_oversized_attachment(http_client, client_headers, client_rec):
+    """Finding 4: this is the higher-risk copy of the bug — me.py is
+    client-facing/untrusted, so the size must be rejected before the full
+    body is read into memory."""
+    oversized = b"\x00" * (10 * 1024 * 1024 + 1)
+    r = await http_client.post(
+        "/api/me/messages", headers=client_headers,
+        data={"body": "big file"},
+        files={"attachment": ("big.jpg", oversized, "image/jpeg")},
+    )
+    assert r.status_code == 400
+    assert "10 MB" in r.json()["detail"]
+
+
 @pytest.mark.asyncio
 async def test_client_cannot_get_attachment_for_other_clients_message(http_client, hc_headers, client_headers, db):
     other = (await http_client.post("/api/clients", headers=hc_headers, json={"full_name": "Other2"})).json()
