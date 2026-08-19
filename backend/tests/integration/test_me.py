@@ -1,4 +1,5 @@
 """Integration tests for /api/me/* client-facing endpoints. P3."""
+import sys
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -292,9 +293,14 @@ async def test_client_can_send_message(http_client, client_headers, client_rec):
 
 @pytest.mark.asyncio
 async def test_client_message_does_not_trigger_hc_email(http_client, client_headers, client_rec):
-    # me.py deliberately never imports send_message_notification_email (D-24), so
-    # patching it at its definition site (rather than "src.api.me.<name>", which
-    # doesn't exist there) proves no code path in this request sends an email.
+    # NOTE: patching at the definition site only catches a call made *through
+    # src.lib.email's own name* (e.g. module.send_message_notification_email()).
+    # It would NOT intercept a call made through a name bound in me.py via
+    # "from src.lib.email import send_message_notification_email" (the classic
+    # "patch where it's used" pitfall) -- messages.py uses exactly that import
+    # style. This test alone cannot prove D-24 is safe against that regression;
+    # see test_me_module_never_imports_hc_notification_email below, which is the
+    # structural guard that actually closes the gap.
     with patch("src.lib.email.send_message_notification_email") as mock_email:
         r = await http_client.post(
             "/api/me/messages", headers=client_headers,
@@ -302,6 +308,20 @@ async def test_client_message_does_not_trigger_hc_email(http_client, client_head
         )
     assert r.status_code == 201
     mock_email.assert_not_called()  # D-24: HC never gets emailed for a client message
+
+
+def test_me_module_never_imports_hc_notification_email():
+    """D-24 structural guard: sending a client message must never be able to
+    email the HC. The runtime test above only proves the current code path
+    doesn't call the function through src.lib.email's own name -- it would NOT
+    catch a future `from src.lib.email import send_message_notification_email`
+    added to me.py (mirroring messages.py's own import style) even if that
+    import were never called, because a mock patched at the definition site
+    does not intercept calls made through a name bound via `from ... import`
+    in another module. This test fails the instant that name is bound in
+    src.api.me at all, regardless of whether it's ever invoked.
+    """
+    assert not hasattr(sys.modules["src.api.me"], "send_message_notification_email")
 
 
 @pytest.mark.asyncio
