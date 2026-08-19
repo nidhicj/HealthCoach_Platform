@@ -43,6 +43,12 @@ def build_session_file_key(
     return f"hc-{hc_user_id}/client_session_library/{client_folder}/{session_folder}/{sanitized_file}"
 
 
+def build_message_attachment_key(client_id: UUID, message_id: UUID, filename: str) -> str:
+    """Returns R2 key: client-{client_id}/messages/{message_id}/{sanitized_filename}"""
+    sanitized_file = _sanitize(filename, max_len=200)
+    return f"client-{client_id}/messages/{message_id}/{sanitized_file}"
+
+
 # ── Sig V4 signing ────────────────────────────────────────────────────────────
 
 

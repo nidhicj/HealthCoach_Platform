@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.lib.s3 import _sanitize, build_session_file_key, s3_delete, s3_put
+from src.lib.s3 import _sanitize, build_message_attachment_key, build_session_file_key, s3_delete, s3_put
 
 
 # ── Key builder tests ─────────────────────────────────────────────────────────
@@ -64,6 +64,24 @@ def test_sanitize_replaces_disallowed_chars():
     assert "/" not in special
     assert ":" not in special
     assert "?" not in special
+
+
+def test_build_message_attachment_key_structure():
+    """build_message_attachment_key produces the expected path structure."""
+    import uuid
+    client_id = uuid.uuid4()
+    message_id = uuid.uuid4()
+    key = build_message_attachment_key(client_id, message_id, "photo.jpg")
+    assert key == f"client-{client_id}/messages/{message_id}/photo.jpg"
+
+
+def test_build_message_attachment_key_sanitizes_filename():
+    """Filenames with spaces and special chars are sanitized."""
+    import uuid
+    client_id = uuid.uuid4()
+    message_id = uuid.uuid4()
+    key = build_message_attachment_key(client_id, message_id, "my photo (1)!.jpg")
+    assert " " not in key and "(" not in key and "!" not in key
 
 
 # ── s3_put signs the request ──────────────────────────────────────────────────
