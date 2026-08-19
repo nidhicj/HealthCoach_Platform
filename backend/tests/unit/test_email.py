@@ -176,9 +176,12 @@ def test_send_lead_brief_ready_email_calls_resend_with_correct_args():
     mock_send.assert_called_once()
     call_kwargs = mock_send.call_args[0][0]
     assert call_kwargs["to"] == ["hc@example.com"]
-    # SPEC-0001 Stage 4 step 13, verbatim with [Lead Name] filled in.
-    assert call_kwargs["subject"] == (
+    # Subject is short and distinct from the body's opening line.
+    assert call_kwargs["subject"] == "Blood report received — Rajesh Kumar"
+    # SPEC-0001 Stage 4 step 13's verbatim sentence is the body's opening line.
+    assert (
         "Lab reports received from Rajesh Kumar. Pre-consultation brief is ready."
+        in call_kwargs["html"]
     )
     assert "Dr. Priya Sharma" in call_kwargs["html"]
     assert "Rajesh Kumar" in call_kwargs["html"]
@@ -246,10 +249,15 @@ def test_send_lead_brief_failed_email_calls_resend_with_correct_args():
     mock_send.assert_called_once()
     call_kwargs = mock_send.call_args[0][0]
     assert call_kwargs["to"] == ["hc@example.com"]
-    # SPEC-0001 §Edge cases and failure modes, LLM-failure row, verbatim.
+    # Subject is short and distinct from the body's opening line.
     assert call_kwargs["subject"] == (
+        "Blood report received — brief generation issue (Rajesh Kumar)"
+    )
+    # SPEC-0001 §Edge cases and failure modes' LLM-failure row, verbatim, is
+    # the body's opening line.
+    assert (
         "Lab report received, but brief generation failed. "
-        "Review files directly from the Lead profile."
+        "Review files directly from the Lead profile." in call_kwargs["html"]
     )
     assert "Dr. Priya Sharma" in call_kwargs["html"]
     assert "Rajesh Kumar" in call_kwargs["html"]

@@ -165,8 +165,10 @@ def send_lead_brief_ready_email(
     # Subject is a plain-text mail header, not HTML — must use raw values,
     # not the HTML-escaped ones (which would leak entities like &#x27; into
     # the recipient's inbox subject line, e.g. for names like "D'Souza").
-    # Wording is SPEC-0001 Stage 4 step 13, verbatim with [Lead Name] filled in.
-    subject = f"Lab reports received from {lead_name}. Pre-consultation brief is ready."
+    # Kept short and distinct from the body's opening line (which carries
+    # SPEC-0001 Stage 4 step 13's verbatim wording), matching this file's
+    # convention (see send_action_items_email's subject).
+    subject = f"Blood report received — {lead_name}"
     safe_subject = html.escape(subject)
 
     body_html = f"""<!DOCTYPE html>
@@ -224,8 +226,10 @@ def send_lead_brief_failed_email(
     # Subject is a plain-text mail header, not HTML — must use raw values,
     # not the HTML-escaped ones (which would leak entities like &#x27; into
     # the recipient's inbox subject line, e.g. for names like "D'Souza").
-    # Wording is SPEC-0001 §Edge cases and failure modes, LLM-failure row, verbatim.
-    subject = "Lab report received, but brief generation failed. Review files directly from the Lead profile."
+    # Kept short and distinct from the body's opening line (which carries
+    # SPEC-0001 §Edge cases and failure modes' LLM-failure row, verbatim),
+    # matching this file's convention (see send_action_items_email's subject).
+    subject = f"Blood report received — brief generation issue ({lead_name})"
     safe_subject = html.escape(subject)
 
     body_html = f"""<!DOCTYPE html>
