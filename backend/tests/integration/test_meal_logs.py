@@ -12,6 +12,7 @@ tests. When Task 4 lands, its own tests will exercise the real HTTP
 endpoint.
 """
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,3 +93,56 @@ async def test_react_rejects_invalid_value(db, http_client, hc_headers, client_r
         headers=hc_headers, json={"reaction": "angry"},
     )
     assert r.status_code == 422
+
+
+# ── Task 7: HC-facing photo download-proxy ──────────────────────────────────────
+#
+# NOTE on test-helper adaptation: same reason as `_make_meal_log` above — the
+# plan's own brief writes these tests against a `_log_meal` HTTP helper that
+# doesn't exist yet (Task 4 lands after this task), so they're adapted here to
+# use `_make_meal_log`'s direct-ORM-insert fixture instead.
+
+
+@pytest.mark.asyncio
+async def test_hc_can_download_meal_photo(db, http_client, hc_headers, client_rec, hc_user):
+    meal = await _make_meal_log(db, client_rec, hc_user)
+    with patch(
+        "src.api.meal_logs.s3_get", new_callable=AsyncMock, return_value=b"\xff\xd8\xff-fake-jpeg",
+    ):
+        r = await http_client.get(
+            f"/api/clients/{client_rec.id}/meal-logs/{meal.id}/photo", headers=hc_headers,
+        )
+    assert r.status_code == 200
+    assert r.content == b"\xff\xd8\xff-fake-jpeg"
+    assert r.headers["content-type"] == "image/jpeg"
+
+
+@pytest.mark.asyncio
+async def test_photo_download_cross_tenant_returns_404(
+    db, http_client, hc2_headers, client_rec, hc_user,
+):
+    meal = await _make_meal_log(db, client_rec, hc_user)
+    r = await http_client.get(
+        f"/api/clients/{client_rec.id}/meal-logs/{meal.id}/photo", headers=hc2_headers,
+    )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_photo_download_with_non_latin1_filename_returns_200(
+    db, http_client, hc_headers, client_rec, hc_user,
+):
+    """Same production bug fixed in PHASE-02c (test_messages.py::
+    test_get_message_attachment_with_non_latin1_filename_returns_200):
+    photo_original_filename is stored raw/unsanitized and Starlette encodes
+    response headers as latin-1, so a plain filename="{name}" Content-Disposition
+    header raises UnicodeEncodeError and 500s the endpoint for non-Latin-1
+    filenames (e.g. Devanagari, common for phone-camera uploads from Indian
+    users). Must use RFC 5987 (filename*=UTF-8''...) encoding instead."""
+    meal = await _make_meal_log(db, client_rec, hc_user, photo_original_filename="तस्वीर.jpg")
+    with patch("src.api.meal_logs.s3_get", new_callable=AsyncMock, return_value=b"\xff\xd8\xff"):
+        r = await http_client.get(
+            f"/api/clients/{client_rec.id}/meal-logs/{meal.id}/photo", headers=hc_headers,
+        )
+    assert r.status_code == 200, r.text
+    assert "filename*=UTF-8''" in r.headers["content-disposition"]

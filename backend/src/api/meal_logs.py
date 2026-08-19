@@ -1,13 +1,15 @@
 """HC-side meal_logs list/react endpoints. Client-side submit lives in me.py."""
 from datetime import datetime
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import and_, or_, select
 
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
 from src.db.models import Client, MealLog
+from src.lib.s3 import s3_get
 
 router = APIRouter(tags=["meal-logs"])
 
@@ -111,3 +113,35 @@ async def react_to_meal_log(
     await db.commit()
     await db.refresh(meal_log)
     return MealLogOut.model_validate(meal_log)
+
+
+@router.get("/api/clients/{client_id}/meal-logs/{meal_log_id}/photo")
+async def get_meal_log_photo(
+    client_id: UUID,
+    meal_log_id: UUID,
+    claims: HcClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> Response:
+    await _get_owned_client(db, client_id, hc_id)
+    meal_log = (await db.execute(
+        select(MealLog).where(MealLog.id == meal_log_id, MealLog.client_id == client_id)
+    )).scalar_one_or_none()
+    if meal_log is None:
+        raise HTTPException(status_code=404, detail="Meal log not found")
+
+    content = await s3_get(meal_log.photo_storage_path)
+    # RFC 5987 encoding: photo_original_filename is stored raw/unsanitized,
+    # and Starlette encodes response headers as latin-1 — a plain
+    # filename="{name}" header raises UnicodeEncodeError and 500s this
+    # endpoint for any non-Latin-1 filename (e.g. Devanagari, common for
+    # phone-camera uploads from Indian users). Same bug/fix as
+    # messages.py:get_client_message_attachment. photo_original_filename is
+    # NOT NULL on the model, but "meal photo" is kept as a defensive fallback
+    # to match that endpoint's style.
+    filename = meal_log.photo_original_filename or "meal photo"
+    return Response(
+        content=content,
+        media_type=meal_log.photo_mime_type,
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(filename)}"},
+    )
