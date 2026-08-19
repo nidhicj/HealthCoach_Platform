@@ -8,11 +8,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 import sqlalchemy as sa
 from httpx import AsyncClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.db.models import Lead, LeadFile, LeadUploadToken, User
 
@@ -863,3 +864,222 @@ async def test_eleventh_request_within_an_hour_from_same_ip_returns_429(
             files=[("files", ("r11.pdf", _valid_pdf_with_text(), "application/pdf"))],
         )
     assert eleventh.status_code == 429, eleventh.text
+
+
+# ── Round-2 review fixes ──────────────────────────────────────────────────────
+#
+# Both tests below deliberately do NOT use this file's shared `db`/`http_client`
+# fixtures. That fixture pair (tests/integration/conftest.py) runs every request
+# in a test against ONE shared connection wrapped in a SAVEPOINT-based outer
+# transaction that is always rolled back at test teardown and never actually
+# committed to Postgres — so a second, genuinely independent connection would
+# never see anything written through it. Reproducing either round-2 defect
+# requires real, separately-committing sessions, so these two tests build their
+# own test data via a real `engine`-backed sessionmaker and clean it up by hand
+# afterward (real commits, not covered by the shared fixture's auto-rollback).
+
+
+async def test_locked_reload_sees_concurrent_committed_consumption(engine):
+    """Finding A regression test (task-6 review, round 2): `_reload_locked_token()`
+    is the exact function `upload_lead_files` calls for its check-then-set race
+    guard. This proves it actually sees another session's ALREADY COMMITTED
+    write to the same row, rather than returning a stale copy from this
+    session's own SQLAlchemy identity map.
+
+    The round-1 fix (`SELECT ... FOR UPDATE` with no `populate_existing`) was
+    confirmed by the reviewer to be a no-op: two independent sessions, session
+    B commits `used_at`, and session A's locked re-check STILL saw
+    `used_at = None` — because `with_for_update()` alone does not force a
+    refresh of an object already in session A's identity map (populated by an
+    earlier unlocked read, mirroring `_resolve_token`). This test reproduces
+    that exact sequence and asserts the fixed behavior.
+    """
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+
+    setup = Session()
+    hc = User(
+        email=f"hc-lockrace-{uuid.uuid4().hex[:8]}@test.com",
+        google_sub=f"g-{uuid.uuid4().hex}",
+        role="hc",
+    )
+    setup.add(hc)
+    await setup.flush()
+    lead = Lead(
+        hc_user_id=hc.id,
+        full_name="Lock Race",
+        email=f"lr-{uuid.uuid4().hex[:8]}@test.com",
+        status="tests_recommended",
+    )
+    setup.add(lead)
+    await setup.flush()
+    token_row = LeadUploadToken(
+        lead_id=lead.id,
+        token_hash=f"lockrace-{uuid.uuid4().hex}",
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+    setup.add(token_row)
+    await setup.flush()
+    token_id = token_row.id
+    lead_id = lead.id
+    hc_id = hc.id
+    await setup.commit()
+    await setup.close()
+
+    session_a = Session()
+    session_b = Session()
+    try:
+        # Mirrors `_resolve_token`'s unlocked read at the top of a request —
+        # this is what populates session_a's identity map with the (currently
+        # accurate) used_at=None, exactly as `upload_lead_files` does before
+        # ever reaching the lock.
+        preload = (await session_a.execute(
+            select(LeadUploadToken).where(LeadUploadToken.id == token_id)
+        )).scalar_one()
+        assert preload.used_at is None
+
+        # session_b is a fully independent "concurrent second request" that
+        # wins the race: locks the row, marks it used, and durably commits —
+        # exactly what upload_lead_files's success path does.
+        locked_b = (await session_b.execute(
+            select(LeadUploadToken).where(LeadUploadToken.id == token_id).with_for_update()
+        )).scalar_one()
+        locked_b.used_at = datetime.now(UTC)
+        await session_b.commit()
+
+        # session_a now performs the SAME re-check upload_lead_files performs,
+        # via the actual shipped `_reload_locked_token()` — must see session_b's
+        # committed used_at, not the stale None cached in session_a's identity
+        # map from the preload above.
+        from src.api.upload import _reload_locked_token
+
+        relocked_a = await _reload_locked_token(session_a, token_id)
+        assert relocked_a.used_at is not None, (
+            "Finding A regression: _reload_locked_token() returned a stale "
+            "identity-mapped copy instead of the freshly-committed row"
+        )
+    finally:
+        await session_a.close()
+        await session_b.close()
+        cleanup = Session()
+        await cleanup.execute(sa.delete(Lead).where(Lead.id == lead_id))
+        await cleanup.execute(sa.delete(User).where(User.id == hc_id))
+        await cleanup.commit()
+        await cleanup.close()
+
+
+async def test_brief_failure_audit_row_survives_in_a_separate_session(engine):
+    """Finding B regression test (task-6 review, round 2): the round-1 version
+    of this test queried `llm_calls` via the SAME session/connection the
+    request handler used — since `write_llm_call()` only flushes (never
+    commits), that row is visible to a same-session SELECT whether or not the
+    router's own `await db.commit()` fix is present (confirmed by the
+    reviewer: suppressing the commit call still let the round-1 test pass).
+
+    This version drives the real `POST /{token}/files` endpoint through a
+    dependency-overridden `get_db` that hands the request its own
+    independently-committing `AsyncSession` — mirrors production `get_db()`
+    exactly, unlike this file's shared savepoint-based `db`/`http_client`
+    fixtures. After the request completes and that session is closed, the
+    `llm_calls` row is looked up via a THIRD, completely independent session.
+    Under READ COMMITTED, a separate session can only see the row if it was
+    genuinely committed — a flushed-but-uncommitted write sitting in another
+    session's still-open transaction is invisible cross-session. So this test
+    can only pass if the router's `await db.commit()` on the brief-failure
+    branch actually ran.
+    """
+    from src.db.session import get_db
+    from src.main import app
+
+    Session = async_sessionmaker(engine, expire_on_commit=False)
+
+    setup = Session()
+    hc = User(
+        email=f"hc-auditrow-{uuid.uuid4().hex[:8]}@test.com",
+        google_sub=f"g-{uuid.uuid4().hex}",
+        role="hc",
+    )
+    setup.add(hc)
+    await setup.flush()
+    lead = Lead(
+        hc_user_id=hc.id,
+        full_name="Audit Row",
+        email=f"ar-{uuid.uuid4().hex[:8]}@test.com",
+        status="tests_recommended",
+    )
+    setup.add(lead)
+    await setup.flush()
+    raw_token = os.urandom(32).hex()
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    setup.add(LeadUploadToken(
+        lead_id=lead.id,
+        token_hash=token_hash,
+        expires_at=datetime.now(UTC) + timedelta(days=14),
+    ))
+    await setup.flush()
+    hc_id = hc.id
+    lead_id = lead.id
+    await setup.commit()
+    await setup.close()
+
+    request_session = Session()
+
+    async def _override_get_db():
+        yield request_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    # A malformed (non-JSON) LLM response — generate_lead_brief's documented
+    # failure path: returns (None, None) and records the failure via
+    # write_llm_call(error_message=...).
+    mock_http = _mock_http("not valid json at all")
+    resp = None
+    try:
+        with (
+            patch("src.api.upload.s3_put", new_callable=AsyncMock),
+            patch("src.llm_service.client.make_http_client", return_value=mock_http),
+            patch("src.api.upload.send_lead_brief_failed_email"),
+        ):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                resp = await client.post(
+                    f"/api/upload/{raw_token}/files",
+                    files=[("files", ("report.pdf", _valid_pdf_with_text(), "application/pdf"))],
+                )
+    finally:
+        app.dependency_overrides.clear()
+        await request_session.close()
+
+    try:
+        assert resp is not None and resp.status_code == 201, getattr(resp, "text", None)
+
+        verify_session = Session()
+        try:
+            llm_call_row = (await verify_session.execute(sa.text(
+                "SELECT use_case, error_message FROM llm_calls "
+                "WHERE hc_user_id = :hc_user_id AND use_case = 'lead_brief' "
+                "ORDER BY created_at DESC LIMIT 1"
+            ), {"hc_user_id": str(hc_id)})).first()
+        finally:
+            await verify_session.close()
+
+        assert llm_call_row is not None, (
+            "llm_calls row for the failed brief attempt was not committed — "
+            "Finding B regression (checked via a genuinely separate session)"
+        )
+        assert llm_call_row.error_message is not None
+    finally:
+        # cleanup — real commits above, not covered by the shared fixture's
+        # auto-rollback. Runs even on assertion failure, so a genuine
+        # regression here doesn't leak data into other tests in this same
+        # pytest session. Lead first (its brief_llm_call_id is None on this
+        # failure path, so no FK conflict with llm_calls), then llm_calls,
+        # then the hc user.
+        cleanup = Session()
+        await cleanup.execute(sa.delete(Lead).where(Lead.id == lead_id))
+        await cleanup.execute(sa.text(
+            "DELETE FROM llm_calls WHERE hc_user_id = :hc_user_id"
+        ), {"hc_user_id": str(hc_id)})
+        await cleanup.execute(sa.delete(User).where(User.id == hc_id))
+        await cleanup.commit()
+        await cleanup.close()

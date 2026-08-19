@@ -143,6 +143,35 @@ async def _resolve_token(
     return "valid", upload_token, lead, user
 
 
+async def _reload_locked_token(db: AsyncSession, token_id: UUID) -> LeadUploadToken:
+    """Re-fetch `token_id`'s row under a Postgres row lock (`SELECT ... FOR
+    UPDATE`) for `upload_lead_files`'s check-then-set race guard (see the
+    inline comment at that call site).
+
+    `execution_options(populate_existing=True)` is required, not decorative
+    (PHASE-03 Task 6 review round 2, Finding A). `_resolve_token` already
+    loaded this same row (unlocked) earlier in this request, so it is already
+    present in this session's SQLAlchemy identity map. `with_for_update()`
+    alone only appends `FOR UPDATE` to the SQL — it does NOT force SQLAlchemy
+    to overwrite an already-identity-mapped object's attributes with the row's
+    true, currently-committed values. Without `populate_existing`, this
+    function would silently return the SAME Python object `_resolve_token`
+    loaded, with STALE `.used_at`/`.expires_at` values, even though the row
+    lock itself was genuinely acquired against the correct row. Verified
+    concretely against real Postgres with two independent sessions (see
+    `test_locked_reload_sees_concurrent_committed_consumption` /
+    task-6-report.md's round-2 fix log): without `populate_existing`, a
+    session's re-check here still saw `used_at = None` after another session
+    had already committed `used_at` and released its lock.
+    """
+    return (await db.execute(
+        select(LeadUploadToken)
+        .where(LeadUploadToken.id == token_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalar_one()
+
+
 @router.get("/{token}")
 async def get_upload_token_state(token: str, db: DbDep) -> UploadTokenStateOut:
     """Resolve a public upload token to its current state.
@@ -222,9 +251,9 @@ async def upload_lead_files(
     non-blocking email convention in `intake.py`).
 
     Token consumption (`used_at`) is guarded by a `SELECT ... FOR UPDATE` row
-    lock taken just before file processing begins, closing a check-then-set
-    race between two concurrent requests for the same token (see the inline
-    comment at that lock for detail).
+    lock (via `_reload_locked_token`, above) taken just before file processing
+    begins, closing a check-then-set race between two concurrent requests for
+    the same token (see the inline comment at that lock for detail).
     """
     logger = get_logger(request_id=getattr(request.state, "request_id", ""))
 
@@ -265,9 +294,7 @@ async def upload_lead_files(
     # and returns the same "used" state the GET endpoint returns — without
     # ever touching R2, the LLM, or sending an HC email.
     assert upload_token is not None and lead is not None and hc_user is not None
-    locked_token = (await db.execute(
-        select(LeadUploadToken).where(LeadUploadToken.id == upload_token.id).with_for_update()
-    )).scalar_one()
+    locked_token = await _reload_locked_token(db, upload_token.id)
     if locked_token.used_at is not None:
         return UploadTokenStateOut(state="used", message=_USED_MESSAGE)
     hc_name_for_lock_checks = f"{hc_user.first_name} {hc_user.last_name}".strip()
