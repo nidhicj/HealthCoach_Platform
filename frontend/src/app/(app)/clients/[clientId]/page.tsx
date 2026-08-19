@@ -32,6 +32,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { listClientCheckIns, requestCheckIn, type CheckInOut } from "@/lib/api/checkIns";
 import { listClientMessages, sendClientMessage, messageAttachmentUrl, type MessageOut } from "@/lib/api/messages";
 import { AuthedImage } from "@/components/authed-image";
+import { listClientMealLogs, reactToMealLog, mealLogPhotoUrl, type MealLogOut } from "@/lib/api/mealLogs";
+import { groupMealLogsByDay } from "@/components/meal-logs/groupByDay";
+import { MealCard } from "@/components/meal-logs/MealCard";
 
 function isOverdue(dateStr: string | null): boolean {
   if (!dateStr) return false;
@@ -1103,9 +1106,13 @@ function ChatTab({ clientId }: { clientId: string }) {
         <TabsList variant="line">
           <TabsTrigger value="text">Text</TabsTrigger>
           <TabsTrigger value="checkins">Check-ins</TabsTrigger>
+          <TabsTrigger value="meals">Logged Meals</TabsTrigger>
         </TabsList>
         <TabsContent value="text">
           <TextView clientId={clientId} />
+        </TabsContent>
+        <TabsContent value="meals">
+          <LoggedMealsView clientId={clientId} />
         </TabsContent>
         <TabsContent value="checkins">
           <div className="space-y-6">
@@ -1147,6 +1154,66 @@ function ChatTab({ clientId }: { clientId: string }) {
           </div>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function LoggedMealsView({ clientId }: { clientId: string }) {
+  const [mealLogs, setMealLogs] = useState<MealLogOut[] | null>(null);
+  const [reacting, setReacting] = useState<string | null>(null); // meal log id currently being reacted to
+  const [reactError, setReactError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listClientMealLogs(clientId).then((data) => setMealLogs(data.items)).catch(() => setMealLogs([]));
+  }, [clientId]);
+
+  async function handleReact(mealLogId: string, reaction: "happy" | "neutral" | "sad") {
+    setReacting(mealLogId);
+    setReactError(null);
+    try {
+      const updated = await reactToMealLog(clientId, mealLogId, reaction);
+      setMealLogs((prev) => prev?.map((m) => (m.id === mealLogId ? updated : m)) ?? null);
+    } catch {
+      setReactError("Reaction failed to save. Please try again.");
+    } finally {
+      setReacting(null);
+    }
+  }
+
+  if (mealLogs === null) return <p className="font-sans text-sm text-muted-foreground">Loading…</p>;
+  if (mealLogs.length === 0) return <p className="font-sans text-sm italic text-muted-foreground">No meals logged yet.</p>;
+
+  const groups = groupMealLogsByDay(mealLogs);
+
+  return (
+    <div className="space-y-8">
+      {reactError && <p className="font-sans text-sm text-destructive">{reactError}</p>}
+
+      {groups.map(({ day, entries }) => (
+        <div key={day} className="space-y-3">
+          <h3 className="font-heading text-sm font-bold text-foreground">
+            {new Date(day).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+          </h3>
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {entries.map((meal) => (
+              <MealCard key={meal.id} meal={meal} photoUrl={mealLogPhotoUrl(clientId, meal.id)}>
+                <div className="flex gap-1">
+                  {(["happy", "neutral", "sad"] as const).map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => handleReact(meal.id, r)}
+                      disabled={reacting === meal.id}
+                      className={`rounded px-1.5 py-0.5 text-sm ${meal.hc_reaction === r ? "bg-primary/20" : ""}`}
+                    >
+                      {{ happy: "😊", neutral: "😐", sad: "😞" }[r]}
+                    </button>
+                  ))}
+                </div>
+              </MealCard>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

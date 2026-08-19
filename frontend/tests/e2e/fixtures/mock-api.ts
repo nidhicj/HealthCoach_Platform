@@ -107,6 +107,20 @@ const STUB_BRIEF = {
   generated_at: NOW,
 };
 
+const STUB_MEAL_LOG = {
+  id: "meal-log-001",
+  client_id: STUB_CLIENT_ID,
+  hc_user_id: "hc-001",
+  meal_slot: "lunch",
+  description: "Dal, rice, and sabzi",
+  photo_original_filename: "lunch.jpg",
+  photo_mime_type: "image/jpeg",
+  captured_at: TODAY,
+  logged_at: TODAY,
+  hc_reaction: null as "happy" | "neutral" | "sad" | null,
+  reacted_at: null as string | null,
+};
+
 const STUB_MOM = {
   id: "mom-001",
   session_id: STUB_SESSION_ID,
@@ -133,6 +147,9 @@ function jsonOk(body: unknown, status = 200) {
 }
 
 export async function mockAuthAndApi(page: Page) {
+  // Mutable per-call so each test starts from a fresh reaction state.
+  let mealLogs = [{ ...STUB_MEAL_LOG }];
+
   // Single catch-all for all API traffic — dispatches by pathname.
   // This correctly handles requests with query strings (?limit=20, etc.)
   await page.route(/localhost:8000\/api\//, async (route) => {
@@ -222,6 +239,35 @@ export async function mockAuthAndApi(page: Page) {
         return route.fulfill(jsonOk({ items: [], next_cursor: null }));
       if (method === "POST")
         return route.fulfill(jsonOk({ id: "ai-1", description: "test", status: "open", client_id: STUB_CLIENT_ID, session_id: null, hc_user_id: "hc-001", due_date: null, completed_at: null, created_at: NOW }, 201));
+    }
+
+    // ── meal logs ─────────────────────────────────────────────────────────────
+    if (path.startsWith("/api/clients/") && path.includes("/meal-logs")) {
+      if (method === "POST" && path.endsWith("/react")) {
+        const mealLogId = path.split("/").at(-2);
+        const body = JSON.parse(req.postData() ?? "{}");
+        mealLogs = mealLogs.map((m) =>
+          m.id === mealLogId ? { ...m, hc_reaction: body.reaction, reacted_at: NOW } : m,
+        );
+        const updated = mealLogs.find((m) => m.id === mealLogId) ?? STUB_MEAL_LOG;
+        return route.fulfill(jsonOk(updated));
+      }
+      if (path.endsWith("/photo")) {
+        // 1x1 transparent PNG, base64-encoded — enough for AuthedImage's fetch-as-blob flow.
+        return route.fulfill({
+          status: 200,
+          contentType: "image/png",
+          headers: {
+            "Access-Control-Allow-Origin": "http://localhost:3000",
+            "Access-Control-Allow-Credentials": "true",
+          },
+          body: Buffer.from(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+            "base64",
+          ),
+        });
+      }
+      if (method === "GET") return route.fulfill(jsonOk({ items: mealLogs, next_cursor: null }));
     }
 
     // ── check-ins ─────────────────────────────────────────────────────────────

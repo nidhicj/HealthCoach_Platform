@@ -134,6 +134,25 @@ test.describe("HC core cycle", () => {
     });
   });
 
+  test("client detail Chat tab: Logged Meals sub-tab shows a meal card and reacting highlights it", async ({ page }) => {
+    await page.goto(`/clients/${STUB_CLIENT_ID}`);
+    await page.waitForLoadState("networkidle");
+
+    await page.getByRole("tab", { name: "Chat" }).click();
+    await page.getByRole("tab", { name: "Logged Meals" }).click();
+
+    // Day heading (from groupMealLogsByDay, e.g. "Wednesday, Aug 19") and a rendered MealCard.
+    await expect(page.getByRole("heading", { level: 3 })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/dal, rice, and sabzi/i)).toBeVisible();
+    await expect(page.getByText("Lunch")).toBeVisible();
+
+    const happyBtn = page.getByRole("button", { name: "😊" });
+    await expect(happyBtn).toBeVisible();
+    await happyBtn.click();
+
+    await expect(happyBtn).toHaveClass(/bg-primary\/20/, { timeout: 5000 });
+  });
+
   // PHASE-02c final-review fix (Finding 5): this test's message-send flow
   // exercises the same mockAuthAndApi() page.route(/localhost:8000\/api\//)
   // pattern as every other test in this file, but frontend/src/lib/config.ts's
