@@ -53,6 +53,9 @@ export default function ClientPortalLayout({ children }: { children: React.React
           <Link href="/me/checkins" className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground">
             Check-ins
           </Link>
+          <Link href="/me/chat" className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground">
+            Chat
+          </Link>
         </nav>
       </header>
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">

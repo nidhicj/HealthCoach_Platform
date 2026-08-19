@@ -2,6 +2,7 @@ import { API_URL } from "@/lib/config";
 import { fetchWithAuth } from "@/lib/auth/client";
 import { ActionItemOutSchema, type ActionItemOut } from "@/lib/api/actionItems";
 import { CheckInOutSchema, type CheckInOut } from "@/lib/api/checkIns";
+import { MessageOutSchema, type MessageOut } from "@/lib/api/messages";
 import { z } from "zod";
 
 const PaginatedActionItemsSchema = z.object({
@@ -11,6 +12,11 @@ const PaginatedActionItemsSchema = z.object({
 
 const PaginatedCheckInsSchema = z.object({
   items: z.array(CheckInOutSchema),
+  next_cursor: z.string().nullable(),
+});
+
+const PaginatedMessagesSchema = z.object({
+  items: z.array(MessageOutSchema),
   next_cursor: z.string().nullable(),
 });
 
@@ -47,4 +53,24 @@ export async function submitMyCheckIn(payload: Record<string, unknown>): Promise
   });
   if (!res.ok) throw new Error(`Submit check-in failed: ${res.status}`);
   return CheckInOutSchema.parse(await res.json());
+}
+
+export async function listMyMessages(): Promise<{ items: MessageOut[]; next_cursor: string | null }> {
+  const res = await fetchWithAuth(`${API_URL}/api/me/messages`);
+  if (!res.ok) throw new Error(`List my messages failed: ${res.status}`);
+  return PaginatedMessagesSchema.parse(await res.json());
+}
+
+export async function sendMyMessage(input: { body: string; attachment?: File }): Promise<MessageOut> {
+  const form = new FormData();
+  form.append("body", input.body);
+  if (input.attachment) form.append("attachment", input.attachment);
+
+  const res = await fetchWithAuth(`${API_URL}/api/me/messages`, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`Send message failed: ${res.status}`);
+  return MessageOutSchema.parse(await res.json());
+}
+
+export function myMessageAttachmentUrl(messageId: string): string {
+  return `${API_URL}/api/me/messages/${messageId}/attachment`;
 }
