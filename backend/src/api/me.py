@@ -386,3 +386,33 @@ async def submit_my_meal_log(
     await db.commit()
     await db.refresh(meal_log)
     return MealLogOut.model_validate(meal_log)
+
+
+@router.get("/meal-logs")
+async def list_my_meal_logs(
+    claims: ClientClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+    limit: LimitDep = 40,
+    cursor: Annotated[str | None, Query()] = None,
+) -> PaginatedList[MealLogOut]:
+    client = await _resolve_client(db, claims, hc_id)
+
+    q = select(MealLog).where(MealLog.client_id == client.id)
+    if cursor:
+        cur_ts, cur_id = decode_cursor(cursor)
+        q = q.where(
+            or_(
+                MealLog.logged_at < cur_ts,
+                and_(MealLog.logged_at == cur_ts, MealLog.id < cur_id),
+            )
+        )
+    q = q.order_by(MealLog.logged_at.desc(), MealLog.id.desc()).limit(limit + 1)
+    rows = (await db.execute(q)).scalars().all()
+
+    next_cursor: str | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_cursor = encode_cursor(rows[-1].logged_at, rows[-1].id)
+
+    return PaginatedList(items=[MealLogOut.model_validate(r) for r in rows], next_cursor=next_cursor)

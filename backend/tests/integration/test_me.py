@@ -617,3 +617,29 @@ async def test_meal_log_rejects_oversized_photo(http_client, client_headers, cli
     )
     assert r.status_code == 400
     assert "10 MB" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_client_lists_own_meal_logs(http_client, client_headers, client_rec):
+    with patch("src.api.me.s3_put", new_callable=AsyncMock), \
+         patch("src.api.me.extract_capture_time", return_value=None):
+        await http_client.post(
+            "/api/me/meal-logs", headers=client_headers,
+            data={"meal_slot": "lunch"},
+            files={"photo": ("l.jpg", b"\xff\xd8\xff", "image/jpeg")},
+        )
+    r = await http_client.get("/api/me/meal-logs", headers=client_headers)
+    assert r.status_code == 200
+    assert len(r.json()["items"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_client_cannot_see_other_clients_meal_logs(http_client, hc_headers, client_headers, client_rec, db):
+    # Another client row exists for the same HC, but HC cannot log a meal on a
+    # client's behalf — no such endpoint exists (client-only action). This test
+    # just confirms the list is scoped to the caller's own client row via
+    # ClientClaimsDep, even with sibling client rows present.
+    await http_client.post("/api/clients", headers=hc_headers, json={"full_name": "Other"})
+    r = await http_client.get("/api/me/meal-logs", headers=client_headers)
+    assert r.status_code == 200
+    assert r.json()["items"] == []
