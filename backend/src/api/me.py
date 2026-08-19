@@ -2,19 +2,21 @@
 from datetime import datetime, timezone
 from typing import Annotated
 from urllib.parse import quote
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import and_, or_, select
 
 from src.api.action_items import ActionItemOut
 from src.api.check_ins import CheckInOut
 from src.api.deps import ClientClaimsDep, DbDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
+from src.api.meal_logs import ALLOWED_MEAL_PHOTO_MIME_TYPES, MAX_MEAL_PHOTO_SIZE_BYTES, MealLogOut
 from src.api.messages import ALLOWED_ATTACHMENT_MIME_TYPES, MAX_ATTACHMENT_SIZE_BYTES, MessageOut
 from src.api.sessions import MomOut
-from src.db.models import ActionItem, CheckIn, Client, ClientMessage, Mom
-from src.lib.s3 import build_message_attachment_key, s3_get, s3_put
+from src.db.models import ActionItem, CheckIn, Client, ClientMessage, MealLog, Mom
+from src.lib.exif import extract_capture_time
+from src.lib.s3 import build_meal_photo_key, build_message_attachment_key, s3_get, s3_put
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -322,3 +324,65 @@ async def get_my_message_attachment(
         media_type=msg.attachment_mime_type or "application/octet-stream",
         headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(filename)}"},
     )
+
+
+@router.post("/meal-logs", status_code=status.HTTP_201_CREATED)
+async def submit_my_meal_log(
+    claims: ClientClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+    meal_slot: str = Form(...),
+    description: str | None = Form(None),
+    photo: UploadFile = File(...),  # required — D-26, no optional-photo path
+) -> MealLogOut:
+    client = await _resolve_client(db, claims, hc_id)
+
+    valid_slots = {"breakfast", "morning_snack", "lunch", "evening_snack", "dinner"}
+    if meal_slot not in valid_slots:
+        raise HTTPException(status_code=422, detail=f"meal_slot must be one of {sorted(valid_slots)}")
+
+    if not photo.content_type or photo.content_type not in ALLOWED_MEAL_PHOTO_MIME_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported photo type. Allowed: {sorted(ALLOWED_MEAL_PHOTO_MIME_TYPES)}",
+        )
+    # Starlette populates .size from the multipart part before the body is
+    # read into memory — check it first so a client (untrusted) can't force
+    # a large allocation before the size limit is enforced. Keep the
+    # post-read check below too as a fallback for any case where .size
+    # isn't populated.
+    if photo.size is not None and photo.size > MAX_MEAL_PHOTO_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="Photo exceeds the 10 MB limit")
+    content = await photo.read()
+    if len(content) > MAX_MEAL_PHOTO_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="Photo exceeds the 10 MB limit")
+
+    captured_at = extract_capture_time(content, photo.content_type)  # None per Decision 1 if absent/HEIC/corrupt
+
+    # Unlike ClientMessage.attachment_storage_path (nullable — attachments are
+    # optional), MealLog.photo_storage_path/photo_original_filename/photo_mime_type
+    # are all NOT NULL (a meal log always has a photo, D-26). That rules out the
+    # flush-then-set-storage-fields two-phase pattern used for message attachments
+    # in submit_my_message: flushing before the photo fields are set would insert
+    # a row with those columns NULL and violate the NOT NULL constraint. Instead,
+    # generate the id client-side so the storage key is known before the one
+    # insert that creates the row with every required field already populated.
+    meal_log_id = uuid4()
+    key = build_meal_photo_key(client.id, meal_log_id, photo.filename or "unnamed")
+    await s3_put(key, content, photo.content_type)
+
+    meal_log = MealLog(
+        id=meal_log_id,
+        client_id=client.id,
+        hc_user_id=UUID(hc_id),
+        meal_slot=meal_slot,
+        description=description,
+        photo_storage_path=key,
+        photo_original_filename=photo.filename or "unnamed",
+        photo_mime_type=photo.content_type,
+        captured_at=captured_at,
+    )
+    db.add(meal_log)
+    await db.commit()
+    await db.refresh(meal_log)
+    return MealLogOut.model_validate(meal_log)

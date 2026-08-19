@@ -538,3 +538,82 @@ async def test_client_cannot_get_attachment_for_other_clients_message(http_clien
         f"/api/me/messages/{msg_id}/attachment", headers=client_headers,
     )
     assert r2.status_code == 404
+
+
+# ── meal logs (PHASE-03 Task 4, D-26) ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_client_can_log_meal_with_photo(http_client, client_headers, client_rec):
+    with patch("src.api.me.s3_put", new_callable=AsyncMock) as mock_put, \
+         patch("src.api.me.extract_capture_time", return_value=None):
+        r = await http_client.post(
+            "/api/me/meal-logs", headers=client_headers,
+            data={"meal_slot": "breakfast", "description": "Idli and sambar"},
+            files={"photo": ("breakfast.jpg", b"\xff\xd8\xff", "image/jpeg")},
+        )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["meal_slot"] == "breakfast"
+    assert body["description"] == "Idli and sambar"
+    assert body["captured_at"] is None
+    assert body["hc_reaction"] is None
+    mock_put.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_meal_log_rejects_missing_photo(http_client, client_headers, client_rec):
+    r = await http_client.post(
+        "/api/me/meal-logs", headers=client_headers,
+        data={"meal_slot": "lunch", "description": "Dal and rice"},
+    )
+    assert r.status_code == 422  # photo is a required field, D-26
+
+
+@pytest.mark.asyncio
+async def test_meal_log_rejects_invalid_meal_slot(http_client, client_headers, client_rec):
+    r = await http_client.post(
+        "/api/me/meal-logs", headers=client_headers,
+        data={"meal_slot": "brunch"},  # not one of the five fixed slots
+        files={"photo": ("x.jpg", b"\xff\xd8\xff", "image/jpeg")},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_meal_log_rejects_non_image_photo(http_client, client_headers, client_rec):
+    r = await http_client.post(
+        "/api/me/meal-logs", headers=client_headers,
+        data={"meal_slot": "dinner"},
+        files={"photo": ("notes.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_meal_log_uses_extracted_capture_time_when_present(http_client, client_headers, client_rec):
+    from datetime import datetime
+    with patch("src.api.me.s3_put", new_callable=AsyncMock), \
+         patch("src.api.me.extract_capture_time", return_value=datetime(2026, 7, 20, 7, 45, 0)):
+        r = await http_client.post(
+            "/api/me/meal-logs", headers=client_headers,
+            data={"meal_slot": "breakfast"},
+            files={"photo": ("b.jpg", b"\xff\xd8\xff", "image/jpeg")},
+        )
+    assert r.status_code == 201
+    assert r.json()["captured_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_meal_log_rejects_oversized_photo(http_client, client_headers, client_rec):
+    """Mirrors test_client_send_message_rejects_oversized_attachment: me.py is a
+    client-facing/untrusted surface, so the size check must reject before the
+    full photo is read into memory (checked via UploadFile.size pre-read)."""
+    oversized = b"\x00" * (10 * 1024 * 1024 + 1)
+    r = await http_client.post(
+        "/api/me/meal-logs", headers=client_headers,
+        data={"meal_slot": "breakfast"},
+        files={"photo": ("big.jpg", oversized, "image/jpeg")},
+    )
+    assert r.status_code == 400
+    assert "10 MB" in r.json()["detail"]
