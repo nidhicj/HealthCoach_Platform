@@ -496,10 +496,13 @@ async def generate_lead_brief(
     assembled by the caller (a future upload endpoint) via extract_text() across all
     accepted files, which keeps this function testable without file I/O.
     """
-    cfg = get_llm_config()
-    prompt_file = load_prompt("lead_brief")
-    models = build_models_array(cfg)
-    system_prompt = prompt_file.body  # overwritten below; used as a fallback if we fail before then
+    # D-2: none of these are assigned yet — get_llm_config()/load_prompt() can each raise
+    # (missing/corrupt prompts/lead_brief.md, missing/invalid llm_config.yaml). Keep safe
+    # placeholders here so _write_failure_row has something to report even if we fail before
+    # the real values are ever assigned inside the try block below.
+    prompt_file: object | None = None
+    models: list[str] = []
+    system_prompt = ""
 
     async def _write_failure_row(error_message: str) -> None:
         try:
@@ -509,7 +512,7 @@ async def generate_lead_brief(
                 client_id=None,
                 session_id=None,
                 use_case="lead_brief",
-                prompt_version=prompt_file.version,
+                prompt_version=prompt_file.version if prompt_file is not None else "unknown",
                 model_requested=models[0] if models else "",
                 model_served=None,
                 fallback_count=0,
@@ -530,6 +533,11 @@ async def generate_lead_brief(
             pass  # logging the failure must not itself raise (D-2)
 
     try:
+        cfg = get_llm_config()
+        prompt_file = load_prompt("lead_brief")
+        models = build_models_array(cfg)
+        system_prompt = prompt_file.body  # overwritten below; used as a fallback if we fail before then
+
         lead = (await db.execute(
             select(Lead).where(Lead.id == lead_id)
         )).scalar_one_or_none()

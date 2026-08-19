@@ -174,3 +174,34 @@ async def test_lead_not_found_returns_none_none_without_raising(db: AsyncSession
         db, lead_id=missing_lead_id, hc_user_id=hc_user.id, blood_report_text="some text"
     )
     assert result == (None, None)
+
+    row = await _llm_calls_row(db, missing_lead_id)
+    assert row is not None
+    assert row.use_case == "lead_brief"
+    assert row.error_message is not None
+    assert "Lead not found" in row.error_message
+
+
+async def test_missing_prompt_file_returns_none_none_and_writes_error_row(
+    db: AsyncSession, hc_user: User, lead: Lead
+):
+    """Regression test for the Critical review finding: get_llm_config()/load_prompt()
+    used to run before the try: block, so a missing/corrupt prompts/lead_brief.md or a
+    bad llm_config.yaml would raise straight out of generate_lead_brief(), violating D-2
+    (must NEVER raise). Both calls now happen inside the try:, and _write_failure_row
+    tolerates prompt_file/models never having been assigned."""
+    with patch(
+        "src.llm_service.load_prompt",
+        side_effect=FileNotFoundError("prompts/lead_brief.md not found"),
+    ):
+        result = await generate_lead_brief(
+            db, lead_id=lead.id, hc_user_id=hc_user.id, blood_report_text="some text"
+        )
+
+    assert result == (None, None)
+
+    row = await _llm_calls_row(db, lead.id)
+    assert row is not None
+    assert row.use_case == "lead_brief"
+    assert row.error_message is not None
+    assert "prompts/lead_brief.md not found" in row.error_message
