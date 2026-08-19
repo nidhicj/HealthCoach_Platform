@@ -610,6 +610,225 @@ async def test_oversized_total_batch_rejected_before_any_r2_write(
     mock_put.assert_not_called()
 
 
+async def test_second_commit_failure_still_reports_upload_success(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    """Finding 1 (Critical, task-6 review): the second `db.commit()` — the one
+    that persists brief_text/brief_llm_call_id (or, on brief failure, the
+    llm_calls audit row) — must be guarded. If IT fails (simulated here as the
+    2nd of the request's two `db.commit()` calls raising), the Lead's upload
+    has already durably succeeded (LeadFile rows + used_at + status committed
+    in the FIRST commit) and the HTTP response must still report success, not
+    a bare 500 for an upload that actually worked and whose token is now
+    unrecoverably consumed."""
+    lead = await _make_lead(db, hc_user)
+    lead_id = lead.id  # captured before the request — see note below
+    raw_token = await _make_token(db, lead)
+    await db.commit()
+
+    files_payload = [("files", ("report.pdf", _valid_pdf_with_text(), "application/pdf"))]
+
+    commit_calls = 0
+    original_commit = AsyncSession.commit
+
+    async def _flaky_commit(self: AsyncSession) -> None:
+        nonlocal commit_calls
+        commit_calls += 1
+        if commit_calls == 2:
+            raise RuntimeError("simulated transient DB error on brief-persist commit")
+        await original_commit(self)
+
+    with (
+        patch("src.api.upload.s3_put", new_callable=AsyncMock),
+        patch(
+            "src.llm_service.generate_lead_brief", new_callable=AsyncMock,
+            return_value=("BRIEF TEXT", uuid.uuid4()),
+        ),
+        patch("src.api.upload.send_lead_brief_ready_email") as mock_ready_email,
+        patch("src.api.upload.send_lead_brief_failed_email") as mock_failed_email,
+        patch.object(AsyncSession, "commit", _flaky_commit),
+    ):
+        resp = await http_client.post(f"/api/upload/{raw_token}/files", files=files_payload)
+
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["message"]
+    assert commit_calls == 2  # proves the 2nd (guarded) commit really ran and really failed
+
+    # This test's `db` is the SAME session the app used (dependency-overridden,
+    # per tests/integration/conftest.py) — the router's own `db.rollback()`
+    # (triggered by the simulated commit failure) expires every object that
+    # session was tracking, `lead` included. Query by the plain `lead_id`
+    # captured above (not `lead.id`) to avoid synchronously touching an
+    # expired attribute outside an awaited ORM call, which raises
+    # `MissingGreenlet` under SQLAlchemy's async engine.
+    lead_files = (await db.execute(
+        select(LeadFile).where(LeadFile.lead_id == lead_id)
+    )).scalars().all()
+    assert len(lead_files) == 1
+    token_row = (await db.execute(
+        select(LeadUploadToken).where(LeadUploadToken.lead_id == lead_id)
+    )).scalar_one()
+    assert token_row.used_at is not None
+    lead = await db.get(Lead, lead_id)
+    assert lead is not None
+    assert lead.status == "report_uploaded"
+
+    # Since the persist-commit failed, "ready" must NOT fire (brief_text was
+    # never actually saved) — "failed" fires instead, per the fix's design.
+    mock_ready_email.assert_not_called()
+    mock_failed_email.assert_called_once()
+
+
+async def test_brief_failure_commits_llm_calls_audit_row(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    """Finding 2 (Important, task-6 review): the `(None, None)` "brief
+    generation failed" branch must still commit, or the `llm_calls` row
+    `write_llm_call()` wrote (flush-only, per its own contract) is silently
+    rolled back when the request's session closes — losing PHASE-03 D-1's
+    required audit trail for why the brief failed. Exercises the REAL
+    generate_lead_brief()/write_llm_call() pipeline (mocked only at the
+    OpenRouter HTTP boundary) so the llm_calls row is genuinely written, not
+    asserted via a mock."""
+    lead = await _make_lead(db, hc_user)
+    raw_token = await _make_token(db, lead)
+    await db.commit()
+
+    files_payload = [("files", ("report.pdf", _valid_pdf_with_text(), "application/pdf"))]
+
+    # A malformed (non-JSON) LLM response — generate_lead_brief's documented
+    # failure path: returns (None, None) and records the failure via
+    # write_llm_call(error_message=...).
+    mock_http = _mock_http("not valid json at all")
+    with (
+        patch("src.api.upload.s3_put", new_callable=AsyncMock),
+        patch("src.llm_service.client.make_http_client", return_value=mock_http),
+        patch("src.api.upload.send_lead_brief_failed_email") as mock_failed_email,
+    ):
+        resp = await http_client.post(f"/api/upload/{raw_token}/files", files=files_payload)
+
+    assert resp.status_code == 201, resp.text
+    mock_failed_email.assert_called_once()
+
+    await db.refresh(lead)
+    assert lead.brief_text is None
+    assert lead.brief_llm_call_id is None
+
+    # The critical assertion: query llm_calls directly for a row belonging to
+    # this lead's brief attempt. `llm_calls` has no `lead_id` column (per
+    # src/db/models/llm.py) — correlate via `hc_user_id` + `use_case`
+    # instead, same as `write_llm_call()`'s own recorded fields; this test's
+    # `hc_user` fixture is exclusive to this test's isolated transaction. If
+    # the fix's commit didn't run, this row was flushed then silently rolled
+    # back and will not be found here.
+    llm_call_row = (await db.execute(sa.text(
+        "SELECT use_case, error_message FROM llm_calls "
+        "WHERE hc_user_id = :hc_user_id AND use_case = 'lead_brief' "
+        "ORDER BY created_at DESC LIMIT 1"
+    ), {"hc_user_id": str(hc_user.id)})).first()
+    assert llm_call_row is not None, (
+        "llm_calls row for the failed brief attempt was not committed — "
+        "Finding 2 regression"
+    )
+    assert llm_call_row.error_message is not None
+
+
+async def test_second_post_against_already_used_token_returns_used_not_a_second_upload(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    """Finding 3 (Important, task-6 review): concurrency-oriented coverage.
+    This test harness runs every request in a test against a single shared
+    DB session/connection (see tests/integration/conftest.py's `db` fixture),
+    so a genuine two-connections-racing-on-FOR-UPDATE test isn't possible
+    here. This test instead exercises the practical, harness-compatible
+    proxy the task brief calls out as the minimum bar: two sequential POSTs
+    against the same token, the first consuming it, the second must be
+    rejected as "used" rather than processing a second upload batch — proving
+    the token, once consumed, can never be consumed again regardless of how
+    many requests arrive for it."""
+    lead = await _make_lead(db, hc_user)
+    raw_token = await _make_token(db, lead)
+    await db.commit()
+
+    with (
+        patch("src.api.upload.s3_put", new_callable=AsyncMock) as mock_put,
+        patch(
+            "src.llm_service.generate_lead_brief", new_callable=AsyncMock,
+            return_value=(None, None),
+        ),
+        patch("src.api.upload.send_lead_brief_failed_email"),
+    ):
+        first = await http_client.post(
+            f"/api/upload/{raw_token}/files",
+            files=[("files", ("one.pdf", _valid_pdf_with_text(), "application/pdf"))],
+        )
+        assert first.status_code == 201, first.text
+        assert mock_put.await_count == 1
+
+        second = await http_client.post(
+            f"/api/upload/{raw_token}/files",
+            files=[("files", ("two.pdf", _valid_pdf_with_text(), "application/pdf"))],
+        )
+
+    assert second.status_code == 200, second.text
+    assert second.json()["state"] == "used"
+    # Still only 1 s3_put ever — the second request never touched R2.
+    assert mock_put.await_count == 1
+
+    lead_files = (await db.execute(
+        select(LeadFile).where(LeadFile.lead_id == lead.id)
+    )).scalars().all()
+    assert len(lead_files) == 1  # not 2
+
+
+async def test_oversized_file_rejected_without_reading_full_content(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    """Finding 4 (Important, task-6 review): an oversized file must be
+    rejected using Starlette's `UploadFile.size` (populated during multipart
+    body parsing, before this handler runs) BEFORE `.read()` is ever called
+    on it — not after reading its full content into memory. Patches
+    `UploadFile.read` to prove it is genuinely never invoked for this
+    request, rather than merely asserting the eventual 422."""
+    lead = await _make_lead(db, hc_user)
+    raw_token = await _make_token(db, lead)
+    await db.commit()
+
+    from starlette.datastructures import UploadFile as StarletteUploadFile
+
+    read_calls = 0
+    original_read = StarletteUploadFile.read
+
+    async def _counting_read(self: StarletteUploadFile, size: int = -1) -> bytes:
+        nonlocal read_calls
+        read_calls += 1
+        return await original_read(self, size)
+
+    with (
+        patch("src.api.upload._MAX_FILE_SIZE_BYTES", 100),
+        patch("src.api.upload.s3_put", new_callable=AsyncMock) as mock_put,
+        patch.object(StarletteUploadFile, "read", _counting_read),
+    ):
+        resp = await http_client.post(
+            f"/api/upload/{raw_token}/files",
+            files=[("files", ("big.pdf", _valid_pdf_with_text(), "application/pdf"))],
+        )
+
+    assert resp.status_code == 422, resp.text
+    mock_put.assert_not_called()
+    # The handler's own size check must have rejected this file via `.size`
+    # before ever calling `.read()` on it.
+    assert read_calls == 0, (
+        "handler called UploadFile.read() on an oversized file before "
+        "rejecting it via .size — Finding 4 regression"
+    )
+
+    token_row = (await db.execute(
+        select(LeadUploadToken).where(LeadUploadToken.lead_id == lead.id)
+    )).scalar_one()
+    assert token_row.used_at is None
+
+
 async def test_eleventh_request_within_an_hour_from_same_ip_returns_429(
     http_client: AsyncClient, hc_user: User, db: AsyncSession
 ):

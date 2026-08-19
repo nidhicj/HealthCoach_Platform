@@ -214,9 +214,17 @@ async def upload_lead_files(
     advanced to "report_uploaded"), brief generation (`generate_lead_brief`, Task
     3) is attempted. Per Decision D-2 — the whole point of this phase — nothing
     from here on can change this endpoint's success response: `generate_lead_brief`
-    is documented to never raise, and the HC-notification emails are individually
+    is documented to never raise, the commit that persists its outcome
+    (success: `brief_text`/`brief_llm_call_id`; failure: the `llm_calls` audit
+    row) is itself wrapped in try/except and falls through to the success
+    response on failure, and the HC-notification emails are individually
     wrapped in try/except, log-only on failure (mirrors PHASE-02 Decision D-2's
     non-blocking email convention in `intake.py`).
+
+    Token consumption (`used_at`) is guarded by a `SELECT ... FOR UPDATE` row
+    lock taken just before file processing begins, closing a check-then-set
+    race between two concurrent requests for the same token (see the inline
+    comment at that lock for detail).
     """
     logger = get_logger(request_id=getattr(request.state, "request_id", ""))
 
@@ -233,8 +241,41 @@ async def upload_lead_files(
             state="expired", message=_EXPIRED_MESSAGE_TEMPLATE.format(hc_name=hc_name)
         )
 
-    # state == "valid"
+    # state == "valid" per the unlocked `_resolve_token` read above. Before any
+    # file processing, re-fetch this token row WITH a row lock (`SELECT ...
+    # FOR UPDATE`) and re-check used_at/expires_at under that lock — closes a
+    # check-then-set race: a Lead double-clicking submit (very plausible, since
+    # this endpoint holds the connection through a slow inline LLM call) could
+    # otherwise have two concurrent requests both pass the unlocked check above
+    # and both proceed to upload, double the LLM cost, double the HC email, and
+    # silently last-write-win `lead.brief_text`.
+    #
+    # This codebase's only other single-use-token consumer
+    # (`src.auth.router._verify_invite` / `client_callback`'s
+    # `ClientInviteToken` flow) does a plain unlocked check-then-set with this
+    # same race and nothing safer to mirror — so `FOR UPDATE` is introduced
+    # here as the fix rather than copying that race forward. The lock is held
+    # only until this request's next `db.commit()` (below, once the upload
+    # succeeds) or until the request returns without writing anything (the
+    # branches immediately below) — Postgres releases it when the session's
+    # transaction ends either way.
+    #
+    # A second, concurrent request that loses this race blocks here until the
+    # first's commit releases the lock, then observes `used_at` already set
+    # and returns the same "used" state the GET endpoint returns — without
+    # ever touching R2, the LLM, or sending an HC email.
     assert upload_token is not None and lead is not None and hc_user is not None
+    locked_token = (await db.execute(
+        select(LeadUploadToken).where(LeadUploadToken.id == upload_token.id).with_for_update()
+    )).scalar_one()
+    if locked_token.used_at is not None:
+        return UploadTokenStateOut(state="used", message=_USED_MESSAGE)
+    hc_name_for_lock_checks = f"{hc_user.first_name} {hc_user.last_name}".strip()
+    if locked_token.expires_at < datetime.now(UTC):
+        return UploadTokenStateOut(
+            state="expired",
+            message=_EXPIRED_MESSAGE_TEMPLATE.format(hc_name=hc_name_for_lock_checks),
+        )
 
     if not files:
         raise HTTPException(
@@ -248,9 +289,35 @@ async def upload_lead_files(
         )
 
     # ── Read + size-validate every file before any MIME check or R2 write ───────
+    # Check Starlette's `UploadFile.size` BEFORE calling `.read()` wherever it's
+    # available. `.size` is populated cumulatively by Starlette's multipart
+    # parser (`UploadFile.write()`) while the request body is parsed — i.e.
+    # BEFORE this handler function ever starts running — so it's already known
+    # for every file by this point at no extra cost. Verified directly against
+    # this codebase's installed starlette/fastapi versions (starlette 1.0.0,
+    # fastapi 0.136.1): `.size` is set ahead of any `.read()` call in the
+    # handler. Rejecting on `.size` first means an oversized file's bytes are
+    # never additionally materialized into an application-level `bytes` object
+    # via `.read()` on this public, unauthenticated endpoint — meaningful
+    # because the batch cap (30 MB total, up to 5 files) means a malicious
+    # request could otherwise force this handler to read tens of MB before
+    # rejecting.
+    #
+    # `.size` is a best-effort attribute (Starlette does not guarantee it is
+    # always populated — e.g. it may be `None` in edge cases), so the original
+    # post-read length check is kept as a fallback for correctness; it should
+    # be unreachable in the common case where `.size` is trustworthy.
     contents: list[bytes] = []
     total_size = 0
     for f in files:
+        if f.size is not None and f.size > _MAX_FILE_SIZE_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"File '{f.filename}' exceeds the "
+                    f"{_MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB per-file limit."
+                ),
+            )
         content = await f.read()
         if len(content) > _MAX_FILE_SIZE_BYTES:
             raise HTTPException(
@@ -383,7 +450,43 @@ async def upload_lead_files(
     if brief_text is not None:
         lead.brief_text = brief_text
         lead.brief_llm_call_id = llm_call_id
+
+    # This commit must not be able to flip the HTTP response away from
+    # "upload succeeded" — that's already durably true (LeadFile rows +
+    # used_at + status committed earlier above). Two things this commit is
+    # responsible for persisting, on EITHER branch:
+    #   - success: `lead.brief_text`/`lead.brief_llm_call_id`.
+    #   - failure: the `llm_calls` row `generate_lead_brief()` already wrote
+    #     via `write_llm_call()`, which only `flush()`es (never commits) —
+    #     without an explicit commit here, that flushed INSERT (carrying
+    #     `error_message`, PHASE-03 D-1's audit trail for *why* the brief
+    #     failed) is silently rolled back when `get_db`'s session context
+    #     manager closes the session at the end of the request.
+    # If this commit itself fails (e.g. a transient DB error), the Lead's
+    # upload has already genuinely succeeded — don't let a brief-persistence
+    # failure turn that into a 500 for someone whose token is now already
+    # consumed and can never retry. Roll back (clearing whatever this commit
+    # attempt left pending) and fall through to the success response anyway.
+    brief_persisted = True
+    try:
         await db.commit()
+    except Exception as exc:
+        brief_persisted = False
+        logger.error("lead_brief_persist_commit_failed", lead_id=str(lead_id), error=str(exc))
+        try:
+            await db.rollback()
+        except Exception as rollback_exc:
+            logger.error(
+                "lead_brief_persist_rollback_failed", lead_id=str(lead_id), error=str(rollback_exc)
+            )
+
+    # "Ready" email only if the brief was BOTH generated AND durably
+    # persisted — a brief that was generated but whose persist-commit above
+    # just failed was never actually saved (the rollback undid it), so
+    # telling the HC it's ready would point them at a lead with no brief.
+    # Every other outcome (brief generation itself failed, OR generation
+    # succeeded but persistence failed) gets the "failed" email instead.
+    if brief_text is not None and brief_persisted:
         try:
             send_lead_brief_ready_email(
                 to=hc_email, hc_name=hc_name, lead_name=lead_full_name,
@@ -393,7 +496,8 @@ async def upload_lead_files(
             logger.error("lead_brief_ready_email_failed", lead_id=str(lead_id), error=str(exc))
     else:
         # leads.status stays "report_uploaded" (already committed above) —
-        # brief generation failing does not roll anything back.
+        # neither brief generation failing nor a persist-commit failure rolls
+        # that back.
         try:
             send_lead_brief_failed_email(
                 to=hc_email, hc_name=hc_name, lead_name=lead_full_name,
