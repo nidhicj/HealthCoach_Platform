@@ -4,6 +4,65 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-08-19 — Unit_004 PHASE-02c: Free Messaging (Text tab, both directions)
+
+**Done**:
+- Executed the pre-written `PHASE-02c-free-messaging.md` plan (Tasks 1-6) via
+  `superpowers:subagent-driven-development`: `client_messages` table + model, S3 key-builder,
+  HC-side `backend/src/api/messages.py` (send/list/attachment-download), client-side extensions
+  to `backend/src/api/me.py`, HC-side Text sub-tab inside the existing `ChatTab`, and a new
+  `/me/chat` client-facing page.
+- Each task individually reviewed, with fix rounds where findings surfaced — see PHASE-02c's
+  own "Shipped" section for the full list (coach display-name fix, D-24 regression-test
+  strengthening, min_length guard, missing test coverage, missing error handling).
+- **Final whole-plan review** (opus) caught 1 Critical + 5 Important cross-task defects
+  invisible to any single task's reviewer — most notably: attachment images never rendered in
+  a real browser (Bearer-protected endpoint consumed as a bare `<img src>`, which can't carry
+  an Authorization header). Fixed in one consolidated pass: shared `AuthedImage` component,
+  guarded the reply-notification email against transient failures (D-25 makes failures
+  permanent otherwise), RFC 5987-encoded attachment filenames (non-Latin-1 names were 500ing
+  the download endpoints — real risk for an India-first product), pre-read size checks on
+  uploads, and closed the `/me/chat` test-coverage gap left by a pre-existing, unrelated
+  BFF-proxy/e2e-mock-interception issue (3 tests marked `test.fixme()`, new `MeChatPage.test.tsx`
+  added as working coverage in the meantime).
+- Full backend suite: 378/378 passing. Frontend vitest: 134/134 passing (18 files). `tsc
+  --noEmit`: zero new errors.
+- Pre-flight environment fixes (not part of the plan): this worktree's `backend/.venv` console
+  scripts had shebangs pointing to a stale pre-rename path and were regenerated via `uv sync`;
+  the worktree's Postgres container (port 5432) wasn't running and was started via
+  `docker compose up -d`.
+
+**Decided** (link ADRs):
+- No new ADRs. Confirmed existing conventions extend cleanly: per-module private
+  `_get_owned_client` (no shared helper), cross-tenant always 404 never 403, `check_ins.py`'s
+  try/except-around-notification-email pattern now also used by `messages.py`.
+
+**Pending / next session**:
+- Per SoJo's explicit instruction this session, build order is PHASE-02c → PHASE-03 → PHASE-04.
+  PHASE-03 (Logged Meals) is next — its own plan already flags a real dependency risk: it
+  assumes a specific `ChatTab`/`subTab` shape that may not exactly match what PHASE-02c actually
+  shipped, so re-verify that assumption against the real code before executing PHASE-03's
+  frontend tasks (11/12), not just trusting the plan text.
+- Not yet fixed, flagged as follow-ups (see PHASE-02c's "Shipped" section for full detail):
+  RFC 5987 `quote()` missing `safe=""` (non-blocking, not exploitable), the pre-existing
+  PHASE-02b check-in e2e test likely shares the same BFF-proxy bug but wasn't touched,
+  `next_cursor` pagination unused by either UI, no structured logging on message endpoints yet,
+  message attachments not yet covered by any future DPDP-erasure job.
+
+**Context the next session needs**:
+- The stale `SPEC-0001-one-stop-spot.md` F5 table row ("Client sends a free message → HC:
+  'Sunita sent you a message' + preview") still contradicts this plan's own D-24 (client sends
+  trigger no HC email) — flagged in PHASE-02c's own Decision 1 as deferred to SoJo, not resolved
+  this session. Worth a decision before it's forgotten.
+- SDD ledger for this phase (full task-by-task record, all review findings, all rulings):
+  `.superpowers/sdd/PHASE-02c-free-messaging/progress.md`.
+
+**Open questions for SoJo**:
+- Should the stale SPEC-0001 F5 table row be corrected now, or left until F5 (WhatsApp) is
+  actually built?
+
+---
+
 ## 2026-08-04 — Unit_006 PHASE-01: Settings nav corrected to a hub + sidebar
 
 **Done**:

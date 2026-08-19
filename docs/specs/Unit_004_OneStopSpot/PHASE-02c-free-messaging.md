@@ -34,11 +34,11 @@
 **Interfaces:**
 - Produces: `ClientMessage(id, client_id, hc_user_id, direction, body, attachment_storage_path, attachment_original_filename, attachment_mime_type, sent_at)` — every task below consumes this model.
 
-- [ ] **Step 1.1: Check current migration head**
+- [x] **Step 1.1: Check current migration head**
 
 Run: `cd backend && alembic heads` — confirm the current head (should be PHASE-02b's `add_requested_at_to_check_ins` revision) before generating a new one so it chains correctly.
 
-- [ ] **Step 1.2: Generate and write the migration**
+- [x] **Step 1.2: Generate and write the migration**
 
 Run: `cd backend && alembic revision -m "add_client_messages_table"`
 
@@ -80,7 +80,7 @@ def downgrade() -> None:
     op.drop_table("client_messages")
 ```
 
-- [ ] **Step 1.3: Add the model**
+- [x] **Step 1.3: Add the model**
 
 In `backend/src/db/models/coaching.py`, update the module docstring to `"""moms, briefs, action_items, check_ins, client_messages — the core coaching cycle tables."""` and add:
 
@@ -102,14 +102,14 @@ class ClientMessage(Base):
 
 Add `ClientMessage` to `backend/src/db/models/__init__.py`'s exports (check the existing pattern — every model in `coaching.py` is re-exported there).
 
-- [ ] **Step 1.4: Run — apply and verify**
+- [x] **Step 1.4: Run — apply and verify**
 
 ```bash
 cd backend && alembic upgrade head
 DATABASE_URL=postgresql+asyncpg://postgres:localdevpassword@localhost:5432/tapas_dev alembic upgrade head
 ```
 
-- [ ] **Step 1.5: Commit**
+- [x] **Step 1.5: Commit**
 
 ```bash
 git add backend/alembic/versions/ backend/src/db/models/coaching.py backend/src/db/models/__init__.py
@@ -127,7 +127,7 @@ git commit -m "feat(messages): client_messages table + model (PHASE-02c Task 1)"
 **Interfaces:**
 - Produces: `build_message_attachment_key(client_id: UUID, message_id: UUID, filename: str) -> str` — Task 3 consumes this.
 
-- [ ] **Step 2.1: Write the failing test**
+- [x] **Step 2.1: Write the failing test**
 
 ```python
 def test_build_message_attachment_key_structure():
@@ -146,11 +146,11 @@ def test_build_message_attachment_key_sanitizes_filename():
     assert " " not in key and "(" not in key and "!" not in key
 ```
 
-- [ ] **Step 2.2: Run — confirm failure**
+- [x] **Step 2.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/unit/test_s3.py -k message_attachment -v`
 
-- [ ] **Step 2.3: Implement**
+- [x] **Step 2.3: Implement**
 
 Add to `backend/src/lib/s3.py`:
 
@@ -161,11 +161,11 @@ def build_message_attachment_key(client_id: UUID, message_id: UUID, filename: st
     return f"client-{client_id}/messages/{message_id}/{sanitized_file}"
 ```
 
-- [ ] **Step 2.4: Run — confirm pass**
+- [x] **Step 2.4: Run — confirm pass**
 
 Run: `cd backend && pytest tests/unit/test_s3.py -v`
 
-- [ ] **Step 2.5: Commit**
+- [x] **Step 2.5: Commit**
 
 ```bash
 git add backend/src/lib/s3.py backend/tests/unit/test_s3.py
@@ -185,7 +185,7 @@ git commit -m "feat(messages): S3 key-builder for message attachments (PHASE-02c
 **Interfaces:**
 - Produces: `MessageOut{id, client_id, hc_user_id, direction, body, has_attachment, attachment_original_filename, attachment_mime_type, sent_at}`, `POST /api/clients/{client_id}/messages`, `GET /api/clients/{client_id}/messages` — Task 5 (client-side) imports `MessageOut` from here, exactly like `me.py` already imports `CheckInOut` from `check_ins.py`.
 
-- [ ] **Step 3.1: Write the failing tests**
+- [x] **Step 3.1: Write the failing tests**
 
 ```python
 # backend/tests/integration/test_messages.py
@@ -279,12 +279,12 @@ async def test_list_client_messages_cross_tenant_returns_404(http_client, hc_hea
     assert r.status_code == 404
 ```
 
-- [ ] **Step 3.2: Run — confirm failure**
+- [x] **Step 3.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/integration/test_messages.py -v`
 Expected: FAIL — module/routes don't exist
 
-- [ ] **Step 3.3: Implement**
+- [x] **Step 3.3: Implement**
 
 Add to `backend/src/lib/email.py`:
 
@@ -496,15 +496,15 @@ async def get_client_message_attachment(
 
 Register the router — find where `check_ins.router` is included (likely `backend/src/main.py`) and add `messages.router` the same way.
 
-- [ ] **Step 3.4: Run — confirm pass**
+- [x] **Step 3.4: Run — confirm pass**
 
 Run: `cd backend && pytest tests/integration/test_messages.py -v`
 
-- [ ] **Step 3.5: Full backend suite**
+- [x] **Step 3.5: Full backend suite**
 
 Run: `cd backend && pytest -x`
 
-- [ ] **Step 3.6: Commit**
+- [x] **Step 3.6: Commit**
 
 ```bash
 git add backend/src/api/messages.py backend/src/lib/email.py backend/src/main.py backend/tests/integration/test_messages.py
@@ -523,7 +523,7 @@ git commit -m "feat(messages): HC-side send/list/attachment-download + reply ema
 - Consumes: `MessageOut` from `src.api.messages` (Task 3), same import pattern as the existing `from src.api.check_ins import CheckInOut`.
 - Produces: `POST /api/me/messages`, `GET /api/me/messages`, `GET /api/me/messages/{id}/attachment`.
 
-- [ ] **Step 4.1: Write the failing tests**
+- [x] **Step 4.1: Write the failing tests**
 
 ```python
 @pytest.mark.asyncio
@@ -570,11 +570,11 @@ async def test_client_cannot_list_other_clients_messages(http_client, hc_headers
     assert r.json()["items"] == []
 ```
 
-- [ ] **Step 4.2: Run — confirm failure**
+- [x] **Step 4.2: Run — confirm failure**
 
 Run: `cd backend && pytest tests/integration/test_me.py -k message -v`
 
-- [ ] **Step 4.3: Implement**
+- [x] **Step 4.3: Implement**
 
 Add to the imports at the top of `backend/src/api/me.py`:
 
@@ -678,11 +678,11 @@ async def get_my_message_attachment(
     )
 ```
 
-- [ ] **Step 4.4: Run — confirm pass, then full suite**
+- [x] **Step 4.4: Run — confirm pass, then full suite**
 
 Run: `cd backend && pytest tests/integration/test_me.py -v && pytest -x`
 
-- [ ] **Step 4.5: Commit**
+- [x] **Step 4.5: Commit**
 
 ```bash
 git add backend/src/api/me.py backend/tests/integration/test_me.py
@@ -700,7 +700,7 @@ git commit -m "feat(me): client-side send/list/attachment endpoints, no HC email
 **Interfaces:**
 - Produces: `listClientMessages(clientId)`, `sendClientMessage(clientId, {body, attachment?})` — this task's own `ChatTab` update consumes them.
 
-- [ ] **Step 5.1: `frontend/src/lib/api/messages.ts`**
+- [x] **Step 5.1: `frontend/src/lib/api/messages.ts`**
 
 ```ts
 import { z } from "zod";
@@ -753,7 +753,7 @@ export function messageAttachmentUrl(clientId: string, messageId: string): strin
 }
 ```
 
-- [ ] **Step 5.2: Give `ChatTab` an inner Text/Check-ins switcher**
+- [x] **Step 5.2: Give `ChatTab` an inner Text/Check-ins switcher**
 
 In `frontend/src/app/(app)/clients/[clientId]/page.tsx`, modify `ChatTab` (added in PHASE-02b) to add its own nested tab state and a `TextView` sub-component. Replace `ChatTab`'s current body (everything from `return (` onward) with:
 
@@ -856,15 +856,15 @@ import { listClientMessages, sendClientMessage, messageAttachmentUrl, type Messa
 import { Button } from "@/components/ui/button";
 ```
 
-- [ ] **Step 5.3: E2E — extend mocks + add a test**
+- [x] **Step 5.3: E2E — extend mocks + add a test**
 
 Extend `frontend/tests/e2e/fixtures/mock-api.ts` with `/api/clients/{id}/messages` GET/POST handlers; add a test to `core-cycle.spec.ts` (or a new spec) sending a text-only message from the Chat tab and asserting it appears in the thread.
 
-- [ ] **Step 5.4: Run full frontend suite**
+- [x] **Step 5.4: Run full frontend suite**
 
 Run: `cd frontend && npx vitest run && npx playwright test`
 
-- [ ] **Step 5.5: Commit**
+- [x] **Step 5.5: Commit**
 
 ```bash
 git add frontend/src/lib/api/messages.ts "frontend/src/app/(app)/clients/[clientId]/page.tsx" frontend/tests/e2e/
@@ -883,7 +883,7 @@ git commit -m "feat(client-detail): Text sub-view inside Chat tab, HC side (PHAS
 **Interfaces:**
 - Consumes: `MessageOutSchema`/`MessageOut` from `@/lib/api/messages` (Task 5), reusing rather than redefining, same pattern as `me.ts` already reuses `ActionItemOutSchema`/`CheckInOutSchema`.
 
-- [ ] **Step 6.1: Add wrappers to `frontend/src/lib/api/me.ts`**
+- [x] **Step 6.1: Add wrappers to `frontend/src/lib/api/me.ts`**
 
 ```ts
 import { MessageOutSchema, type MessageOut } from "@/lib/api/messages";
@@ -914,7 +914,7 @@ export function myMessageAttachmentUrl(messageId: string): string {
 }
 ```
 
-- [ ] **Step 6.2: Add the nav link**
+- [x] **Step 6.2: Add the nav link**
 
 In `frontend/src/app/me/layout.tsx`, add next to the existing `/me/checkins` link (PHASE-02b Task 8):
 
@@ -924,7 +924,7 @@ In `frontend/src/app/me/layout.tsx`, add next to the existing `/me/checkins` lin
           </Link>
 ```
 
-- [ ] **Step 6.3: Implement the page**
+- [x] **Step 6.3: Implement the page**
 
 ```tsx
 // frontend/src/app/me/chat/page.tsx
@@ -1007,11 +1007,11 @@ export default function ChatPage() {
 }
 ```
 
-- [ ] **Step 6.4: E2E test**
+- [x] **Step 6.4: E2E test**
 
 Add a test mocking `/api/me/messages` GET/POST, visiting `/me/chat`, sending a message, asserting it appears in the thread.
 
-- [ ] **Step 6.5: Run full suite, then commit**
+- [x] **Step 6.5: Run full suite, then commit**
 
 ```bash
 cd frontend && npx vitest run && npx playwright test
@@ -1035,3 +1035,74 @@ git commit -m "feat(me): /me/chat page — send/receive messages with photo atta
 - Roster Board D-24 "what's new" indicator still not built (same note as PHASE-02b's self-review) — this is now the second of three signal sources (Check-ins, Text) to exist; PHASE-03 (Logged Meals) will be the third, and that's the natural point to build the aggregated indicator once, rather than three separate partial versions.
 
 **Execution:** Subagent-driven, per SoJo's standing instruction.
+
+---
+
+## Shipped (2026-08-19)
+
+All 6 tasks complete, individually reviewed (with fix rounds where findings surfaced), plus a
+final whole-plan review that caught cross-task seam defects no single task's reviewer could see.
+Commits `3b7cecd..3e6d950` (tasks) then `8a4aa9e..e40f951` (final-review fix wave) on
+`feature/unit-004-one-stop-spot` (not pushed). Full backend suite: 378/378 passing. Frontend
+vitest: 134/134 passing (18 files). `tsc --noEmit`: zero new errors.
+
+**Real bugs found and fixed during task review, not caught by any test written against this
+plan's own code samples:**
+- **Task 3**: reply-notification email's `coach_name` shipped the HC's raw UUID (`claims.sub`)
+  instead of their display name — fixed to query `User.display_name` with a fallback.
+- **Task 3**: the attachment-download endpoint and the list endpoint's ordering/pagination had
+  zero test coverage as originally written — added.
+- **Task 3**: `body` had no `min_length` guard, allowing empty-string messages — added, matching
+  an existing codebase precedent (`supplements.py`).
+- **Task 4**: the "client message doesn't email the HC" (D-24) regression test patched the wrong
+  target (`src.lib.email.send_message_notification_email` at its definition site) — would not
+  have caught the realistic regression (a future `from src.lib.email import ...` added to
+  `me.py`). Replaced with a structural assertion that the name is never bound in that module.
+- **Task 5**: `TextView.handleSend` had no error handling — a failed send silently reverted the
+  button with zero feedback. Fixed to mirror the sibling Check-ins error pattern already in the
+  same file; carried forward into Task 6 from the start.
+
+**Whole-plan final review** (`opus`, base `0b04f5b`, head `3e6d950`) independently re-verified
+D-24 and D-25 compliance repo-wide (not just per-task), confirmed the HC-side and client-side
+implementations hadn't drifted from each other, and found one Critical + 4 additional Important
+defects living precisely in the seam between the backend tasks (3/4) and frontend tasks (5/6) —
+exactly the class of bug no single task's own reviewer could see:
+- **Critical**: attachment images never rendered in a real browser — both `<img src=...>` call
+  sites pointed at Bearer-token-protected endpoints, but a browser `<img>` GET can't carry an
+  Authorization header, and this app's access token lives only in module memory (ADR-0005 §5,
+  no cookie fallback). Fixed with a shared `AuthedImage` component (`fetchWithAuth` → blob URL).
+- The reply-notification email call was unwrapped; combined with D-25's immutability, a Resend
+  outage would have turned a successful send into a 500 + retry + permanent duplicate message.
+  Fixed to mirror `check_ins.py`'s existing try/except convention.
+- Non-Latin-1 filenames (e.g. Devanagari, common for phone-camera uploads from Indian users)
+  500'd both attachment-download endpoints — `Content-Disposition` was built from the raw,
+  unsanitized filename against Starlette's latin-1 header encoding. Fixed with RFC 5987 encoding
+  in both `messages.py` and `me.py`.
+- The client-facing upload endpoint (`me.py`) read the full attachment into memory before
+  checking its size. Fixed to check `UploadFile.size` (verified against Starlette's own source
+  to confirm it's populated before the handler runs) before reading, in both files.
+- All 3 new e2e tests for messaging were dead-on-arrival due to a pre-existing, environment-wide
+  BFF-proxy/mock-interception gap (unrelated to this plan, confirmed by an independent reviewer
+  via commit ancestry and cross-spec grep) — leaving `/me/chat` with zero working automated
+  coverage. Marked the 3 tests `test.fixme()` with an explanatory comment, and added
+  `MeChatPage.test.tsx` as real, working coverage in the meantime.
+
+None of the above block this phase's own scope; all are logged in `.superpowers/sdd/PHASE-02c-free-messaging/progress.md`.
+
+**Not yet fixed — flagged as follow-ups, not blocking:**
+- `quote(filename)` in the RFC 5987 fix omits `safe=""`, so a literal `/` in a filename is left
+  unescaped — non-strict-RFC-compliant but not exploitable (all other bytes including CR/LF/
+  quotes are still escaped); mainstream browsers tolerate it. Worth a follow-up ticket if strict
+  compliance ever matters.
+- The pre-existing PHASE-02b check-in e2e test in `core-cycle.spec.ts` likely shares the same
+  BFF-proxy interception bug as the 3 fixme'd tests above, but was left untouched — out of this
+  review's scope, a live gap for a future pass.
+- `next_cursor` is returned by both list endpoints but consumed by neither UI — with >20
+  messages, both sides silently show only the newest 20 with no "load older" affordance.
+- No structured logging on message send/attachment-upload/download (`files.py` has this
+  pattern; `messages.py`/`me.py` don't yet).
+- Message attachments in R2 have no deletion path yet — a second class of orphan-able object
+  the eventual DPDP erasure job (principle 8, "deletion is real") will need to cover.
+- **The stale `SPEC-0001-one-stop-spot.md` F5 table row** ("Client sends a free message → HC:
+  'Sunita sent you a message' + preview") still contradicts this plan's own D-24 (client sends
+  no HC email) — flagged in this plan's Decision 1 as deferred to SoJo, not resolved here.
