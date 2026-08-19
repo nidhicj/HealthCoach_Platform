@@ -1150,11 +1150,12 @@ function ChatTab({ clientId }: { clientId: string }) {
   );
 }
 
-function TextView({ clientId }: { clientId: string }) {
+export function TextView({ clientId }: { clientId: string }) {
   const [messages, setMessages] = useState<MessageOut[] | null>(null);
   const [body, setBody] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   useEffect(() => {
     listClientMessages(clientId).then((data) => setMessages(data.items.slice().reverse())).catch(() => setMessages([]));
@@ -1163,11 +1164,14 @@ function TextView({ clientId }: { clientId: string }) {
   async function handleSend() {
     if (!body.trim()) return;
     setSending(true);
+    setSendError(null);
     try {
       const sent = await sendClientMessage(clientId, { body, attachment: attachment ?? undefined });
       setMessages((prev) => [...(prev ?? []), sent]);
       setBody("");
       setAttachment(null);
+    } catch {
+      setSendError("Message failed to send. Please try again.");
     } finally {
       setSending(false);
     }
@@ -1199,6 +1203,9 @@ function TextView({ clientId }: { clientId: string }) {
           </div>
         ))}
       </div>
+
+      {sendError && <p className="font-sans text-sm text-destructive">{sendError}</p>}
+
       <div className="flex gap-2">
         <input
           type="text" value={body} onChange={(e) => setBody(e.target.value)}
