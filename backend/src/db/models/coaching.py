@@ -1,4 +1,4 @@
-"""moms, briefs, action_items, check_ins, client_messages — the core coaching cycle tables."""
+"""moms, briefs, action_items, check_ins, client_messages, meal_logs — the core coaching cycle tables."""
 from datetime import date, datetime
 from uuid import UUID
 
@@ -114,3 +114,21 @@ class ClientMessage(Base):
     attachment_original_filename: Mapped[str | None] = mapped_column(Text)
     attachment_mime_type: Mapped[str | None] = mapped_column(Text)
     sent_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+
+class MealLog(Base):
+    __tablename__ = "meal_logs"
+    __table_args__ = (Index("idx_meal_logs_client_logged", "client_id", "logged_at"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
+    client_id: Mapped[UUID] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), nullable=False)
+    hc_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    meal_slot: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    photo_storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    photo_original_filename: Mapped[str] = mapped_column(Text, nullable=False)
+    photo_mime_type: Mapped[str] = mapped_column(Text, nullable=False)
+    captured_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    logged_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    hc_reaction: Mapped[str | None] = mapped_column(Text)
+    reacted_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
