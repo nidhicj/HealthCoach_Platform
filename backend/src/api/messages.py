@@ -8,7 +8,7 @@ from sqlalchemy import and_, or_, select
 
 from src.api.deps import DbDep, HcClaimsDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
 from src.config import get_settings
-from src.db.models import Client, ClientMessage
+from src.db.models import Client, ClientMessage, User
 from src.lib.email import send_message_notification_email
 from src.lib.s3 import build_message_attachment_key, s3_get, s3_put
 
@@ -51,6 +51,16 @@ async def _get_owned_client(db: DbDep, client_id: UUID, hc_id: str) -> Client:
     return client
 
 
+async def _get_hc_display_name(db: DbDep, hc_id: str) -> str:
+    """Best-effort coach display name for client-facing emails. display_name is
+    nullable (set from Google profile at signup), so fall back to a generic label
+    rather than ever exposing the HC's internal user id."""
+    hc_user = (await db.execute(select(User).where(User.id == UUID(hc_id)))).scalar_one_or_none()
+    if hc_user is not None and hc_user.display_name:
+        return hc_user.display_name
+    return "Your coach"
+
+
 # ── routes ─────────────────────────────────────────────────────────────────────
 
 
@@ -60,9 +70,12 @@ async def send_client_message(
     claims: HcClaimsDep,
     hc_id: TenantDep,
     db: DbDep,
-    body: str = Form(...),
+    body: str = Form(..., min_length=1),
     attachment: UploadFile | None = None,
 ) -> MessageOut:
+    if not body.strip():
+        raise HTTPException(status_code=422, detail="Message body cannot be empty or whitespace-only")
+
     client = await _get_owned_client(db, client_id, hc_id)
 
     msg = ClientMessage(client_id=client_id, hc_user_id=UUID(hc_id), direction="coach", body=body)
@@ -92,10 +105,11 @@ async def send_client_message(
     await db.refresh(msg)
 
     if client.email:
+        coach_name = await _get_hc_display_name(db, hc_id)
         send_message_notification_email(
             to=client.email,
             client_name=client.full_name,
-            coach_name=claims.sub,  # HC's own display name isn't on TokenClaims; acceptable for v1, see Self-review
+            coach_name=coach_name,
             preview=body[:200],
             portal_url=f"{get_settings().frontend_url}/me/chat",
         )
