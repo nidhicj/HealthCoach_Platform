@@ -63,7 +63,17 @@ async function mockClientAuthAndMessages(
 }
 
 test.describe("client /me/chat", () => {
-  test("sending a message appends it to the thread", async ({ page }) => {
+  // PHASE-02c final-review fix (Finding 5): frontend/src/lib/config.ts's API_URL
+  // is "" — all browser calls go to same-origin /api/*, proxied server-side to
+  // the real backend by frontend/src/app/api/[...path]/route.ts (the BFF proxy).
+  // That server-to-server fetch happens in the Next.js server process, not the
+  // browser page, so Playwright's page.route(/localhost:8000\/api\//) here can
+  // never intercept it — these mocks are dead on arrival. This is a confirmed
+  // pre-existing, environment-wide gap (it affects mock-api.ts's mockAuthAndApi
+  // too, used by the rest of the e2e suite), not something introduced by this
+  // plan. Marked fixme rather than fixed here so real breakage stays
+  // distinguishable from this known infra gap; see PHASE-02c final-fix-report.md.
+  test.fixme("sending a message appends it to the thread", async ({ page }) => {
     await mockClientAuthAndMessages(page, { existingMessages: [] });
 
     await page.goto("/me/chat");
@@ -77,7 +87,9 @@ test.describe("client /me/chat", () => {
     await expect(page.getByText(/no messages yet/i)).not.toBeVisible();
   });
 
-  test("with existing messages, shows them on load", async ({ page }) => {
+  // Same BFF-proxy/mock-interception gap as above — see the comment on the
+  // first test in this describe block.
+  test.fixme("with existing messages, shows them on load", async ({ page }) => {
     await mockClientAuthAndMessages(page, {
       existingMessages: [
         {
