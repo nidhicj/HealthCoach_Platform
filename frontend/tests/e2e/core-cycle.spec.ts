@@ -134,7 +134,18 @@ test.describe("HC core cycle", () => {
     });
   });
 
-  test("client detail Chat tab: Logged Meals sub-tab shows a meal card and reacting highlights it", async ({ page }) => {
+  // PHASE-03 final-review fix (Finding I2.1): this test's meal-log flow exercises the
+  // same mockAuthAndApi() page.route(/localhost:8000\/api\//) pattern as every other
+  // test in this file, but frontend/src/lib/config.ts's API_URL is "" — all browser
+  // calls go to same-origin /api/*, proxied server-side to the real backend by
+  // frontend/src/app/api/[...path]/route.ts (the BFF proxy). That server-to-server
+  // fetch happens in the Next.js server process, not the browser page, so
+  // page.route can never intercept it here. This is a confirmed pre-existing,
+  // environment-wide gap affecting the whole e2e suite (not introduced by this
+  // plan) — out of scope to fix in this pass. Marked fixme so real breakage stays
+  // distinguishable from this known infra gap; see PHASE-02c final-fix-report.md
+  // and frontend/tests/e2e/chat.spec.ts:170 for the same pattern.
+  test.fixme("client detail Chat tab: Logged Meals sub-tab shows a meal card and reacting highlights it", async ({ page }) => {
     await page.goto(`/clients/${STUB_CLIENT_ID}`);
     await page.waitForLoadState("networkidle");
 

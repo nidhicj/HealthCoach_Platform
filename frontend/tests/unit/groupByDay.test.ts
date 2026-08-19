@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { groupMealLogsByDay } from "@/components/meal-logs/groupByDay";
+import { afterEach, describe, expect, it } from "vitest";
+import { groupMealLogsByDay, formatDayHeading, formatMealTime } from "@/components/meal-logs/groupByDay";
 import type { MealLogOut } from "@/lib/api/mealLogs";
 
 function meal(overrides: Partial<MealLogOut>): MealLogOut {
@@ -65,5 +65,42 @@ describe("groupMealLogsByDay", () => {
     ];
     const groups = groupMealLogsByDay(logs);
     expect(groups.map((g) => g.day)).toEqual(["2026-07-20", "2026-07-18"]);
+  });
+});
+
+describe("formatDayHeading", () => {
+  // PHASE-03 final review Finding I3: must render in Asia/Kolkata explicitly, not the
+  // test runner's ambient TZ — flip process.env.TZ to a zone west of UTC (which would
+  // otherwise roll a UTC-midnight instant back to the previous calendar day) and
+  // confirm the output is unaffected.
+  const originalTz = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  it("formats a YYYY-MM-DD day string as an IST weekday/date heading", () => {
+    expect(formatDayHeading("2026-07-20")).toBe("Monday, Jul 20");
+  });
+
+  it("is unaffected by the runner's local TZ env var", () => {
+    process.env.TZ = "America/Los_Angeles";
+    expect(formatDayHeading("2026-07-20")).toBe("Monday, Jul 20");
+  });
+});
+
+describe("formatMealTime", () => {
+  const originalTz = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  it("formats an ISO instant as an IST clock time", () => {
+    // 2026-07-15T07:00:00Z is 12:30 PM IST (UTC+5:30).
+    expect(formatMealTime("2026-07-15T07:00:00Z")).toBe("12:30 PM");
+  });
+
+  it("is unaffected by the runner's local TZ env var", () => {
+    process.env.TZ = "America/Los_Angeles";
+    expect(formatMealTime("2026-07-15T07:00:00Z")).toBe("12:30 PM");
   });
 });

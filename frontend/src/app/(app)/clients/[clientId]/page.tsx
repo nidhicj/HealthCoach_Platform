@@ -33,7 +33,7 @@ import { listClientCheckIns, requestCheckIn, type CheckInOut } from "@/lib/api/c
 import { listClientMessages, sendClientMessage, messageAttachmentUrl, type MessageOut } from "@/lib/api/messages";
 import { AuthedImage } from "@/components/authed-image";
 import { listClientMealLogs, reactToMealLog, mealLogPhotoUrl, type MealLogOut } from "@/lib/api/mealLogs";
-import { groupMealLogsByDay } from "@/components/meal-logs/groupByDay";
+import { groupMealLogsByDay, formatDayHeading } from "@/components/meal-logs/groupByDay";
 import { MealCard } from "@/components/meal-logs/MealCard";
 
 function isOverdue(dateStr: string | null): boolean {
@@ -1158,7 +1158,7 @@ function ChatTab({ clientId }: { clientId: string }) {
   );
 }
 
-function LoggedMealsView({ clientId }: { clientId: string }) {
+export function LoggedMealsView({ clientId }: { clientId: string }) {
   const [mealLogs, setMealLogs] = useState<MealLogOut[] | null>(null);
   const [reacting, setReacting] = useState<string | null>(null); // meal log id currently being reacted to
   const [reactError, setReactError] = useState<string | null>(null);
@@ -1192,11 +1192,11 @@ function LoggedMealsView({ clientId }: { clientId: string }) {
       {groups.map(({ day, entries }) => (
         <div key={day} className="space-y-3">
           <h3 className="font-heading text-sm font-bold text-foreground">
-            {new Date(day).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+            {formatDayHeading(day)}
           </h3>
           <div className="flex gap-3 overflow-x-auto pb-2">
             {entries.map((meal) => (
-              <MealCard key={meal.id} meal={meal} photoUrl={mealLogPhotoUrl(clientId, meal.id)}>
+              <MealCard key={meal.id} meal={meal} photoUrl={mealLogPhotoUrl(clientId, meal.id)} showReaction>
                 <div className="flex gap-1">
                   {(["happy", "neutral", "sad"] as const).map((r) => (
                     <button

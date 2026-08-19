@@ -15,7 +15,7 @@ import {
   type MealLogOut,
   type MealSlot,
 } from "@/lib/api/mealLogs";
-import { groupMealLogsByDay } from "@/components/meal-logs/groupByDay";
+import { groupMealLogsByDay, formatDayHeading } from "@/components/meal-logs/groupByDay";
 import { MealCard } from "@/components/meal-logs/MealCard";
 
 export default function ChatPage() {
@@ -116,7 +116,7 @@ function TextView() {
   );
 }
 
-function MyMealLogsView() {
+export function MyMealLogsView() {
   const [mealLogs, setMealLogs] = useState<MealLogOut[] | null>(null);
   const [mealSlot, setMealSlot] = useState<MealSlot>("breakfast");
   const [description, setDescription] = useState("");
@@ -177,7 +177,13 @@ function MyMealLogsView() {
           className="w-full rounded-md border border-border p-2 font-sans text-sm"
         />
         {error && <p className="font-sans text-sm text-destructive">{error}</p>}
-        <Button onClick={handleSubmit} disabled={submitting || !photo}>
+        {/* Deliberately NOT disabled on !photo (PHASE-03 final review, found while
+            writing Finding I2.3's test): handleSubmit's own "A photo is required"
+            inline validation is otherwise dead code — a disabled button never
+            fires onClick, so a client could never see that message, matching the
+            existing (pre-fixme) e2e test's expectation that clicking with no
+            photo attached surfaces the inline error. */}
+        <Button onClick={handleSubmit} disabled={submitting}>
           {submitting ? "Saving…" : "Log meal"}
         </Button>
       </div>
@@ -190,10 +196,12 @@ function MyMealLogsView() {
         {groups.map(({ day, entries }) => (
           <div key={day} className="space-y-3">
             <h3 className="font-heading text-sm font-bold text-foreground">
-              {new Date(day).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+              {formatDayHeading(day)}
             </h3>
             <div className="flex gap-3 overflow-x-auto pb-2">
               {entries.map((meal) => (
+                // Reaction hidden from clients by default — no product decision has
+                // authorized showing it; see PHASE-03 final review Finding I4.
                 <MealCard key={meal.id} meal={meal} photoUrl={myMealLogPhotoUrl(meal.id)} />
               ))}
             </div>
