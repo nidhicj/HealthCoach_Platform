@@ -3,15 +3,17 @@ from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import and_, or_, select
 
 from src.api.action_items import ActionItemOut
 from src.api.check_ins import CheckInOut
 from src.api.deps import ClientClaimsDep, DbDep, LimitDep, PaginatedList, TenantDep, decode_cursor, encode_cursor
+from src.api.messages import ALLOWED_ATTACHMENT_MIME_TYPES, MAX_ATTACHMENT_SIZE_BYTES, MessageOut
 from src.api.sessions import MomOut
-from src.db.models import ActionItem, CheckIn, Client, Mom
+from src.db.models import ActionItem, CheckIn, Client, ClientMessage, Mom
+from src.lib.s3 import build_message_attachment_key, s3_get, s3_put
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -214,3 +216,96 @@ async def patch_my_action_item(
     await db.flush()
     await db.commit()
     return ActionItemOut.model_validate(item)
+
+
+@router.post("/messages", status_code=status.HTTP_201_CREATED)
+async def submit_my_message(
+    claims: ClientClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+    body: str = Form(..., min_length=1),
+    attachment: UploadFile | None = None,
+) -> MessageOut:
+    if not body.strip():
+        raise HTTPException(status_code=422, detail="Message body cannot be empty or whitespace-only")
+
+    client = await _resolve_client(db, claims, hc_id)
+
+    msg = ClientMessage(client_id=client.id, hc_user_id=UUID(hc_id), direction="client", body=body)
+
+    if attachment is not None:
+        if not attachment.content_type or attachment.content_type not in ALLOWED_ATTACHMENT_MIME_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported attachment type. Allowed: {sorted(ALLOWED_ATTACHMENT_MIME_TYPES)}",
+            )
+        content = await attachment.read()
+        if len(content) > MAX_ATTACHMENT_SIZE_BYTES:
+            raise HTTPException(status_code=400, detail="Attachment exceeds the 10 MB limit")
+
+        db.add(msg)
+        await db.flush()
+        key = build_message_attachment_key(client.id, msg.id, attachment.filename or "unnamed")
+        await s3_put(key, content, attachment.content_type)
+        msg.attachment_storage_path = key
+        msg.attachment_original_filename = attachment.filename or "unnamed"
+        msg.attachment_mime_type = attachment.content_type
+    else:
+        db.add(msg)
+        await db.flush()
+
+    await db.commit()
+    await db.refresh(msg)
+    return MessageOut.model_validate(msg)
+
+
+@router.get("/messages")
+async def list_my_messages(
+    claims: ClientClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+    limit: LimitDep = 20,
+    cursor: Annotated[str | None, Query()] = None,
+) -> PaginatedList[MessageOut]:
+    client = await _resolve_client(db, claims, hc_id)
+
+    q = select(ClientMessage).where(ClientMessage.client_id == client.id)
+    if cursor:
+        cur_ts, cur_id = decode_cursor(cursor)
+        q = q.where(
+            or_(
+                ClientMessage.sent_at < cur_ts,
+                and_(ClientMessage.sent_at == cur_ts, ClientMessage.id < cur_id),
+            )
+        )
+    q = q.order_by(ClientMessage.sent_at.desc(), ClientMessage.id.desc()).limit(limit + 1)
+    rows = (await db.execute(q)).scalars().all()
+
+    next_cursor: str | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_cursor = encode_cursor(rows[-1].sent_at, rows[-1].id)
+
+    return PaginatedList(items=[MessageOut.model_validate(r) for r in rows], next_cursor=next_cursor)
+
+
+@router.get("/messages/{message_id}/attachment")
+async def get_my_message_attachment(
+    message_id: UUID,
+    claims: ClientClaimsDep,
+    hc_id: TenantDep,
+    db: DbDep,
+) -> Response:
+    client = await _resolve_client(db, claims, hc_id)
+    msg = (await db.execute(
+        select(ClientMessage).where(ClientMessage.id == message_id, ClientMessage.client_id == client.id)
+    )).scalar_one_or_none()
+    if msg is None or msg.attachment_storage_path is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    content = await s3_get(msg.attachment_storage_path)
+    return Response(
+        content=content,
+        media_type=msg.attachment_mime_type or "application/octet-stream",
+        headers={"Content-Disposition": f'inline; filename="{msg.attachment_original_filename}"'},
+    )

@@ -1,6 +1,6 @@
 """Integration tests for /api/me/* client-facing endpoints. P3."""
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -271,3 +271,207 @@ async def test_client_cannot_patch_other_clients_action_item(http_client, hc_hea
         json={"status": "completed"},
     )
     assert r.status_code == 404
+
+
+# ── POST /api/me/messages ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_client_can_send_message(http_client, client_headers, client_rec):
+    r = await http_client.post(
+        "/api/me/messages", headers=client_headers,
+        data={"body": "Quick question about my meal plan"},
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["direction"] == "client"
+    assert body["body"] == "Quick question about my meal plan"
+    assert body["has_attachment"] is False
+    assert body["client_id"] == str(client_rec.id)
+
+
+@pytest.mark.asyncio
+async def test_client_message_does_not_trigger_hc_email(http_client, client_headers, client_rec):
+    # me.py deliberately never imports send_message_notification_email (D-24), so
+    # patching it at its definition site (rather than "src.api.me.<name>", which
+    # doesn't exist there) proves no code path in this request sends an email.
+    with patch("src.lib.email.send_message_notification_email") as mock_email:
+        r = await http_client.post(
+            "/api/me/messages", headers=client_headers,
+            data={"body": "hi"},
+        )
+    assert r.status_code == 201
+    mock_email.assert_not_called()  # D-24: HC never gets emailed for a client message
+
+
+@pytest.mark.asyncio
+async def test_client_send_message_with_attachment(http_client, client_headers, client_rec):
+    with patch("src.api.me.s3_put", new_callable=AsyncMock) as mock_put:
+        r = await http_client.post(
+            "/api/me/messages", headers=client_headers,
+            data={"body": "Here's a photo"},
+            files={"attachment": ("meal.jpg", b"\xff\xd8\xff", "image/jpeg")},
+        )
+    assert r.status_code == 201, r.text
+    assert r.json()["has_attachment"] is True
+    assert r.json()["attachment_original_filename"] == "meal.jpg"
+    mock_put.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_client_send_message_rejects_non_image_attachment(http_client, client_headers, client_rec):
+    r = await http_client.post(
+        "/api/me/messages", headers=client_headers,
+        data={"body": "doc"},
+        files={"attachment": ("notes.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_client_send_message_rejects_empty_body(http_client, client_headers, client_rec):
+    r = await http_client.post(
+        "/api/me/messages", headers=client_headers,
+        data={"body": ""},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_client_send_message_rejects_whitespace_only_body(http_client, client_headers, client_rec):
+    r = await http_client.post(
+        "/api/me/messages", headers=client_headers,
+        data={"body": "   \n\t  "},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_client_without_linked_record_cannot_send_message(http_client, hc_user, client_user):
+    from tests.integration.conftest import auth_headers
+    unlinked_headers = auth_headers(client_user.id, "client", hc_id=str(hc_user.id))
+    r = await http_client.post(
+        "/api/me/messages", headers=unlinked_headers,
+        data={"body": "hi"},
+    )
+    assert r.status_code == 404
+
+
+# ── GET /api/me/messages ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_client_lists_own_messages(http_client, hc_headers, client_headers, client_rec):
+    await http_client.post(
+        f"/api/clients/{client_rec.id}/messages", headers=hc_headers, data={"body": "From your coach"},
+    )
+    await http_client.post("/api/me/messages", headers=client_headers, data={"body": "From me"})
+
+    r = await http_client.get("/api/me/messages", headers=client_headers)
+    assert r.status_code == 200
+    assert len(r.json()["items"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_client_cannot_list_other_clients_messages(http_client, hc_headers, client_headers, client_rec, db):
+    other = (await http_client.post("/api/clients", headers=hc_headers, json={"full_name": "Other"})).json()
+    await http_client.post(f"/api/clients/{other['id']}/messages", headers=hc_headers, data={"body": "not yours"})
+
+    r = await http_client.get("/api/me/messages", headers=client_headers)
+    assert r.status_code == 200
+    assert r.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_client_sees_empty_messages_list(http_client, client_headers, client_rec):
+    r = await http_client.get("/api/me/messages", headers=client_headers)
+    assert r.status_code == 200
+    assert r.json()["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_client_lists_messages_returns_correct_order(http_client, client_headers, client_rec, db):
+    import sqlalchemy as sa
+    from datetime import datetime, timedelta, timezone
+    from src.db.models import ClientMessage
+
+    bodies = ["first", "second", "third"]
+    ids = []
+    for b in bodies:
+        r = await http_client.post("/api/me/messages", headers=client_headers, data={"body": b})
+        assert r.status_code == 201
+        ids.append(r.json()["id"])
+
+    # Postgres now() is fixed for the whole test-harness transaction (even across
+    # savepoints), so every row above got the same server-default sent_at. Set
+    # distinct, increasing timestamps directly so the ordering assertion below
+    # actually exercises the ORDER BY, not insertion luck. See test_messages.py.
+    base = datetime.now(timezone.utc)
+    for i, msg_id in enumerate(ids):
+        row = (await db.execute(sa.select(ClientMessage).where(ClientMessage.id == msg_id))).scalar_one()
+        row.sent_at = base + timedelta(seconds=i)
+    await db.flush()
+    await db.commit()
+
+    r = await http_client.get("/api/me/messages", headers=client_headers)
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert [item["body"] for item in items] == list(reversed(bodies))
+
+
+# ── GET /api/me/messages/{id}/attachment ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_client_get_message_attachment_happy_path(http_client, client_headers, client_rec):
+    with patch("src.api.me.s3_put", new_callable=AsyncMock):
+        r = await http_client.post(
+            "/api/me/messages", headers=client_headers,
+            data={"body": "Here's a photo"},
+            files={"attachment": ("meal.jpg", b"\xff\xd8\xff", "image/jpeg")},
+        )
+    assert r.status_code == 201
+    msg_id = r.json()["id"]
+
+    with patch("src.api.me.s3_get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = b"\xff\xd8\xff"
+        r2 = await http_client.get(
+            f"/api/me/messages/{msg_id}/attachment", headers=client_headers,
+        )
+    assert r2.status_code == 200
+    assert r2.content == b"\xff\xd8\xff"
+    assert r2.headers["content-type"] == "image/jpeg"
+    mock_get.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_client_get_message_attachment_returns_404_when_no_attachment(http_client, client_headers, client_rec):
+    r = await http_client.post(
+        "/api/me/messages", headers=client_headers,
+        data={"body": "text only, no attachment"},
+    )
+    assert r.status_code == 201
+    msg_id = r.json()["id"]
+
+    r2 = await http_client.get(
+        f"/api/me/messages/{msg_id}/attachment", headers=client_headers,
+    )
+    assert r2.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_client_cannot_get_attachment_for_other_clients_message(http_client, hc_headers, client_headers, db):
+    other = (await http_client.post("/api/clients", headers=hc_headers, json={"full_name": "Other2"})).json()
+    with patch("src.api.messages.s3_put", new_callable=AsyncMock):
+        r = await http_client.post(
+            f"/api/clients/{other['id']}/messages", headers=hc_headers,
+            data={"body": "not yours"},
+            files={"attachment": ("ref.jpg", b"\xff\xd8\xff", "image/jpeg")},
+        )
+    assert r.status_code == 201
+    msg_id = r.json()["id"]
+
+    r2 = await http_client.get(
+        f"/api/me/messages/{msg_id}/attachment", headers=client_headers,
+    )
+    assert r2.status_code == 404
