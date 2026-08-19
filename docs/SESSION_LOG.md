@@ -4,6 +4,29 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-08-19 — Unit_003: committed the onboarding-hub reconciliation; PHASE-03 next
+
+**Branch**: `feature/unit-003-client-discovery-pipeline`
+
+**Done**:
+- Found the working tree carrying uncommitted, unlogged work from an earlier (2026-08-13) session: `frontend/src/app/(app)/settings/leadgen/*` staged as a rename into `frontend/src/app/(app)/settings/(hub)/onboarding/`, plus matching unstaged edits to `Unit_003`'s `SPEC-0001` (new "Shared surfaces" section) and `PHASE-01` doc, and two reciprocal edits in `Unit_006_PlatformFoundations`'s `SPEC-0001`/`PHASE-01` docs. All four docs told a coherent, cross-referenced story: Unit_003's HC setup page, shipped unlinked from any nav under `/settings/leadgen` (PHASE-01's own final review had flagged this and left it unresolved), was moved into `Unit_006`'s Settings hub at `/settings/onboarding`, filling a placeholder `Unit_006` had reserved for exactly this. The docs were finished; the commit and session-log entry never happened.
+- Verified the move before trusting it: grepped for lingering `settings/leadgen` references (none outside intentionally-historical doc text); ran `npm install` (found `date-fns` declared in `package.json` but missing from `node_modules` — pre-existing gap, unrelated to this change, from the 2026-08-12 merge not being followed by a reinstall) then a clean production build + TypeScript pass, confirming `/settings/onboarding` is a registered route and `/settings/leadgen` is gone; stood up Postgres (docker compose), the FastAPI backend, and the Next.js dev server locally, and did a real Playwright browser walkthrough — `/settings/leadgen` returns a clean Next.js 404, `/settings/onboarding` renders (unconfigured-state view), and clicking the sidebar "Onboarding" link from `/settings/profile` navigates correctly, zero console errors.
+- Committed the move + all four doc edits together (`1896095`).
+
+**Decided**:
+- Full authenticated-session parity (real OAuth login, configured-leadgen-state render) was not verified live — the access token lives in frontend module memory by design (never `localStorage`, per ADR-0005 §5) and is only populated via a real Google OAuth round trip or the `HttpOnly` refresh cookie set by it; minting a raw refresh token server-side and driving Playwright with it is possible in principle but wasn't done this session, since the unconfigured-state render + real nav-click already gave strong evidence the move itself (file paths, imports, hub wiring) is sound. Flagging this so a future session doesn't assume the fully-configured view was pixel-checked.
+
+**Pending / next session**:
+- **PHASE-03 (blood report upload + brief generation)** is the actual next product work — plan is fully written (`PHASE-03-blood-report-upload-and-brief-generation.md`), zero code exists yet (confirmed `backend/src/api/upload.py`, `backend/src/lib/mime_sniff.py`, `backend/prompts/lead_brief.md` all absent). This is where the next session should start implementation, per `superpowers:subagent-driven-development` as the plan doc specifies.
+- This branch is still unpushed beyond what was already on `origin` before this session (per the 2026-08-12 entry, 138 commits were local-only as of then) — push remains SoJo's call.
+- `date-fns` was missing from `node_modules` despite being in `package.json` — now fixed locally via `npm install`, but worth a beat of attention if a fresh clone/CI run hits the same gap (may indicate `package-lock.json` and `node_modules` drifted, or just that nobody reinstalled after the last `main` merge pulled in the calendar feature).
+
+**Context the next session needs**:
+- PHASE-03's plan doc §5 "Source docs consulted" and its 8-task breakdown are ready to execute as-is; no re-planning needed.
+- `SYNC_STATUS.md` showed this branch 0 commits behind `main` as of this session's start — no re-sync needed before starting PHASE-03.
+
+---
+
 ## 2026-08-12 — Unit_003: main sync, merge conflict resolution, and cross-worktree tooling
 
 **Branch**: `feature/unit-003-client-discovery-pipeline`
