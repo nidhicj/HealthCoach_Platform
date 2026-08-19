@@ -2,11 +2,46 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { listMyMessages, sendMyMessage, myMessageAttachmentUrl } from "@/lib/api/me";
 import type { MessageOut } from "@/lib/api/messages";
 import { AuthedImage } from "@/components/authed-image";
+import {
+  listMyMealLogs,
+  submitMyMealLog,
+  myMealLogPhotoUrl,
+  MEAL_SLOTS,
+  MEAL_SLOT_LABELS,
+  type MealLogOut,
+  type MealSlot,
+} from "@/lib/api/mealLogs";
+import { groupMealLogsByDay } from "@/components/meal-logs/groupByDay";
+import { MealCard } from "@/components/meal-logs/MealCard";
 
 export default function ChatPage() {
+  const [subTab, setSubTab] = useState("text");
+
+  return (
+    <div className="space-y-6">
+      <h1 className="font-heading text-3xl font-black text-foreground">Chat</h1>
+
+      <Tabs value={subTab} onValueChange={setSubTab}>
+        <TabsList variant="line">
+          <TabsTrigger value="text">Text</TabsTrigger>
+          <TabsTrigger value="meals">Logged Meals</TabsTrigger>
+        </TabsList>
+        <TabsContent value="text">
+          <TextView />
+        </TabsContent>
+        <TabsContent value="meals">
+          <MyMealLogsView />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function TextView() {
   const [messages, setMessages] = useState<MessageOut[] | null>(null);
   const [body, setBody] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -35,8 +70,6 @@ export default function ChatPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="font-heading text-3xl font-black text-foreground">Chat</h1>
-
       <div className="max-h-[60vh] space-y-3 overflow-y-auto">
         {messages === null && <p className="font-sans text-sm text-muted-foreground">Loading…</p>}
         {messages !== null && messages.length === 0 && (
@@ -78,6 +111,94 @@ export default function ChatPage() {
         <Button onClick={handleSend} disabled={sending || !body.trim()}>
           {sending ? "Sending…" : "Send"}
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function MyMealLogsView() {
+  const [mealLogs, setMealLogs] = useState<MealLogOut[] | null>(null);
+  const [mealSlot, setMealSlot] = useState<MealSlot>("breakfast");
+  const [description, setDescription] = useState("");
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listMyMealLogs().then((data) => setMealLogs(data.items)).catch(() => setMealLogs([]));
+  }, []);
+
+  async function handleSubmit() {
+    if (!photo) {
+      setError("A photo is required to log a meal.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const created = await submitMyMealLog({ mealSlot, description: description || undefined, photo });
+      setMealLogs((prev) => [created, ...(prev ?? [])]);
+      setDescription("");
+      setPhoto(null);
+    } catch {
+      setError("Couldn't save that meal log. Try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const groups = mealLogs ? groupMealLogsByDay(mealLogs) : [];
+
+  return (
+    <div className="space-y-8">
+      <div className="space-y-3 rounded-md border p-4">
+        <p className="font-sans text-sm font-bold text-foreground">Log a meal</p>
+        <div className="flex flex-wrap gap-2">
+          {MEAL_SLOTS.map((slot) => (
+            <button
+              key={slot}
+              onClick={() => setMealSlot(slot)}
+              className={`rounded-full border px-3 py-1 font-sans text-xs ${
+                mealSlot === slot ? "border-primary bg-primary text-primary-foreground" : "border-border text-foreground"
+              }`}
+            >
+              {MEAL_SLOT_LABELS[slot]}
+            </button>
+          ))}
+        </div>
+        <input
+          type="file" accept="image/jpeg,image/png,image/webp,image/heic" capture="environment"
+          onChange={(e) => setPhoto(e.target.files?.[0] ?? null)}
+          className="font-sans text-xs"
+        />
+        <textarea
+          value={description} onChange={(e) => setDescription(e.target.value)}
+          placeholder="What did you eat? (optional)"
+          className="w-full rounded-md border border-border p-2 font-sans text-sm"
+        />
+        {error && <p className="font-sans text-sm text-destructive">{error}</p>}
+        <Button onClick={handleSubmit} disabled={submitting || !photo}>
+          {submitting ? "Saving…" : "Log meal"}
+        </Button>
+      </div>
+
+      <div className="space-y-8">
+        {mealLogs === null && <p className="font-sans text-sm text-muted-foreground">Loading…</p>}
+        {mealLogs !== null && mealLogs.length === 0 && (
+          <p className="font-sans text-sm italic text-muted-foreground">No meals logged yet.</p>
+        )}
+        {groups.map(({ day, entries }) => (
+          <div key={day} className="space-y-3">
+            <h3 className="font-heading text-sm font-bold text-foreground">
+              {new Date(day).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+            </h3>
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {entries.map((meal) => (
+                <MealCard key={meal.id} meal={meal} photoUrl={myMealLogPhotoUrl(meal.id)} />
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
