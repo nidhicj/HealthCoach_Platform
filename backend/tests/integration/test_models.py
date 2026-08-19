@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import (
     ActionItem, AuditLog, AuthRefreshToken, Brief, CheckIn, Client,
     Consent, ContentAssignment, DietChart, DietChartRecipe, HcStyleSnippet,
-    LlmCall, Mom, PrepRecipe, Session, User,
+    LlmCall, MealLog, Mom, PrepRecipe, Session, User,
 )
 
 NOW = datetime.now(timezone.utc)
@@ -255,6 +255,9 @@ async def test_cascade_delete_client_removes_all_child_rows(db: AsyncSession) ->
         HcStyleSnippet(hc_user_id=hc.id, client_id=client.id, snippet_type="edit", original_text="t"),
         Consent(client_id=client.id, hc_user_id=hc.id, purpose="service",
                 granted=True, granted_at=NOW, source="in_app"),
+        MealLog(client_id=client.id, hc_user_id=hc.id, meal_slot="breakfast",
+                photo_storage_path="test/path.jpg", photo_original_filename="test.jpg",
+                photo_mime_type="image/jpeg"),
     ])
     await db.flush()
     client_id = client.id
@@ -266,7 +269,7 @@ async def test_cascade_delete_client_removes_all_child_rows(db: AsyncSession) ->
     await db.commit()
 
     # All child rows must be gone
-    for model in (Mom, Brief, ActionItem, CheckIn, HcStyleSnippet, Consent, Session):
+    for model in (Mom, Brief, ActionItem, CheckIn, HcStyleSnippet, Consent, Session, MealLog):
         rows = (await db.execute(
             select(model).where(model.client_id == client_id)  # type: ignore[attr-defined]
         )).scalars().all()
