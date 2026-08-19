@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { listMyMessages, sendMyMessage, myMessageAttachmentUrl } from "@/lib/api/me";
 import type { MessageOut } from "@/lib/api/messages";
+import { AuthedImage } from "@/components/authed-image";
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<MessageOut[] | null>(null);
@@ -50,8 +51,8 @@ export default function ChatPage() {
           >
             <p>{m.body}</p>
             {m.has_attachment && (
-              <img
-                src={myMessageAttachmentUrl(m.id)}
+              <AuthedImage
+                url={myMessageAttachmentUrl(m.id)}
                 alt={m.attachment_original_filename ?? "attachment"}
                 className="mt-2 max-h-48 rounded"
               />

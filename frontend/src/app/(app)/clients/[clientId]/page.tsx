@@ -31,6 +31,7 @@ import { HealthMetricsCard } from "@/components/health-metrics-card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { listClientCheckIns, requestCheckIn, type CheckInOut } from "@/lib/api/checkIns";
 import { listClientMessages, sendClientMessage, messageAttachmentUrl, type MessageOut } from "@/lib/api/messages";
+import { AuthedImage } from "@/components/authed-image";
 
 function isOverdue(dateStr: string | null): boolean {
   if (!dateStr) return false;
@@ -1193,8 +1194,8 @@ export function TextView({ clientId }: { clientId: string }) {
           >
             <p>{m.body}</p>
             {m.has_attachment && (
-              <img
-                src={messageAttachmentUrl(clientId, m.id)}
+              <AuthedImage
+                url={messageAttachmentUrl(clientId, m.id)}
                 alt={m.attachment_original_filename ?? "attachment"}
                 className="mt-2 max-h-48 rounded"
               />
