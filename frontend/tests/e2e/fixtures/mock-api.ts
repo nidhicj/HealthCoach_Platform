@@ -240,6 +240,27 @@ export async function mockAuthAndApi(page: Page) {
       return route.fulfill(jsonOk({ items: [], next_cursor: null }));
     }
 
+    // ── messages ──────────────────────────────────────────────────────────────
+    if (path.startsWith("/api/clients/") && path.includes("/messages")) {
+      if (method === "POST") {
+        const raw = req.postData() ?? "";
+        const bodyMatch = raw.match(/name="body"\r?\n\r?\n([\s\S]*?)\r?\n--/);
+        const sentBody = bodyMatch ? bodyMatch[1] : "";
+        return route.fulfill(jsonOk({
+          id: `msg-${Date.now()}`,
+          client_id: STUB_CLIENT_ID,
+          hc_user_id: "hc-001",
+          direction: "coach",
+          body: sentBody,
+          has_attachment: /name="attachment"/.test(raw),
+          attachment_original_filename: null,
+          attachment_mime_type: null,
+          sent_at: NOW,
+        }, 201));
+      }
+      return route.fulfill(jsonOk({ items: [], next_cursor: null }));
+    }
+
     // ── diet chart templates ──────────────────────────────────────────────────
     if (path === "/api/diet-charts/templates") {
       if (method === "GET") return route.fulfill(jsonOk([STUB_TEMPLATE]));

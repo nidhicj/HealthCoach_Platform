@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getClient, patchClient, createInvite, type ClientDetailOut, type HealthMetric } from "@/lib/api/clients";
 import { listSessions, type SessionOut } from "@/lib/api/sessions";
@@ -29,6 +30,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { HealthMetricsCard } from "@/components/health-metrics-card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { listClientCheckIns, requestCheckIn, type CheckInOut } from "@/lib/api/checkIns";
+import { listClientMessages, sendClientMessage, messageAttachmentUrl, type MessageOut } from "@/lib/api/messages";
 
 function isOverdue(dateStr: string | null): boolean {
   if (!dateStr) return false;
@@ -1070,6 +1072,7 @@ export default function ClientDetailPage() {
 }
 
 function ChatTab({ clientId }: { clientId: string }) {
+  const [subTab, setSubTab] = useState("text");
   const [checkIns, setCheckIns] = useState<CheckInOut[] | null>(null);
   const [requesting, setRequesting] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
@@ -1095,41 +1098,122 @@ function ChatTab({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="font-heading text-xl font-bold text-foreground">Check-ins</h2>
-        <button
-          onClick={handleRequest}
-          disabled={requesting || pending !== null}
-          className="rounded-md border border-border px-3 py-1.5 font-sans text-xs font-bold uppercase tracking-widest text-foreground disabled:opacity-50"
-        >
-          {pending ? "Awaiting answer" : requesting ? "Requesting…" : "Request check-in"}
-        </button>
+      <Tabs value={subTab} onValueChange={setSubTab}>
+        <TabsList variant="line">
+          <TabsTrigger value="text">Text</TabsTrigger>
+          <TabsTrigger value="checkins">Check-ins</TabsTrigger>
+        </TabsList>
+        <TabsContent value="text">
+          <TextView clientId={clientId} />
+        </TabsContent>
+        <TabsContent value="checkins">
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="font-heading text-xl font-bold text-foreground">Check-ins</h2>
+              <button
+                onClick={handleRequest}
+                disabled={requesting || pending !== null}
+                className="rounded-md border border-border px-3 py-1.5 font-sans text-xs font-bold uppercase tracking-widest text-foreground disabled:opacity-50"
+              >
+                {pending ? "Awaiting answer" : requesting ? "Requesting…" : "Request check-in"}
+              </button>
+            </div>
+
+            {requestError && <p className="font-sans text-sm text-destructive">{requestError}</p>}
+
+            {checkIns === null && <p className="font-sans text-sm text-muted-foreground">Loading…</p>}
+
+            {checkIns !== null && checkIns.filter((c) => c.payload !== null).length === 0 && (
+              <p className="font-sans text-sm italic text-muted-foreground">No check-ins yet.</p>
+            )}
+
+            {checkIns !== null && (
+              <ul className="space-y-3">
+                {checkIns
+                  .filter((c) => c.payload !== null)
+                  .map((c) => (
+                    <li key={c.id} className="rounded-md border border-border p-4 font-sans text-sm">
+                      <p className="mb-1 text-xs text-muted-foreground">
+                        {new Date(c.created_at).toLocaleDateString()}
+                      </p>
+                      <pre className="whitespace-pre-wrap font-sans text-sm">
+                        {JSON.stringify(c.payload, null, 2)}
+                      </pre>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function TextView({ clientId }: { clientId: string }) {
+  const [messages, setMessages] = useState<MessageOut[] | null>(null);
+  const [body, setBody] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    listClientMessages(clientId).then((data) => setMessages(data.items.slice().reverse())).catch(() => setMessages([]));
+  }, [clientId]);
+
+  async function handleSend() {
+    if (!body.trim()) return;
+    setSending(true);
+    try {
+      const sent = await sendClientMessage(clientId, { body, attachment: attachment ?? undefined });
+      setMessages((prev) => [...(prev ?? []), sent]);
+      setBody("");
+      setAttachment(null);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="max-h-96 space-y-3 overflow-y-auto">
+        {messages === null && <p className="font-sans text-sm text-muted-foreground">Loading…</p>}
+        {messages !== null && messages.length === 0 && (
+          <p className="font-sans text-sm italic text-muted-foreground">No messages yet.</p>
+        )}
+        {messages?.map((m) => (
+          <div
+            key={m.id}
+            className={`max-w-[75%] rounded-md border p-3 font-sans text-sm ${
+              m.direction === "coach" ? "ml-auto border-primary/30 bg-primary/5" : "border-border"
+            }`}
+          >
+            <p>{m.body}</p>
+            {m.has_attachment && (
+              <img
+                src={messageAttachmentUrl(clientId, m.id)}
+                alt={m.attachment_original_filename ?? "attachment"}
+                className="mt-2 max-h-48 rounded"
+              />
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">{new Date(m.sent_at).toLocaleString()}</p>
+          </div>
+        ))}
       </div>
-
-      {requestError && <p className="font-sans text-sm text-destructive">{requestError}</p>}
-
-      {checkIns === null && <p className="font-sans text-sm text-muted-foreground">Loading…</p>}
-
-      {checkIns !== null && checkIns.filter((c) => c.payload !== null).length === 0 && (
-        <p className="font-sans text-sm italic text-muted-foreground">No check-ins yet.</p>
-      )}
-
-      {checkIns !== null && (
-        <ul className="space-y-3">
-          {checkIns
-            .filter((c) => c.payload !== null)
-            .map((c) => (
-              <li key={c.id} className="rounded-md border border-border p-4 font-sans text-sm">
-                <p className="mb-1 text-xs text-muted-foreground">
-                  {new Date(c.created_at).toLocaleDateString()}
-                </p>
-                <pre className="whitespace-pre-wrap font-sans text-sm">
-                  {JSON.stringify(c.payload, null, 2)}
-                </pre>
-              </li>
-            ))}
-        </ul>
-      )}
+      <div className="flex gap-2">
+        <input
+          type="text" value={body} onChange={(e) => setBody(e.target.value)}
+          placeholder="Type a message…"
+          className="flex-1 rounded-md border border-border px-3 py-2 font-sans text-sm"
+        />
+        <input
+          type="file" accept="image/jpeg,image/png,image/webp,image/heic"
+          onChange={(e) => setAttachment(e.target.files?.[0] ?? null)}
+          className="w-40 font-sans text-xs"
+        />
+        <Button onClick={handleSend} disabled={sending || !body.trim()}>
+          {sending ? "Sending…" : "Send"}
+        </Button>
+      </div>
     </div>
   );
 }

@@ -122,6 +122,7 @@ test.describe("HC core cycle", () => {
     await page.waitForLoadState("networkidle");
 
     await page.getByRole("tab", { name: "Chat" }).click();
+    await page.getByRole("tab", { name: "Check-ins" }).click();
     await expect(page.getByRole("heading", { name: "Check-ins" })).toBeVisible();
 
     const requestBtn = page.getByRole("button", { name: /request check-in/i });
@@ -131,5 +132,25 @@ test.describe("HC core cycle", () => {
     await expect(page.getByRole("button", { name: /awaiting answer/i })).toBeVisible({
       timeout: 5000,
     });
+  });
+
+  test("client detail Chat tab: sending a text message shows it in the thread", async ({ page }) => {
+    await page.goto(`/clients/${STUB_CLIENT_ID}`);
+    await page.waitForLoadState("networkidle");
+
+    await page.getByRole("tab", { name: "Chat" }).click();
+    await expect(page.getByRole("tab", { name: "Text" })).toBeVisible();
+    await expect(page.getByText(/no messages yet/i)).toBeVisible();
+
+    const messageInput = page.getByPlaceholder(/type a message/i);
+    await messageInput.fill("Great progress this week, keep it up!");
+
+    const sendBtn = page.getByRole("button", { name: /^send$/i });
+    await sendBtn.click();
+
+    await expect(page.getByText("Great progress this week, keep it up!")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(messageInput).toHaveValue("");
   });
 });
