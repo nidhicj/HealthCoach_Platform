@@ -76,6 +76,49 @@ def send_action_items_email(
     })
 
 
+def send_message_notification_email(*, to: str, client_name: str, coach_name: str, preview: str, portal_url: str) -> None:
+    api_key = _get_api_key()
+    if not api_key:
+        raise RuntimeError("resend_api_key not configured")
+
+    resend.api_key = api_key
+
+    safe_client = html.escape(client_name)
+    safe_preview = html.escape(preview[:200])
+    subject = f"Your coach replied — {coach_name}"
+    safe_subject = html.escape(subject)
+
+    body_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{safe_subject}</title>
+</head>
+<body style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; color: #2C2C1E; background: #F7F4EE;">
+  <div style="background: #5C6652; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+    <h1 style="color: #F7F4EE; font-size: 20px; margin: 0;">Tapas</h1>
+  </div>
+  <div style="background: #ffffff; padding: 28px 24px; border-radius: 0 0 8px 8px; border: 1px solid #E8EDE5;">
+    <p style="font-size: 15px; margin-top: 0;">Hi {safe_client},</p>
+    <p style="font-size: 15px; white-space: pre-line;">{safe_preview}</p>
+    <p style="margin: 24px 0;">
+      <a href="{portal_url}" style="background: #5C6652; color: #F7F4EE; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-size: 14px;">Open chat</a>
+    </p>
+    <hr style="border: none; border-top: 1px solid #E8EDE5; margin: 20px 0;">
+    <p style="font-size: 12px; color: #888;">Sent via Tapas · your health coaching platform</p>
+  </div>
+</body>
+</html>"""
+
+    resend.Emails.send({
+        "from": _get_from_email(),
+        "to": [to],
+        "subject": subject,
+        "html": body_html,
+    })
+
+
 def send_check_in_reminder_email(*, to: str, client_name: str, portal_url: str) -> None:
     api_key = _get_api_key()
     if not api_key:

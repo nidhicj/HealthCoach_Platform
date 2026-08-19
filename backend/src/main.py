@@ -16,6 +16,7 @@ from src.api.check_ins import router as check_ins_router
 from src.api.clients import router as clients_router
 from src.api.files import router as files_router
 from src.api.me import router as me_router
+from src.api.messages import router as messages_router
 from src.api.sessions import router as sessions_router
 from src.api.settings import router as settings_router
 from src.auth.router import router as auth_router
@@ -85,6 +86,7 @@ app.include_router(files_router)
 app.include_router(action_items_router)
 app.include_router(check_ins_router)
 app.include_router(me_router)
+app.include_router(messages_router)
 app.include_router(diet_charts_router)
 app.include_router(supplements_router)
 app.include_router(scheduler_router)
