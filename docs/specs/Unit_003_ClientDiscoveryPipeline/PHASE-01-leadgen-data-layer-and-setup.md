@@ -925,6 +925,8 @@ git commit -m "feat(leadgen): add PATCH /api/leadgen/config"
 
 ## Task 8: Frontend — `/settings/leadgen` page (Setup, Intake Form, Test Panel tabs)
 
+> **2026-08-13 correction — read before touching this page.** This page now lives at `frontend/src/app/(app)/settings/(hub)/onboarding/` (route `/settings/onboarding`), not the `settings/leadgen/` path described below. It was moved into `Unit_006_PlatformFoundations`'s Settings hub, filling that unit's empty "Onboarding" sidebar placeholder — the two were independently-named versions of the same concept, built on sibling branches. See SPEC-0001 §Shared surfaces and Changelog (2026-08-13). The task write-up below is left as-is as a historical record of what Task 8 originally built and verified; treat every `settings/leadgen` path in it as superseded by `settings/(hub)/onboarding`.
+
 **Files:**
 - Create: `frontend/src/lib/api/leadgen.ts`
 - Create: `frontend/src/app/(app)/settings/leadgen/page.tsx`
@@ -1282,3 +1284,9 @@ git commit -m "feat(leadgen): add /settings/leadgen page with Setup, Intake Form
 - **Spec coverage**: Stage 1 steps 1–6 (SPEC-0001 §Stage 1) are covered by Tasks 1–8. Step 7 (HC copies/shares the link) needs no backend/frontend work beyond displaying the slug (done in Step 8.2) — the URL being channel-agnostic is a documentation fact, not a code deliverable. All 5 "New tables" from the Data section are covered (Tasks 2–3). Acceptance criteria §Setup's four checkboxes map to Task 5 (slug format, init), Task 7 (PATCH ignores hc_slug — no endpoint updates it), Task 5+6 (profile-incomplete path). The intake-link-returns-200 criterion (`GET /api/intake/:slug` — public) is explicitly **PHASE-02**, not this phase.
 - **Type consistency checked**: `LeadgenConfigOut` (Task 5) and `LeadgenConfigStatusOut` (Task 6) both read from the same `HcLeadgenConfig` model fields; `LeadgenConfigPatch` (Task 7) field names match both. Frontend `LeadgenConfigStatusSchema` (Task 8) mirrors the same field set.
 - **No placeholders**: confirmed no TBD/TODO markers remain in any task's code.
+
+---
+
+## Post-phase correction — 2026-08-13
+
+Task 8's final review (see `docs/SESSION_LOG.md`, this phase's entry) already flagged that `/settings/leadgen` was "not yet reachable from any in-app nav" and ruled it a non-blocking gap at ship time. It stayed unresolved because `Unit_006_PlatformFoundations` PHASE-01 — which introduced the Settings hub this page needed to join — was built independently on a sibling branch, and the two units' work only got reconciled once both had merged into a shared `main`. Resolution: Task 8's four files moved from `frontend/src/app/(app)/settings/leadgen/` to `frontend/src/app/(app)/settings/(hub)/onboarding/`, filling Unit_006's reserved-but-empty "Onboarding" sidebar slot. No backend change; `/api/leadgen/*` untouched. Full record: SPEC-0001 §Shared surfaces and Changelog.
