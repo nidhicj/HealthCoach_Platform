@@ -4,6 +4,67 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-08-19 — Unit_003: committed the onboarding-hub reconciliation; PHASE-03 next
+
+**Branch**: `feature/unit-003-client-discovery-pipeline`
+
+**Done**:
+- Found the working tree carrying uncommitted, unlogged work from an earlier (2026-08-13) session: `frontend/src/app/(app)/settings/leadgen/*` staged as a rename into `frontend/src/app/(app)/settings/(hub)/onboarding/`, plus matching unstaged edits to `Unit_003`'s `SPEC-0001` (new "Shared surfaces" section) and `PHASE-01` doc, and two reciprocal edits in `Unit_006_PlatformFoundations`'s `SPEC-0001`/`PHASE-01` docs. All four docs told a coherent, cross-referenced story: Unit_003's HC setup page, shipped unlinked from any nav under `/settings/leadgen` (PHASE-01's own final review had flagged this and left it unresolved), was moved into `Unit_006`'s Settings hub at `/settings/onboarding`, filling a placeholder `Unit_006` had reserved for exactly this. The docs were finished; the commit and session-log entry never happened.
+- Verified the move before trusting it: grepped for lingering `settings/leadgen` references (none outside intentionally-historical doc text); ran `npm install` (found `date-fns` declared in `package.json` but missing from `node_modules` — pre-existing gap, unrelated to this change, from the 2026-08-12 merge not being followed by a reinstall) then a clean production build + TypeScript pass, confirming `/settings/onboarding` is a registered route and `/settings/leadgen` is gone; stood up Postgres (docker compose), the FastAPI backend, and the Next.js dev server locally, and did a real Playwright browser walkthrough — `/settings/leadgen` returns a clean Next.js 404, `/settings/onboarding` renders (unconfigured-state view), and clicking the sidebar "Onboarding" link from `/settings/profile` navigates correctly, zero console errors.
+- Committed the move + all four doc edits together (`1896095`).
+
+**Decided**:
+- Full authenticated-session parity (real OAuth login, configured-leadgen-state render) was not verified live — the access token lives in frontend module memory by design (never `localStorage`, per ADR-0005 §5) and is only populated via a real Google OAuth round trip or the `HttpOnly` refresh cookie set by it; minting a raw refresh token server-side and driving Playwright with it is possible in principle but wasn't done this session, since the unconfigured-state render + real nav-click already gave strong evidence the move itself (file paths, imports, hub wiring) is sound. Flagging this so a future session doesn't assume the fully-configured view was pixel-checked.
+
+**Pending / next session**:
+- **PHASE-03 (blood report upload + brief generation)** is the actual next product work — plan is fully written (`PHASE-03-blood-report-upload-and-brief-generation.md`), zero code exists yet (confirmed `backend/src/api/upload.py`, `backend/src/lib/mime_sniff.py`, `backend/prompts/lead_brief.md` all absent). This is where the next session should start implementation, per `superpowers:subagent-driven-development` as the plan doc specifies.
+- This branch is still unpushed beyond what was already on `origin` before this session (per the 2026-08-12 entry, 138 commits were local-only as of then) — push remains SoJo's call.
+- `date-fns` was missing from `node_modules` despite being in `package.json` — now fixed locally via `npm install`, but worth a beat of attention if a fresh clone/CI run hits the same gap (may indicate `package-lock.json` and `node_modules` drifted, or just that nobody reinstalled after the last `main` merge pulled in the calendar feature).
+
+**Context the next session needs**:
+- PHASE-03's plan doc §5 "Source docs consulted" and its 8-task breakdown are ready to execute as-is; no re-planning needed.
+- `SYNC_STATUS.md` showed this branch 0 commits behind `main` as of this session's start — no re-sync needed before starting PHASE-03.
+
+---
+
+## 2026-08-12 — Unit_003: main sync, merge conflict resolution, and cross-worktree tooling
+
+**Branch**: `feature/unit-003-client-discovery-pipeline`
+
+**Done**:
+- Merged `main` into this branch (137 commits behind at the start of the session) and resolved all 7 conflicts by hand, one at a time, with SoJo: `users.py` (kept both `first_name`/`last_name` and `business_name` — verified dropping the temp columns would have broken `leadgen.py`'s profile-completeness gate, since main's `/settings/profile` has no field to satisfy it), `email.py` (two unrelated functions git had sliced into 4 alternating hunks — kept both whole), `main.py` (router registration, additive), `SESSION_LOG.md` (reordered chronologically, not just concatenated), this file's own `SPEC-0001` (WIP rewrite vs. the parivarthan→tapas rename — no real conflict), and the two `Unit_006_PlatformFoundations` spec files (a rename-detection artifact from an old misfiled `Unit_005_PlatformFoundations` dir — took main's version outright). Merge concluded as `ea7bbc0`.
+- Found and fixed a real Alembic multi-head split (`5e8385088f08` vs. `b8cb150db2b2`) that the merge itself gave no error for — two migration chains had independently branched off `97ef9da99879` and were never reconciled. Fixed with an empty merge revision, `4bc4af4` (`77bada58d4b1`), generated via the real `alembic merge` command (not hand-authored) and verified with `alembic heads` before/after.
+- Built cross-worktree tooling, live-tested end to end: a `post-merge` git hook (lives once in the shared common `.git/hooks/`, so it's active for all 5 `tapas_*` worktrees automatically) that (a) auto-fetches into every sibling worktree and writes `/mnt/hdd/.../Poshini/SYNC_STATUS.md` with commits-behind-`main` per branch, and (b) checks for Alembic multi-head splits after every merge and prints a loud terminal warning (with the exact heads, filenames, and a ready-to-run fix command) if found — silent otherwise. Neither auto-merges nor auto-fixes; both stay deliberate, attended steps. Added a scoped section to the global `~/.claude/CLAUDE.md` (not this repo's) telling every Claude session to check `SYNC_STATUS.md` at the start of substantive work in a `tapas_*` worktree.
+- Mid-session, a peer Claude Code session working in `tapas_unit004` messaged this session directly (first real use of cross-session messaging in this workflow): flagged a real bug in the hook (staleness was compared against `origin/main` instead of local `main`, understating it in the window after a local merge before pushing) — verified and fixed on the spot — and asked about an unrelated uncommitted `docker-compose.yml` edit sitting in its own worktree, which was confirmed not to be from this session.
+- Published an HTML field guide (artifact) walking through why each of the 7 conflicts happened and 5 general levers to have fewer of them (sync cadence, claim-before-touch, file splitting, one-table-one-owner, migration branching), plus a correction to an initial hexagonal-architecture proposal: it would not have prevented the `users.py` or Alembic conflicts, since those are data-ownership problems, not application-code-boundary problems.
+
+**Decided**:
+- Merge (not rebase) was the right call for syncing this branch — 33 commits were already pushed to origin, and rebasing would have forced a `--force-push` plus per-commit conflict resolution across 102 commits instead of once.
+- `.env.example` conflict resolved by adopting main's generic-template convention (worktree-specific values belong in local, gitignored `.env`, which this worktree already had set correctly) rather than keeping unit-003-specific values committed to the template.
+- The multi-worktree sync automation stays intentionally "detect + notify" only, never "auto-fix" or "auto-merge" — discussed explicitly with SoJo; an unattended merge risks clobbering uncommitted work or leaving a worktree mid-conflict with nobody there to resolve it.
+
+**Bugs fixed mid-session**: see the Alembic multi-head split and the hook's `origin/main` vs. local `main` staleness bug above — both covered under Done, not repeated here.
+
+**Pending / next session**:
+- **Not yet pushed**: this branch is 138 commits ahead of `origin/feature/unit-003-client-discovery-pipeline`, all local. Push is SoJo's call, not done automatically this session.
+- **The "claims" mechanism was designed and then deliberately deferred, not just left undone.** Plan: a shared file outside any single worktree (or a dedicated git ref) that every worktree's Claude session checks/writes before touching a shared resource. Two gaps surfaced once the design got specific: (1) a plain shared file is a best-effort convention, not a lock — two sessions could still race on the same check — and (2) any check that lives purely as a `CLAUDE.md` instruction depends on a Claude session actually reading and following it, which this very session demonstrated is not reliable (dropped the standing preflight-block requirement partway through, despite it being a "no exceptions" rule). A `pre-commit` hook that mechanically warns when staged changes touch a flagged shared path (not dependent on a session choosing to comply) was proposed as a partial fix for the second gap — explicitly declined for now. SoJo's call: handle coordination manually until this has actually caused a real collision, rather than build speculative infrastructure for a race that hasn't happened yet.
+- **Alembic sync monitoring**: SoJo prefers a separate, periodic (cron-style) check that polls each worktree's actual running Postgres container's applied migration state (`alembic_version`) against the codebase — a different, complementary check to the `post-merge` hook's static file-based head count, and explicitly not something to build this session either. Noted for whenever it's actually wanted.
+- **No ADR written yet** for the cross-worktree sync protocol, even though the `post-merge` hook's own header comment references one ("once it's written up as an ADR") — that reference is currently aspirational, not real. Should become `docs/decisions/000X-cross-worktree-sync-protocol.md` per CLAUDE.md §1 rule 14 before this convention is treated as fully locked in.
+- The hook lives only in this machine's local `.git/hooks/` (not git-tracked) — won't survive a fresh clone. Fixable later via `core.hooksPath` + a tracked `.githooks/` dir; explicitly deferred this session to avoid scope creep beyond what was asked.
+- PHASE-02 (public intake questionnaire + lab recommendation + email) is still the actual next feature work for this unit — untouched this session, which was entirely merge/infra, not product work.
+
+**Context the next session needs**:
+- This worktree's Postgres still runs on port 5436 per `.env` (`COMPOSE_PROJECT_NAME=tapas_unit003`) — unchanged by this session.
+- `SYNC_STATUS.md` at `/mnt/hdd/yourProjects/OnGoing/Poshini/SYNC_STATUS.md` is the live source of truth for how stale any `tapas_*` branch is relative to `main` — check it before assuming this branch (or any sibling) is current.
+- The full reasoning behind the sync-protocol design (why merge over rebase, why detect-only over auto-merge, the file-organization vs. shared-data-ownership distinction) lives in this session's conversation, not yet in a doc — see the ADR gap above.
+
+**Open questions for SoJo**:
+- When to build the claims-file mechanism, and which of the two designs (plain external file vs. dedicated git ref) to use.
+- When to write the ADR formalizing this session's sync protocol.
+- Whether/when to push this branch now that it's synced with main.
+
+---
+
 ## 2026-08-04 — Unit_006 PHASE-01: Settings nav corrected to a hub + sidebar
 
 **Done**:
@@ -60,6 +121,43 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 **Open questions for SoJo**:
 - None blocking. PHASE-02 needs a brainstorming session before implementation, per SPEC-0001's own stated process.
 
+---
+
+## 2026-08-02 — Unit_003 Client Discovery Pipeline: PHASE-01 (leadgen data layer & HC setup) shipped
+
+**Branch**: `feature/unit-003-client-discovery-pipeline` (kept as-is per SoJo, not merged/pushed this session)
+
+**Shipped (all 8 tasks, via superpowers:subagent-driven-development, one fresh implementer + reviewer per task):**
+- Data layer: `leads`, `lead_questionnaire_responses`, `lead_upload_tokens`, `lead_files`, `hc_leadgen_config` tables (5 new tables, one migration chain, verified linear/single-head, verified schema-identical on both `tapas_dev` and `tapas_test`).
+- Temporary `users.first_name`/`last_name` columns (conceptually owned by `Unit_006_PlatformFoundations`, not yet built) — explicitly flagged in the migration docstring and PHASE-01's Global Constraints as a cross-branch merge collision risk for whoever merges second.
+- Three endpoints in `backend/src/api/leadgen.py`: `POST /api/leadgen/config/init` (slug generation, profile-incomplete/already-configured guards), `GET /api/leadgen/config`, `PATCH /api/leadgen/config` (fixed-question protection, tenant-scoped).
+- `backend/scripts/seed_hc_names.py` — temporary manual backfill script, ahead of Unit_006's real settings UI. Run against a dummy pilot HC (`joshichi.nidhi@gmail.com` / Nidhi Joshi — explicitly confirmed dummy/test data) in this worktree's `tapas_dev`.
+- Frontend `/settings/leadgen` page (Setup / Intake Form / Test Panel tabs), verified with a real in-browser Playwright walkthrough (not just typecheck/build) against live backend + Postgres, per this repo's UI-verification rule.
+
+**Bugs found and fixed during execution (6 total, across per-task review + final whole-branch review):**
+- Task 2: migration was applied to `tapas_dev` but silently never reached `tapas_test` (wrong env var — `alembic/env.py` only reads `DATABASE_URL`, not `TEST_DATABASE_URL` as its own var). Caught because `tests/integration/conftest.py` builds the test schema via `Base.metadata.create_all`, not Alembic, so pytest alone would have masked this drift indefinitely.
+- Task 5: `POST /config/init`'s slug-collision retry loop misdiagnosed a concurrent `hc_user_id` race as a slug collision, returning a misleading 500 instead of 409 `already_configured`. SoJo approved the fix explicitly (plan-mandated code, flagged as a plan-vs-finding conflict rather than silently fixed).
+- Task 7: `_validate_questionnaire_keeps_fixed_questions`'s `removable: true` rejection branch had zero test coverage (brief only specified the "missing key" test case).
+- Final review (I-1): PATCH didn't enforce D-1's "no retyping a fixed question" rule — only checked key-presence/`removable`, not `type`/`required`/`text`.
+- Final review (I-2): explicit `null` on NOT-NULL scalar PATCH fields caused a raw 500 instead of 422.
+- Final review (I-3) + regression (N-1) caught in the fix wave's own re-review: `questionnaire` was untyped `list[dict]` server-side (malformed entries silently persisted, later breaking the frontend's stricter Zod parse with no error surfaced — `page.tsx` had no `.catch()`); the fix for I-3 combined with the *pre-existing* lack of a null-guard on `questionnaire`/`test_panel` (both NOT NULL JSONB columns) meant `PATCH {"questionnaire": null}` would silently corrupt a row — JSONB `null` satisfies a SQL `NOT NULL` constraint, so the write committed, then every later GET/PATCH on that row 500'd trying to serialize it back out, with no API-level recovery path. Closed with one more approved fix round (extended the same null-guard to both JSONB fields), verified via counterfactual + mutation-tested regression tests.
+
+**Decided**:
+- Confirmed with SoJo (see prior conversation turn): PHASE docs are written and executed one sprint at a time (design → implement → design next), not all upfront — matches this repo's own CLAUDE.md §6 convention and Unit_001's actual commit history.
+- This worktree's `.env` JWT keys were placeholders (blocking any real login/JWT-issuance testing). Copied the real dev ES256 keypair from `tapas_unit004`'s `.env` (JWT signing keys aren't meant to be per-worktree) — `.env` confirmed gitignored, never committed.
+
+**Pending / next session**:
+- PHASE-02 (public intake questionnaire + lab recommendation + email) is next, per SPEC-0001's Stage 2-3 — not started.
+- `/settings/leadgen` is not yet reachable from any in-app nav (`frontend/src/app/(app)/layout.tsx` has no settings sub-nav yet) — flagged by final review as a real but non-blocking gap.
+- Minor deferred items (see final commit `d75d402` and the now-deleted SDD ledger, summarized): `seed_hc_names.py` doesn't dispose its DB engine on the user-not-found error path; no PATCH-specific cross-tenant isolation test (GET has one); `LeadgenConfigPatch` has no `extra="forbid"`; hardcoded `tapas.app` intake-link display string should eventually source from config (also: SPEC-0001 Stages 2-4 still say `parivarthan.app`, inconsistent with the Tapas rename — not touched this session).
+- The Unit_006/cross-branch `users.first_name`/`last_name` collision risk (see PHASE-01 Global Constraints, now committed) still needs SoJo to actively coordinate at merge time — not resolvable from within this branch alone.
+
+**Context the next session needs**:
+- This worktree's Postgres runs on port 5436 (`docker-compose.yml` project `tapas_unit003`) — always run `scripts/db-check.sh` first. `tapas_test` needs `TEST_DATABASE_URL` exported explicitly before `pytest` (conftest.py reads `os.environ` directly; `.env` isn't auto-sourced into the shell).
+- Full backend suite: 286 passed. Frontend: clean build, `/settings/leadgen` included.
+
+**Open questions for SoJo**:
+- None blocking. The Unit_006 merge-coordination risk above is the one item that needs your active attention, not Claude's — timing depends on Unit_006's own roadmap.
 ---
 
 ## 2026-07-14 — Platform rename: Parivarthan → Tapas (docs sweep)

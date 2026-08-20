@@ -13,6 +13,7 @@ from src.db.models.clients import Client
 from src.db.models.coaching import ActionItem, CheckIn, Mom
 from src.db.models.content import ContentAssignment, DietChart
 from src.db.models.files import ClientFile
+from src.db.models.leadgen import Lead, LeadQuestionnaireResponse
 from src.db.models.sessions import Session
 from src.lib.file_extraction import extract_text
 from src.lib.s3 import s3_get
@@ -22,6 +23,7 @@ from src.llm_service.config import get_llm_config
 from src.llm_service.prompts import load_prompt
 from src.llm_service.retry import STRICT_FORMAT_HINT, parse_or_retry
 from src.llm_service.schemas.brief import BriefSchema
+from src.llm_service.schemas.lead_brief import LeadBriefSchema
 from src.llm_service.schemas.mom import MomDraftSchema
 from src.llm_service.snippets import select as select_snippets
 from src.llm_service.snippets import update_usage
@@ -468,3 +470,165 @@ async def generate_brief(
 
     # Return server-computed triage_flags, not from LLM parsed output
     return parsed.to_brief_text(), triage_flags, llm_call_id
+
+
+async def generate_lead_brief(
+    db: AsyncSession,
+    *,
+    lead_id: UUID,
+    hc_user_id: UUID,
+    blood_report_text: str,
+    request_id: UUID | None = None,
+) -> tuple[str | None, UUID | None]:
+    """
+    Generate a pre-consultation brief for a Lead. Returns (brief_text, llm_call_id).
+
+    Per D-2: this function must NEVER raise — its caller is a public, unauthenticated
+    upload endpoint whose success must not depend on brief generation succeeding. The
+    entire body below is wrapped in try/except: any failure (missing Lead, LLM call
+    exception, persistent validation failure after parse_or_retry) writes the
+    `llm_calls` row with `error_message` set (mirroring the exception path already
+    used by generate_mom_draft/generate_brief, per D-1 — no new schema) and returns
+    (None, None) instead of raising.
+
+    No snippets (D-4) — this is a standalone function, not a wrapper around
+    generate_brief(). Does not touch R2 or `lead_files`; `blood_report_text` is
+    assembled by the caller (a future upload endpoint) via extract_text() across all
+    accepted files, which keeps this function testable without file I/O.
+    """
+    # D-2: none of these are assigned yet — get_llm_config()/load_prompt() can each raise
+    # (missing/corrupt prompts/lead_brief.md, missing/invalid llm_config.yaml). Keep safe
+    # placeholders here so _write_failure_row has something to report even if we fail before
+    # the real values are ever assigned inside the try block below.
+    prompt_file: object | None = None
+    models: list[str] = []
+    system_prompt = ""
+
+    async def _write_failure_row(error_message: str) -> None:
+        try:
+            await write_llm_call(
+                db,
+                hc_user_id=hc_user_id,
+                client_id=None,
+                session_id=None,
+                use_case="lead_brief",
+                prompt_version=prompt_file.version if prompt_file is not None else "unknown",
+                model_requested=models[0] if models else "",
+                model_served=None,
+                fallback_count=0,
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=0,
+                validation_failed=False,
+                snippet_count=0,
+                snippet_tokens=0,
+                inr_cost_estimate=None,
+                raw_request_id=None,
+                error_message=error_message,
+                prompt_text=system_prompt,
+                completion_text="",
+                request_id=request_id,
+            )
+        except Exception:
+            pass  # logging the failure must not itself raise (D-2)
+
+    try:
+        cfg = get_llm_config()
+        prompt_file = load_prompt("lead_brief")
+        models = build_models_array(cfg)
+        system_prompt = prompt_file.body  # overwritten below; used as a fallback if we fail before then
+
+        lead = (await db.execute(
+            select(Lead).where(Lead.id == lead_id)
+        )).scalar_one_or_none()
+        if lead is None:
+            raise ValueError(f"Lead not found: {lead_id}")
+
+        # Questionnaire answers: LeadQuestionnaireResponse rows already snapshot each
+        # question's label text at submission time (see src/api/intake.py), including
+        # a row with response_text=None for unanswered questions — no separate lookup
+        # of HcLeadgenConfig.questionnaire is needed to resolve labels.
+        q_rows = (await db.execute(
+            select(LeadQuestionnaireResponse).where(LeadQuestionnaireResponse.lead_id == lead_id)
+        )).scalars().all()
+        if q_rows:
+            questionnaire_section = "\n\n".join(
+                f"Q: {r.question_text}\nA: {r.response_text or '(not answered)'}"
+                for r in q_rows
+            )
+        else:
+            questionnaire_section = "No questionnaire responses on record."
+
+        test_rec = lead.test_recommendation or {}
+        all_tests = test_rec.get("all_tests") or []
+        test_recommendation_section = (
+            ", ".join(all_tests) if all_tests else "No specific tests recommended."
+        )
+
+        system_prompt = (
+            prompt_file.body
+            .replace("{{QUESTIONNAIRE_SECTION}}", questionnaire_section)
+            .replace("{{TEST_RECOMMENDATION_SECTION}}", test_recommendation_section)
+            .replace("{{BLOOD_REPORT_TEXT}}", blood_report_text or "")
+        )
+        user_message = "Generate the pre-consultation brief."
+
+        try:
+            result = await call_openrouter(
+                models=models,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                no_training=cfg.no_training_header,
+                no_retention=cfg.no_retention_header,
+            )
+        except Exception as exc:
+            await _write_failure_row(str(exc))
+            return None, None
+
+        async def retry_fn() -> str:
+            retry_result = await call_openrouter(
+                models=models,
+                system_prompt=system_prompt + STRICT_FORMAT_HINT,
+                user_message=user_message,
+                no_training=cfg.no_training_header,
+                no_retention=cfg.no_retention_header,
+            )
+            return retry_result.content
+
+        parsed, validation_failed, error_msg = await parse_or_retry(
+            result.content, LeadBriefSchema, retry_fn
+        )
+
+        fb_count = fallback_count_for(result.model_served, cfg)
+        llm_call_id = await write_llm_call(
+            db,
+            hc_user_id=hc_user_id,
+            client_id=None,
+            session_id=None,
+            use_case="lead_brief",
+            prompt_version=prompt_file.version,
+            model_requested=models[0],
+            model_served=result.model_served,
+            fallback_count=fb_count,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            latency_ms=result.latency_ms,
+            validation_failed=validation_failed,
+            snippet_count=0,
+            snippet_tokens=0,
+            inr_cost_estimate=None,
+            raw_request_id=result.raw_request_id,
+            error_message=error_msg,
+            prompt_text=system_prompt,
+            completion_text=result.content,
+            request_id=request_id,
+        )
+
+        if validation_failed or parsed is None:
+            return None, None
+
+        return parsed.to_brief_text(), llm_call_id
+
+    except Exception as exc:
+        await _write_failure_row(str(exc))
+        return None, None
