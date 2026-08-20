@@ -4,7 +4,7 @@
 # =============================================================================
 
 API="http://localhost:8000"
-DB="postgresql://postgres:localdevpassword@localhost:5432/tapas_dev"
+DB="postgresql://postgres:localdevpassword@localhost:5437/tapas_dev"
 IDS_FILE="/tmp/mock_p6_ids.env"
 
 # ── HTTP helpers ───────────────────────────────────────────────────────────────
@@ -131,9 +131,12 @@ patch_mom_final() {
 
 send_mom() {
   local session_id="$1"
-  _post "/api/sessions/$session_id/mom/send" '{}' > /dev/null 2>&1 || {
-    echo "  ✗ send_mom failed for session $session_id" >&2; exit 1
-  }
+  # MOM must be frozen (draft -> reviewed) before it can be sent — freeze also
+  # promotes action_items_draft into real action_items rows.
+  # NOTE: the actual /mom/send call is skipped — Resend's tapas.fitness domain
+  # isn't verified in this environment, so send always 500s. MOMs are left in
+  # "reviewed" status rather than "sent" for this mock data run.
+  _post "/api/sessions/$session_id/mom/freeze" '{}' > /dev/null
 }
 
 end_session() {

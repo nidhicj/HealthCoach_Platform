@@ -26,50 +26,12 @@ echo "  Maya Patel — Onboarding Client"
 echo "======================================================="
 
 # ─────────────────────────────────────────────────────────────────────────────
-# M000 — Onboarding session (no LLM)
+# M000 — already completed manually earlier this run (session/brief/MOM/freeze/
+# end all done before this script was patched) — S_MAYA_0 comes from require_ids.
 # ─────────────────────────────────────────────────────────────────────────────
 echo ""
-echo "── M000: Onboarding session ─────────────────────────"
-
-S_MAYA_0=$(create_session "$CLIENT1_ID" 0 "$(weeks_ago 2)")
+echo "── M000: already completed, skipping ────────────────"
 echo "  Session ID: $S_MAYA_0"
-
-verify_hint "M000 session created (session_number = 0)" \
-  "DB:       psql \$DB -c \"SELECT id, session_number, status, scheduled_at FROM sessions WHERE client_id = '$CLIENT1_ID';\"" \
-  "API:      curl -s http://localhost:8000/api/clients/$CLIENT1_ID/sessions -H 'Authorization: Bearer \$HC_JWT' | python3 -m json.tool" \
-  "Frontend: http://localhost:3000/clients/$CLIENT1_ID  →  one session card (Onboarding, session 0)" \
-  "Design:   session_number = 0 is the onboarding slot. Status should be 'active' (in progress)."
-
-add_notes "$S_MAYA_0" "Onboarding session. Maya is 29, software engineer, works from home. Main complaints: difficulty waking before 9am, irregular sleep (midnight to 9am), no structured morning. Goals: wake by 7am, build a 30-minute morning practice over 8 weeks."
-
-# M000 uses a template brief (no LLM call) — just confirm it returns
-BRIEF_M000=$(_get "/api/sessions/$S_MAYA_0/brief")
-echo "$BRIEF_M000" | python3 -c "
-import sys, json
-b = json.load(sys.stdin)
-print('  ✓ M000 brief returned (template — no LLM):')
-print('   ', b.get('brief_text','')[:100], '...')
-"
-
-verify_hint "M000 template brief — NO LLM call expected" \
-  "DB:       psql \$DB -c \"SELECT id, llm_call_id FROM briefs WHERE session_id = '$S_MAYA_0';\"" \
-  "Design:   llm_call_id must be NULL. Session 0 uses a hardcoded template — no tokens consumed." \
-  "Design:   If llm_call_id IS NOT NULL, the brief endpoint incorrectly called the LLM for an onboarding session."
-
-# Manual MOM — onboarding note, no AI needed
-_post "/api/sessions/$S_MAYA_0/mom" '{
-  "draft_text": "Onboarding complete. Baseline established: sleep midnight–9am, no morning routine, WFH.\n\nGoal: 7am wake-up + 30-min morning practice in 8 weeks.\n\nNo action items this session. M001 will set first commitments."
-}' > /dev/null
-
-send_mom "$S_MAYA_0"
-end_session "$S_MAYA_0"
-echo "  ✓ M000 ended. No action items seeded."
-
-verify_hint "M000 MOM sent and session ended" \
-  "DB:       psql \$DB -c \"SELECT draft_text IS NOT NULL AS has_draft, sent_at IS NOT NULL AS is_sent, status FROM moms m JOIN sessions s ON s.id = m.session_id WHERE s.id = '$S_MAYA_0';\"" \
-  "DB:       psql \$DB -c \"SELECT status FROM sessions WHERE id = '$S_MAYA_0';\"" \
-  "Design:   sent_at must be non-null. session.status must be 'completed'." \
-  "Design:   No action items should exist for this session (onboarding — nothing assigned yet)."
 
 # ─────────────────────────────────────────────────────────────────────────────
 # M001 — First real session
