@@ -62,6 +62,7 @@ echo "Creating clients..."
 
 CLIENT1_ID=$(create_client '{
   "full_name": "Maya Patel",
+  "email": "maya.patel@mock.tapas.test",
   "journey_stage": "onboarding",
   "course_goal": "Build a sustainable morning routine and improve sleep hygiene"
 }')
@@ -69,6 +70,7 @@ echo "  ✓ Client 1 — Maya Patel (onboarding)  : $CLIENT1_ID"
 
 CLIENT2_ID=$(create_client '{
   "full_name": "Ravi Kumar",
+  "email": "ravi.kumar@mock.tapas.test",
   "journey_stage": "active",
   "course_goal": "Lose 8kg in 16 weeks through consistent nutrition and daily movement"
 }')
@@ -76,6 +78,7 @@ echo "  ✓ Client 2 — Ravi Kumar  (5 sessions) : $CLIENT2_ID"
 
 CLIENT3_ID=$(create_client '{
   "full_name": "Sunita Rao",
+  "email": "sunita.rao@mock.tapas.test",
   "journey_stage": "active",
   "course_goal": "Manage PCOD symptoms through anti-inflammatory diet, movement, and stress reduction"
 }')

@@ -6,6 +6,8 @@ from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 
 from src.api.action_items import router as action_items_router
 from src.api.calendar import router as calendar_router
@@ -15,13 +17,17 @@ from src.api.supplements import router as supplements_router
 from src.api.check_ins import router as check_ins_router
 from src.api.clients import router as clients_router
 from src.api.files import router as files_router
+from src.api.intake import router as intake_router
+from src.api.leadgen import router as leadgen_router
 from src.api.me import router as me_router
 from src.api.meal_logs import router as meal_logs_router
 from src.api.messages import router as messages_router
 from src.api.sessions import router as sessions_router
 from src.api.settings import router as settings_router
+from src.api.upload import router as upload_router
 from src.auth.router import router as auth_router
 from src.config import get_settings
+from src.lib.rate_limit import limiter
 from src.telemetry.log import get_logger
 from src.telemetry.sentry import init_sentry
 
@@ -45,6 +51,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.state.limiter = limiter
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exception_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    logger = get_logger(request_id=getattr(request.state, "request_id", ""))
+    logger.info("rate_limit_exceeded", path=request.url.path)
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": (
+                "We've received a lot of submissions just now. "
+                "Please wait a few minutes and try again."
+            )
+        },
+    )
 
 
 @app.middleware("http")
@@ -92,6 +115,9 @@ app.include_router(messages_router)
 app.include_router(diet_charts_router)
 app.include_router(supplements_router)
 app.include_router(scheduler_router)
+app.include_router(leadgen_router)
+app.include_router(intake_router)
+app.include_router(upload_router)
 app.include_router(settings_router)
 app.include_router(calendar_router)
 
