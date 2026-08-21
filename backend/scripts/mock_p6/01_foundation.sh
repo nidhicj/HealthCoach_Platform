@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
 # mock_p6/01_foundation.sh
-# Creates HC user + 3 test clients.
+# Creates HC user + 1 test client (Maya only — trimmed down from the original
+# 3-client version to avoid the slow, LLM-heavy 02/03/04 scripts; this stage
+# itself has no LLM calls, so it stays fast regardless).
 # Writes all IDs and the JWT to /tmp/mock_p6_ids.env for subsequent scripts.
 #
 # Run from repo root:
@@ -58,7 +60,7 @@ print(data['id'])
 "
 }
 
-echo "Creating clients..."
+echo "Creating client..."
 
 CLIENT1_ID=$(create_client '{
   "full_name": "Maya Patel",
@@ -68,42 +70,24 @@ CLIENT1_ID=$(create_client '{
 }')
 echo "  ✓ Client 1 — Maya Patel (onboarding)  : $CLIENT1_ID"
 
-CLIENT2_ID=$(create_client '{
-  "full_name": "Ravi Kumar",
-  "email": "ravi.kumar@mock.tapas.test",
-  "journey_stage": "active",
-  "course_goal": "Lose 8kg in 16 weeks through consistent nutrition and daily movement"
-}')
-echo "  ✓ Client 2 — Ravi Kumar  (5 sessions) : $CLIENT2_ID"
-
-CLIENT3_ID=$(create_client '{
-  "full_name": "Sunita Rao",
-  "email": "sunita.rao@mock.tapas.test",
-  "journey_stage": "active",
-  "course_goal": "Manage PCOD symptoms through anti-inflammatory diet, movement, and stress reduction"
-}')
-echo "  ✓ Client 3 — Sunita Rao  (8 sessions) : $CLIENT3_ID"
-
-verify_hint "3 clients created" \
+verify_hint "1 client created" \
   "DB:       psql \$DB -c \"SELECT full_name, journey_stage, code FROM clients WHERE hc_user_id = '$HC_ID' ORDER BY created_at;\"" \
   "API:      curl -s http://localhost:8000/api/clients -H 'Authorization: Bearer \$HC_JWT' | python3 -m json.tool" \
-  "Frontend: http://localhost:3000/clients  →  Maya, Ravi, Sunita should appear as 3 cards" \
-  "Design:   journey_stage = onboarding for Maya, active for Ravi + Sunita. code (CP-XXXX) auto-assigned."
+  "Frontend: http://localhost:3000/clients  →  Maya should appear as 1 card" \
+  "Design:   journey_stage = onboarding for Maya. code (CP-XXXX) auto-assigned."
 
 # ── Write env file ─────────────────────────────────────────────────────────────
 cat > "$IDS_FILE" <<EOF
 HC_JWT=$HC_JWT
 HC_ID=$HC_ID
 CLIENT1_ID=$CLIENT1_ID
-CLIENT2_ID=$CLIENT2_ID
-CLIENT3_ID=$CLIENT3_ID
 EOF
 
 echo ""
 echo "  IDs written to $IDS_FILE"
 echo ""
 echo "======================================================="
-echo "  Stage 1 complete."
-echo "  Next: bash scripts/mock_p6/02_maya.sh"
+echo "  Stage 1 complete (trimmed to 1 client — Ravi/Sunita and the"
+echo "  LLM-heavy 02/03/04 scripts were skipped for speed)."
 echo "======================================================="
 
