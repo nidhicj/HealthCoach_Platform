@@ -19,6 +19,8 @@ router = APIRouter(tags=["settings"])
 
 class SettingsProfileOut(BaseModel):
     business_name: str | None
+    first_name: str | None
+    last_name: str | None
     display_name: str | None
     photo_url: str | None
     email: str
@@ -28,6 +30,8 @@ class SettingsProfileOut(BaseModel):
 
 class SettingsProfilePatch(BaseModel):
     business_name: str | None = Field(default=None, max_length=200)
+    first_name: str | None = Field(default=None, max_length=200)
+    last_name: str | None = Field(default=None, max_length=200)
 
     @field_validator("business_name")
     @classmethod
@@ -35,6 +39,21 @@ class SettingsProfilePatch(BaseModel):
         if v is None:
             return None
         return v.strip() or None
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def _reject_empty(cls, v: str | None) -> str | None:
+        # Unlike business_name, first_name/last_name are "required once set" and
+        # cannot be cleared back to null via this endpoint — so an explicit empty
+        # string, whitespace-only string, or explicit JSON null (as opposed to the
+        # field being omitted from the body entirely, which never reaches this
+        # validator) is rejected rather than silently normalized.
+        if v is None:
+            raise ValueError("must not be null — this field cannot be cleared via this endpoint")
+        trimmed = v.strip()
+        if not trimmed:
+            raise ValueError("must not be empty or whitespace-only")
+        return trimmed
 
 
 # ── routes ─────────────────────────────────────────────────────────────────────
@@ -59,6 +78,10 @@ async def patch_profile(body: SettingsProfilePatch, claims: HcClaimsDep, db: DbD
         raise HTTPException(status_code=401, detail="User not found")
     if "business_name" in body.model_fields_set:
         user.business_name = body.business_name
+    if "first_name" in body.model_fields_set:
+        user.first_name = body.first_name
+    if "last_name" in body.model_fields_set:
+        user.last_name = body.last_name
     await db.commit()
     await db.refresh(user)
     return SettingsProfileOut.model_validate(user)
