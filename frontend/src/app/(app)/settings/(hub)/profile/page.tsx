@@ -11,6 +11,8 @@ import { getProfile, updateProfile, type SettingsProfile } from "@/lib/api/setti
 export default function SettingsProfilePage() {
   const [profile, setProfile] = useState<SettingsProfile | null>(null);
   const [businessName, setBusinessName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -21,18 +23,35 @@ export default function SettingsProfilePage() {
       .then((p) => {
         setProfile(p);
         setBusinessName(p.business_name ?? "");
+        setFirstName(p.first_name ?? "");
+        setLastName(p.last_name ?? "");
       })
       .catch(() => setLoadError(true));
   }, []);
 
+  const trimmedFirstName = firstName.trim();
+  const trimmedLastName = lastName.trim();
+  const requiredFieldsMissing = trimmedFirstName === "" || trimmedLastName === "";
+
   async function handleSave() {
+    if (requiredFieldsMissing) {
+      setSaveError(true);
+      setSaved(false);
+      return;
+    }
     setSaving(true);
     setSaveError(false);
     setSaved(false);
     try {
-      const updated = await updateProfile(businessName.trim() === "" ? null : businessName);
+      const updated = await updateProfile(
+        businessName.trim() === "" ? null : businessName,
+        trimmedFirstName,
+        trimmedLastName,
+      );
       setProfile(updated);
       setBusinessName(updated.business_name ?? "");
+      setFirstName(updated.first_name ?? "");
+      setLastName(updated.last_name ?? "");
       setSaved(true);
     } catch {
       setSaveError(true);
@@ -64,24 +83,66 @@ export default function SettingsProfilePage() {
         <p className="font-sans text-sm text-destructive">Could not load profile.</p>
       ) : (
         <>
-          {/* Editable business name */}
-          <div className="space-y-2">
-            <label
-              htmlFor="business-name"
-              className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground"
-            >
-              Business name
-            </label>
-            <Input
-              id="business-name"
-              value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
-              placeholder="Your practice name"
-            />
-            <Button onClick={handleSave} disabled={saving}>
+          {/* Editable name + business name */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label
+                htmlFor="first-name"
+                className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground"
+              >
+                First name
+                <span className="text-destructive"> *</span>
+              </label>
+              <Input
+                id="first-name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="First name"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="last-name"
+                className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground"
+              >
+                Last name
+                <span className="text-destructive"> *</span>
+              </label>
+              <Input
+                id="last-name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Last name"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label
+                htmlFor="business-name"
+                className="font-sans text-xs font-bold uppercase tracking-widest text-muted-foreground"
+              >
+                Business name
+              </label>
+              <Input
+                id="business-name"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder="Your practice name"
+              />
+            </div>
+
+            <Button onClick={handleSave} disabled={saving || requiredFieldsMissing}>
               {saving ? "Saving…" : "Save"}
             </Button>
-            {saveError && (
+            {saveError && requiredFieldsMissing && (
+              <p className="font-sans text-xs text-destructive">
+                First name and last name are required.
+              </p>
+            )}
+            {saveError && !requiredFieldsMissing && (
               <p className="font-sans text-xs text-destructive">Could not save. Try again.</p>
             )}
             {saved && !saveError && (
