@@ -615,3 +615,58 @@ git commit -m "feat(settings): add /settings/profile page"
 **Type consistency check**: `SettingsProfileOut` (Python: `business_name, display_name, photo_url, email`) matches `SettingsProfileSchema` (TypeScript/Zod: same four fields, same nullability) exactly. `getProfile()`/`updateProfile()` names in Task 3 match what Task 3's own page imports — no cross-task naming drift since both live in Task 3.
 
 **Branch check**: this plan now lives on `feature/unit-006-platform-foundations` (moved 2026-07-17, per the Changelog in `SPEC-0001-platform-foundations.md`). Task 1 may begin.
+
+---
+
+## Post-phase extension — 2026-08-21: `first_name`/`last_name` join this page
+
+**Why:** `users.first_name`/`users.last_name` were added by `Unit_003_ClientDiscoveryPipeline` PHASE-01 as an explicitly-`# temporary` migration, owned by that unit only because this phase's original scope (SPEC-0001 D-3) was `business_name` only. Unit_003's own `SPEC-0001` flagged this as an open question from day one: *"Unit_006 PHASE-01 as a prerequisite... Unit_006 PHASE-01 as currently spec'd does not include these fields — it needs to be extended."* That extension never happened — instead, every HC who needed `first_name`/`last_name` set (to pass leadgen's profile-completeness gate) got it done manually via `backend/scripts/seed_hc_names.py`, a one-off script explicitly scoped to `tapas_dev` only. Production HCs have no such path today. Tasks 4-6 below close this gap for real: `first_name`/`last_name` become first-class, user-editable fields on this same page, and the seed script is retired.
+
+**Decisions** (confirmed with SoJo before these tasks were written):
+- Columns stay nullable at the DB level — no backfill migration. "Required" is enforced only at the API/UI layer (PATCH rejects empty/whitespace for these two fields specifically), matching the existing `business_name` validation pattern rather than inventing a DB constraint.
+- "Required" means the Profile page form won't let you save them empty — no new app-wide onboarding gate. The existing leadgen-setup redirect (`/settings/onboarding` → `/settings/profile` if either is null) remains the only cross-flow enforcement, same as today, now self-serviceable instead of requiring an engineer to run a script.
+- `business_name` is unaffected — stays optional, no validation change, and per SoJo's explicit instruction no future code should come to depend on it; it's kept purely because it's already there and does no harm.
+
+### Task 4: Backend — `first_name`/`last_name` on `/api/settings/profile`
+
+**Files:**
+- Modify: `backend/src/db/models/users.py` — remove the `# temporary — see Unit_003 PHASE-01 Global Constraints` comments on `first_name`/`last_name` (the columns already exist, nullable `TEXT`, added by Unit_003's `fdec7eb` migration — no new migration needed here)
+- Modify: `backend/src/api/settings.py` — add `first_name: str | None`, `last_name: str | None` to `SettingsProfileOut`; add both to `SettingsProfilePatch` as `Field(default=None, max_length=200)`, matching `business_name`'s existing field shape
+- Modify: `backend/tests/integration/test_settings.py` — extend/add tests per below
+
+**Behavior — read this carefully, it differs from `business_name` on purpose:**
+- `GET /api/settings/profile` returns `first_name`, `last_name` alongside the existing three fields. Nullable — an HC who hasn't filled them in yet (including every existing account that predates this task) sees `null`, not an error.
+- `PATCH /api/settings/profile`: omitting `first_name`/`last_name` from the body is still a no-op (reuse the exact `model_fields_set`-guard pattern `business_name` already uses — Task 2's bug history recorded a real silent-data-loss bug from getting this wrong once; do not repeat it for the new fields).
+- **Unlike `business_name`**, which normalizes an empty/whitespace string to `null` (so it can be explicitly cleared), `first_name`/`last_name` must **reject** an empty or whitespace-only string with 422 when explicitly provided in the PATCH body — these are "required once set," not clearable back to null via this endpoint. Trim leading/trailing whitespace on any accepted value, same as `business_name`.
+- Max length 200, same validation error shape as `business_name`'s existing max-length case.
+
+**Tests to add/extend in `backend/tests/integration/test_settings.py`:**
+- GET returns `first_name`/`last_name` when set, and `null` when not (use a fresh fixture user, not the worktree's existing dev-DB row)
+- PATCH sets `first_name`/`last_name`; round-trips correctly on a subsequent GET
+- PATCH with `first_name: ""` (and separately, whitespace-only `"   "`) → 422; existing value (if any) unchanged
+- PATCH omitting `first_name` entirely (partial update) → no-op, existing value preserved — this is the specific regression class from Task 2's bug history; write it as a real round trip (set a value, PATCH `{}` or PATCH with only `last_name`, GET again, confirm `first_name` survived), not just an assertion that the request returns 200
+- PATCH with `first_name` exceeding 200 chars → 422
+- Extend `test_cross_hc_profile_isolation` (or confirm it already round-trips every field, not just `business_name`) so isolation coverage doesn't silently narrow as fields are added
+
+### Task 5: Frontend — required First name / Last name fields on `/settings/profile`
+
+**Files:**
+- Modify: `frontend/src/lib/api/settings.ts` — extend `SettingsProfileSchema` with `first_name: z.string().nullable()`, `last_name: z.string().nullable()`; extend `updateProfile()`'s parameters and request body to send them alongside `business_name`
+- Modify: `frontend/src/app/(app)/settings/(hub)/profile/page.tsx` — add "First name" and "Last name" inputs, visually marked required (check this codebase for an existing required-field visual convention — e.g. the intake page's required questions — and match it rather than inventing a new one); "Business name" stays exactly as it is today, unmarked, no validation change
+
+**Behavior:**
+- Save is blocked (or shows a clear inline error) when First name or Last name is empty/whitespace-only. Business name has no such restriction — it can be saved empty, exactly like today.
+- On load, populate all three fields from `GET`. On save, PATCH all three together (existing pattern already does this for `business_name` alone — extend it, don't add a second save path).
+- If the backend still returns a 422 (client-side check bypassed, or a length violation), surface it as a clear inline error — don't fail silently.
+
+**Verification:** `npx tsc --noEmit` (0 new errors beyond this repo's documented pre-existing baseline — see PHASE-03's Task 7 report for the current baseline count if this doc's own §6 baseline is stale by then), `npm run build`. Check whether this page already has a dedicated frontend test file before deciding whether to add one — Task 3 originally shipped without one; if that's still true, note it rather than inventing a new test-setup convention for just this page.
+
+### Task 6: Close the loop — resolve the open question, retire the seed script
+
+**Files:**
+- Modify: `docs/specs/Unit_003_ClientDiscoveryPipeline/SPEC-0001-client-discovery-pipeline.md` — mark the "Unit_006 PHASE-01 as a prerequisite" open question resolved (strikethrough style, matching how the M000 pre-population question was already resolved in the same §Open questions list), with a dated Changelog row
+- Modify: `docs/specs/Unit_006_PlatformFoundations/SPEC-0001-platform-foundations.md` — add a Changelog row noting PHASE-01 was extended to cover `first_name`/`last_name`, referencing this section
+- Modify: this file's `## 2. Deliverables shipped` — add the new fields/tests, once Tasks 4-5 are actually verified (not before — this section records what shipped, not what's planned)
+- Delete: `backend/scripts/seed_hc_names.py` — its own docstring says "ahead of Unit_006"; that dependency has now landed, and every HC who needs `first_name`/`last_name` set can do it themselves via this page. Confirm nothing else in the codebase or its own tests references this script before deleting it.
+
+This task is documentation and cleanup, not new application code — kept as its own task (rather than folded into Task 4 or 5's diffs) so the cross-unit doc trail gets its own reviewable commit.
