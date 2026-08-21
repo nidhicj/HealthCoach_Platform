@@ -11,10 +11,10 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Ping Supabase REST API
+      - name: Ping Supabase Auth health endpoint
         run: |
           HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/" \
+            "${{ secrets.SUPABASE_URL }}/auth/v1/health" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}")
           echo "HTTP status: $HTTP_STATUS"
           cat /tmp/response.json
