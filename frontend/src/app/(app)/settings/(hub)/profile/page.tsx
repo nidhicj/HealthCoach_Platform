@@ -15,7 +15,12 @@ export default function SettingsProfilePage() {
   const [lastName, setLastName] = useState("");
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState(false);
+  // Tracks *why* the last save attempt failed (network/API error vs. nothing),
+  // as an explicit string set at the moment of failure — never re-derived from
+  // current field state at render time. The required-fields hint is rendered
+  // separately, straight off `requiredFieldsMissing`, so the two failure
+  // sources never get conflated (see PHASE-01 post-phase extension Fix 1/2).
+  const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -34,13 +39,17 @@ export default function SettingsProfilePage() {
   const requiredFieldsMissing = trimmedFirstName === "" || trimmedLastName === "";
 
   async function handleSave() {
+    // The Save button is disabled whenever requiredFieldsMissing is true, so this
+    // branch is unreachable via a normal click — kept as a defensive guard only
+    // (e.g. a future programmatic call). It sets the same explicit error state
+    // the render logic reads, rather than deriving anything at render time.
     if (requiredFieldsMissing) {
-      setSaveError(true);
+      setSaveErrorMessage("First name and last name are required.");
       setSaved(false);
       return;
     }
     setSaving(true);
-    setSaveError(false);
+    setSaveErrorMessage(null);
     setSaved(false);
     try {
       const updated = await updateProfile(
@@ -54,7 +63,7 @@ export default function SettingsProfilePage() {
       setLastName(updated.last_name ?? "");
       setSaved(true);
     } catch {
-      setSaveError(true);
+      setSaveErrorMessage("Could not save. Try again.");
     } finally {
       setSaving(false);
     }
@@ -98,6 +107,7 @@ export default function SettingsProfilePage() {
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
                 placeholder="First name"
+                maxLength={200}
                 required
               />
             </div>
@@ -115,6 +125,7 @@ export default function SettingsProfilePage() {
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 placeholder="Last name"
+                maxLength={200}
                 required
               />
             </div>
@@ -137,17 +148,18 @@ export default function SettingsProfilePage() {
             <Button onClick={handleSave} disabled={saving || requiredFieldsMissing}>
               {saving ? "Saving…" : "Save"}
             </Button>
-            {saveError && requiredFieldsMissing && (
+            {requiredFieldsMissing ? (
+              // Rendered off requiredFieldsMissing alone — must be visible any time the
+              // fields are empty, not only after a failed save attempt, since the Save
+              // button is disabled in this state and handleSave's own guard can never run.
               <p className="font-sans text-xs text-destructive">
                 First name and last name are required.
               </p>
-            )}
-            {saveError && !requiredFieldsMissing && (
-              <p className="font-sans text-xs text-destructive">Could not save. Try again.</p>
-            )}
-            {saved && !saveError && (
+            ) : saveErrorMessage ? (
+              <p className="font-sans text-xs text-destructive">{saveErrorMessage}</p>
+            ) : saved ? (
               <p className="font-sans text-xs text-muted-foreground">Saved</p>
-            )}
+            ) : null}
           </div>
 
           <Separator />

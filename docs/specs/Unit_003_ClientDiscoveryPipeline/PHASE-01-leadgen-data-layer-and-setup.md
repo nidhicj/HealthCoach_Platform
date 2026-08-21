@@ -25,6 +25,7 @@
 - New models file exports through `backend/src/db/models/__init__.py` (`__all__` list) — Alembic autogenerate and every other module import models from there, not from the per-domain files directly.
 - Cross-tenant access pattern: always 404, never 403, for resource-not-found-or-not-yours (established repo-wide convention — see `backend/src/api/clients.py` `_get_owned_client()` and its comment).
 - **Cross-branch coordination risk (flag for SoJo, not resolvable in this session):** Task 1 below adds `users.first_name`/`users.last_name` as a *temporary* migration owned by this branch (`feature/unit-003-client-discovery-pipeline`), even though those columns conceptually belong to `Unit_006_PlatformFoundations` (per the 2026-07-21 spec decision). If `feature/unit-006-platform-foundations` also adds a migration for the same two columns before the branches merge, whichever merges second will hit a duplicate-column migration conflict. SoJo needs to actively coordinate this at merge time — e.g. by dropping this phase's temporary migration once Unit_006's real one exists, and rebasing the seed script data forward. Do not silently resolve this by guessing which branch "wins" — surface the conflict if it's discovered during merge.
+  **Resolved 2026-08-21** — see `SPEC-0001-client-discovery-pipeline.md` §Open questions and `Unit_006_PlatformFoundations/PHASE-01-hc-settings-profile.md`'s "Post-phase extension" section; no migration conflict occurred, Unit_006 took ownership of these columns without adding a second migration.
 
 ---
 

@@ -230,6 +230,34 @@ async def test_patch_whitespace_only_normalizes_to_null(http_client, hc_headers)
 
 
 @pytest.mark.asyncio
+async def test_patch_all_three_fields_together_with_null_business_name(
+    http_client, hc_headers
+):
+    """Covers the exact payload shape the real frontend sends on nearly every save
+    (see frontend/src/lib/api/settings.ts updateProfile()): all three fields
+    present in one PATCH body, with business_name explicitly null (HC has never
+    set / has cleared their business name) alongside non-null first_name/last_name.
+    No existing test exercised this combined shape — every other test sends a
+    subset of fields."""
+    r = await http_client.patch(
+        "/api/settings/profile",
+        headers=hc_headers,
+        json={"business_name": None, "first_name": "Priya", "last_name": "Nair"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["business_name"] is None
+    assert body["first_name"] == "Priya"
+    assert body["last_name"] == "Nair"
+
+    r2 = await http_client.get("/api/settings/profile", headers=hc_headers)
+    body2 = r2.json()
+    assert body2["business_name"] is None
+    assert body2["first_name"] == "Priya"
+    assert body2["last_name"] == "Nair"
+
+
+@pytest.mark.asyncio
 async def test_get_profile_unauthenticated_returns_401(http_client):
     r = await http_client.get("/api/settings/profile")
     assert r.status_code == 401
