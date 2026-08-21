@@ -38,6 +38,15 @@ Not in scope: profile-photo upload, an HC-level timezone field, notification pre
 - `frontend/src/app/(app)/settings/layout.tsx` (added 2026-08-04) — the Settings hub: left sidebar (Profile, Onboarding placeholder, Sign out), selected section renders on the right
 - `frontend/src/app/(app)/settings/onboarding/page.tsx` (added 2026-08-04) — "Coming soon" placeholder; no real feature exists yet
 
+**(2026-08-21, Post-phase extension — Tasks 4-6, see §"Post-phase extension" below):**
+- `backend/src/db/models/users.py` — removed the `# temporary — see Unit_003 PHASE-01 Global Constraints` comments on `first_name`/`last_name`; these columns (added by Unit_003's `fdec7eb` migration) are now owned by this phase, no new migration needed
+- `backend/src/api/settings.py` — `first_name: str | None`, `last_name: str | None` added to `SettingsProfileOut` and to `SettingsProfilePatch` (`Field(default=None, max_length=200)`); new `_reject_empty` validator on both fields — unlike `business_name`'s normalize-to-null behavior, an explicit `null`, empty, or whitespace-only value is rejected with 422 (these fields are "required once set," not clearable via this endpoint); `patch_profile` guards both assignments with the existing `model_fields_set` no-op-on-omit pattern
+- `backend/tests/integration/test_settings.py` — 9 new integration tests covering GET with/without values set, PATCH round-trip, whitespace trimming, empty-string/whitespace-only/explicit-null → 422 (value preserved), partial-update omission → no-op, max-length 422; `test_cross_hc_profile_isolation` extended to assert `first_name`/`last_name` isolation alongside `business_name`, not just added as new tests
+- `frontend/src/lib/api/settings.ts` — `SettingsProfileSchema` extended with `first_name`/`last_name` (`z.string().nullable()`); `updateProfile()` signature extended to `(businessName: string | null, firstName: string, lastName: string)` — deliberately non-nullable for the two new params, since the backend never accepts `null`/empty for them
+- `frontend/src/app/(app)/settings/(hub)/profile/page.tsx` — "First name" and "Last name" required inputs added above the existing "Business name" field, marked with a `*` (matching this codebase's existing required-field convention); client-side validation blocks Save (and disables the button) when either is empty/whitespace, with a dedicated inline error message distinct from the generic "Could not save" case; `business_name` behavior unchanged (still optional, still clearable to `null`)
+- Deleted: `backend/scripts/seed_hc_names.py` — the temporary manual-backfill script this extension makes obsolete; no other code or docs depended on it (verified by repo-wide grep)
+- No new frontend test file added — `/settings/profile` still has none, consistent with how Task 3 originally shipped (checked, not assumed)
+
 ---
 
 ## 3. Decisions made during this phase
