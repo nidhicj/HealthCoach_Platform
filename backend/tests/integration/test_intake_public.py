@@ -637,3 +637,112 @@ async def test_review_email_delivery_failure_does_not_fail_request_and_draft_per
         select(LeadUploadToken).where(LeadUploadToken.lead_id == lead_id)
     )).scalars().all()
     assert tokens == []
+
+
+# ── Whole-flow integration test (Task 7) ─────────────────────────────────────
+
+
+async def test_whole_flow_submit_review_and_send_compose_correctly_end_to_end(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    """Genuine end-to-end proof that Tasks 1-6 compose correctly as one flow,
+    not just that each passes its own isolated tests: a single Lead's journey
+    through Stage 2's public submission (POST /api/intake/:slug) into Stage
+    3's AI-drafted recommendation + HC review (GET
+    /api/leads/:id/test-recommendation) + HC send with edits (POST
+    /api/leads/:id/test-recommendation/send), hitting all three real
+    endpoints in sequence and checking real DB state between each step."""
+    config = await _configure_with_test_panel(http_client, hc_user, hc_headers, db)
+    ai_additions = [
+        {"test": "Hormonal Panel (LH, FSH, AMH)", "rationale": "Lead reports PCOD symptoms"},
+    ]
+
+    # ── Step 1: public questionnaire submission drafts the AI recommendation
+    # and emails the HC (not the Lead) to review it. ──────────────────────
+    with patch(_PATCH_GENERATE, new_callable=AsyncMock, return_value=ai_additions) as mock_gen, \
+         patch(_PATCH_REVIEW_EMAIL) as mock_review_email:
+        submit_resp = await http_client.post(
+            f"/api/intake/{config['hc_slug']}",
+            json=_valid_payload(
+                email="whole-flow-lead@example.com",
+                current_health_concerns="Diagnosed with PCOD last year",
+            ),
+        )
+    assert submit_resp.status_code == 201, submit_resp.text
+    submit_body = submit_resp.json()
+    assert submit_body["status"] == "tests_drafted"
+    lead_id = UUID(submit_body["lead_id"])
+    mock_gen.assert_awaited_once()
+    mock_review_email.assert_called_once()
+    assert mock_review_email.call_args.kwargs["to"] == hc_user.email
+
+    lead = await db.get(Lead, lead_id)
+    assert lead is not None
+    assert lead.status == "tests_drafted"
+    expected_draft = {
+        "standard": ["CBC", "HbA1c", "TSH", "Lipid Profile"],
+        "additions": ai_additions,
+        "all_tests": [
+            "CBC", "HbA1c", "TSH", "Lipid Profile", "Hormonal Panel (LH, FSH, AMH)"
+        ],
+    }
+    assert lead.draft_test_recommendation == expected_draft
+    # Not finalized yet — the HC hasn't reviewed/sent anything.
+    assert lead.test_recommendation is None
+
+    # ── Step 2: HC reviews the draft. Must return the Lead summary (built
+    # from the real LeadQuestionnaireResponse rows Stage 2 wrote) plus the
+    # exact same draft Stage 3 just persisted. ────────────────────────────
+    review_resp = await http_client.get(
+        f"/api/leads/{lead_id}/test-recommendation", headers=hc_headers
+    )
+    assert review_resp.status_code == 200, review_resp.text
+    review_body = review_resp.json()
+    assert review_body["lead_id"] == str(lead_id)
+    assert review_body["full_name"] == "Jane Doe"
+    assert review_body["email"] == "whole-flow-lead@example.com"
+    assert review_body["status"] == "tests_drafted"
+    assert review_body["ready"] is True
+    assert review_body["draft_test_recommendation"] == expected_draft
+    qa_by_key = {
+        qa["question_key"]: qa["response_text"] for qa in review_body["questionnaire_responses"]
+    }
+    assert qa_by_key["current_health_concerns"] == "Diagnosed with PCOD last year"
+
+    # ── Step 3: HC finalizes with their own edits — drops the AI's Hormonal
+    # Panel addition, adds their own Iron Panel — and the Lead (not the HC)
+    # gets emailed the finalized list. ─────────────────────────────────────
+    edited_additions = [
+        {"test": "Iron Panel", "rationale": "HC's own clinical judgment, not AI-suggested."},
+    ]
+    with patch("src.api.leads.send_finalized_test_recommendation_email") as mock_send_email:
+        send_resp = await http_client.post(
+            f"/api/leads/{lead_id}/test-recommendation/send",
+            headers=hc_headers,
+            json={"additions": edited_additions},
+        )
+    assert send_resp.status_code == 201, send_resp.text
+    send_body = send_resp.json()
+    assert send_body["status"] == "tests_recommended"
+    assert send_body["test_recommendation"]["additions"] == edited_additions
+    assert send_body["test_recommendation"]["standard"] == ["CBC", "HbA1c", "TSH", "Lipid Profile"]
+    expected_final_all_tests = ["CBC", "HbA1c", "TSH", "Lipid Profile", "Iron Panel"]
+    assert send_body["test_recommendation"]["all_tests"] == expected_final_all_tests
+
+    mock_send_email.assert_called_once_with(
+        to="whole-flow-lead@example.com",
+        lead_name="Jane Doe",
+        hc_name="Asha Rao",
+        test_list=expected_final_all_tests,
+    )
+
+    # Real DB state reflects the HC's edits — not the raw AI draft — and the
+    # AI-suggested Hormonal Panel never survives into the finalized panel.
+    await db.refresh(lead)
+    assert lead.status == "tests_recommended"
+    assert lead.test_recommendation["additions"] == edited_additions
+    assert lead.test_recommendation["all_tests"] == expected_final_all_tests
+    assert "Hormonal Panel (LH, FSH, AMH)" not in lead.test_recommendation["all_tests"]
+    # The raw AI draft persists untouched — /send only ever writes
+    # test_recommendation, never mutates draft_test_recommendation.
+    assert lead.draft_test_recommendation == expected_draft
