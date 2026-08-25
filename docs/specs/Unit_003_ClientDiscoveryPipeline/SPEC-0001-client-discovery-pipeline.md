@@ -1,29 +1,50 @@
 # SPEC-0001: Client Discovery Pipeline
 
-**Status**: Accepted
+**Status**: Accepted — major redesign 2026-08-24, see Decisions log and Changelog
 **Date**: 2026-06-26
 **Owner**: SoJo
-**Relates to**: `Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` (conversion endpoint triggers Stage 1 client creation), `decisions/0005-auth-strategy.md` (upload token pattern), `decisions/0003-llm-strategy.md` (lead_brief prompt), `decisions/0006-observability.md` (llm_calls telemetry), `domain/glossary.md` (Lead, hc_slug, pre-consultation brief), `domain/compliance-india.md` (DPDP consent, data residency, retention), `Unit_006_PlatformFoundations/SPEC-0001-platform-foundations.md` (`users.first_name`/`last_name` are owned by that unit's PHASE-01 HC Settings & Profile surface — a prerequisite for this spec's Stage 1)
-**Implemented by phases**: `PHASE-01-leadgen-data-layer-and-setup.md` (Stage 1 — planned, not yet executed)
+**Relates to**: `Unit_001_HcCoreCycle/SPEC-0001-hc-core-cycle.md` (conversion endpoint triggers Stage 1 client creation), `decisions/0005-auth-strategy.md` (upload token pattern), `decisions/0003-llm-strategy.md` (lead_brief + lead_test_recommendation prompts), `decisions/0006-observability.md` (llm_calls telemetry), `domain/glossary.md` (Lead, hc_slug, pre-consultation brief), `domain/compliance-india.md` (DPDP consent, data residency, retention), `Unit_006_PlatformFoundations/SPEC-0001-platform-foundations.md` (`users.first_name`/`last_name` — resolved dependency, see Open questions), `Unit_004_OneStopSpot/SPEC-0001-one-stop-spot.md` (F4 — the other HC↔Razorpay surface in this codebase; this spec's payment work must not duplicate that onboarding, see Decisions log D-2)
+**Implemented by phases**: `PHASE-01-leadgen-data-layer-and-setup.md` (Stage 1 — shipped), `PHASE-02-public-intake-and-lab-recommendation.md` (Stage 2 — shipped, its rule-based recommendation engine is superseded by PHASE-04, see D-4), `PHASE-03-blood-report-upload-and-brief-generation.md` (shipped, extended by PHASE-06's OTP gate), `PHASE-04-ai-test-recommendation-and-hc-review.md` (planned), `PHASE-05-payment-and-scheduling-handoff.md` (planned), `PHASE-06-otp-secured-upload-and-two-part-brief.md` (planned)
 
 ---
 
 ## Goal
 
-The Client Discovery Pipeline automates the intake journey a prospective client (Lead) must complete before their first coaching session (M000). Without it, HCs manage this manually — sharing questionnaire links, following up on lab results, reading raw PDFs during the consultation call — which is error-prone, time-consuming, and inconsistent.
+The Client Discovery Pipeline automates the intake journey a prospective client (Lead) must complete before their first coaching session (M000). Without it, HCs manage this manually — sharing questionnaire links, following up on lab results, reading raw PDFs during the consultation call, chasing payment — which is error-prone, time-consuming, and inconsistent.
 
-The pipeline runs in four stages: health screening questionnaire → lab test recommendation → blood report collection → AI-generated pre-consultation brief. The HC's only mandatory touchpoint is reading the brief before the initial consultation call. Every step before that is system-automated with zero HC intervention required.
+The pipeline runs in eight stages: health screening questionnaire → AI-drafted test recommendation with HC review → payment for the first consultation → scheduling handoff → blood report collection (OTP-verified) → AI-generated pre-consultation brief → HC reviews brief and conducts the call → conversion or rejection.
 
-The result: a Lead who reaches the HC's calendar has already been screened, has baseline clinical data on file, and has given the HC a structured brief to walk into the call with. Unserious or unqualified leads drop off naturally during the process.
+Unlike the original single-pass design, the HC now has **two** mandatory touchpoints, not one: reviewing/finalizing the AI-drafted test panel before it reaches the Lead (Stage 3), and reading the full brief before the call (Stage 7). Both are intentionally kept to a single, fast action each — this pipeline exists to remove HC coordination overhead, not add a second inbox to manage.
+
+The result: a Lead who reaches the HC's calendar has already been screened, has paid, has baseline clinical data on file, and has given the HC a structured brief to walk into the call with. Unserious or unqualified leads drop off naturally during the process — now including a real economic filter (payment), not just an attention filter (form completion).
+
+---
+
+## Decisions log
+
+Decisions made during the 2026-08-24 redesign session with SoJo, encoded here so later phases don't have to rediscover the reasoning.
+
+| # | Decision | Context |
+|---|---|---|
+| D-1 | **Payment for the first consultation is native Razorpay (test mode during dev), not an external scheduling tool's own payment feature.** | Evaluated and rejected: Calendly+Stripe (Stripe/PayPal don't serve India's UPI rail, which is how Indian clients actually pay; Calendly payment collection also requires a paid plan), Cal.com self-hosted (same India-gateway gap, Razorpay is an unapproved open feature request), Zoho Bookings (has native Razorpay, but gated behind a paid plan — not $0). Razorpay test mode is $0 for the entire dev/testing period, no KYC needed, and covers mock UPI/card/netbanking success *and* failure simulation. |
+| D-2 | **Tapas is never the merchant of record. Each HC connects their own Razorpay account before this pipeline's payment step can be used for their Leads.** | Mirrors the one other payment surface already designed in this codebase — `Unit_004_OneStopSpot` F4's HC↔Client billing, which made the identical choice for the identical reason: Tapas collecting money and passing it on to HCs would make Tapas a payment intermediary, triggering RBI Payment Aggregator licensing. This spec's payment work reuses that same posture rather than inventing a second, inconsistent one. Where the HC connects their Razorpay account is a shared capability both this spec and Unit_004's future F4 work need — flagged in Open questions to avoid duplicate builds. |
+| D-3 | **Payment and scheduling are fully decoupled — no slot-hold-then-pay.** | Confirmed by reading Razorpay's own API documentation: the Orders API has no reservation/hold primitive of any kind (it's a payment gateway, not a booking system), and no third-party booking tool integrates Razorpay as anything other than "collect payment, then let the booking layer's own logic handle the calendar." Lead pays first (a payment either succeeds or fails, nothing time-limited); only after success is the Lead handed off to scheduling. The actual scheduling mechanism (which calendar tool, how availability is sourced) is owned by a separate, out-of-scope workstream and is not designed here. |
+| D-4 | **Test recommendation moves from deterministic keyword-matching to an LLM call over the Lead's free-text answers — but only for condition-specific additions, not the HC's standard baseline panel.** | The HC-configured "standard baseline" tests (every Lead gets these regardless of what they wrote) stay exactly as they are — a deterministic, HC-owned minimum. Only the old `ILIKE`-keyword-matched "condition-specific add-ons" (PHASE-02's rule engine) are replaced with an LLM reading the Lead's actual questionnaire answers and reasoning about which additional tests are relevant. This is a smaller, lower-risk change than replacing the whole recommendation with a from-scratch AI judgment, and it preserves the existing `{standard, additions, all_tests}` JSON shape most of this spec's downstream logic already assumes. |
+| D-5 | **The AI's draft panel is never sent to the Lead automatically.** The HC reviews it on a single-purpose, intentionally minimal screen (Lead's questionnaire-derived summary, then an editable test list) and one action both finalizes and sends — there is no separate "save draft" state. | SoJo's explicit call: this screen is temporary/minimal by design, and a save-without-send state risks a reviewed-but-forgotten panel sitting unsent while the Lead waits. The HC is assumed busy; the flow is built for lowest possible HC effort, not for iterative drafting. |
+| D-6 | **The blood-report upload link gets an OTP gate**, delivered to the Lead's email today, with the schema left open for a phone/SMS channel later (not built now). | Closes a real trust gap this spec's own history had already identified and shelved: PHASE-02's carry-over notes flagged "deferred OTP" as a considered-but-not-built idea for exactly this kind of link. Today, possessing the upload URL is the *only* proof of identity — if it's forwarded or intercepted, someone else can complete the upload as the Lead. OTP raises the bar to "controls the Lead's own registered contact channel," without requiring Leads to have platform accounts (a deliberate non-goal elsewhere in this spec). |
+| D-7 | **The AI output becomes two distinct artifacts, not one.** The **draft test recommendation** (Stage 3 — Lead's questionnaire summary + AI-suggested additional tests, HC-reviewed before the Lead ever sees it) is a *different* artifact from the **pre-consultation brief** (Stage 6 — the full clinical brief generated after blood report upload, unchanged concept from the original design, now enriched with the confirmed appointment time and meeting link). The two are never conflated in this doc's terminology — see Domain terms. | Keeps the existing "no partial pre-consultation brief" non-goal intact and true: the draft test recommendation is not a preview of the clinical brief, it's a distinct, earlier artifact with a different purpose (test-panel review, not consultation prep). |
 
 ---
 
 ## Non-goals
 
 - **Initial consultation call itself**: the platform supports preparation for the call, not the call.
-- **Payment processing**: consultation fee is configured in the platform, but payment collection is handled via an external scheduling link (Calendly or similar). Native payment via Razorpay is a future enhancement.
-- **WhatsApp notification delivery**: email only at MVP. WhatsApp Business API integration is deferred.
-- **Partial brief (questionnaire-only)**: the pre-consultation brief is generated once, after blood report upload. No intermediate brief is produced.
+- **Native scheduling / calendar**: Stage 4's scheduling handoff hands the Lead to an externally-owned scheduling mechanism (not designed in this spec — a separate, out-of-scope workstream). This spec only gates *access* to that handoff behind successful payment.
+- **Payment aggregation / Tapas as merchant of record**: see D-2. Tapas never touches Lead payment funds. If an HC has not connected their own Razorpay account, this pipeline's payment step cannot be reached for their Leads — see Edge cases.
+- **Refunds, disputes, partial payments, recurring/subscription billing for the consultation fee**: single one-time charge only. Razorpay-side refund tooling exists but nothing in this pipeline automates or surfaces it.
+- **WhatsApp / SMS OTP delivery**: OTP is email-only at MVP (D-6). The schema supports a future channel; the channel itself is not built.
+- **WhatsApp notification delivery generally**: email only at MVP for all Lead/HC notifications. WhatsApp Business API integration is deferred.
+- **Partial pre-consultation brief**: the pre-consultation brief (Stage 6) is generated once, after blood report upload. No intermediate version of *that specific artifact* is produced — the Stage 3 draft test recommendation is a distinct artifact, not a partial brief (D-7).
 - **Google Forms integration**: the questionnaire is built natively in Tapas. No Google Forms webhook or dependency is introduced.
 - **OCR for handwritten / scan-based reports**: machine-generated PDFs (Thyrocare, SRL, Metropolis) extract cleanly. Handwritten or photographed reports are accepted but will not feed the AI brief.
 - **Form builder (drag-and-drop, conditional logic, branching)**: HC configures a questionnaire using fixed question types (free text, multiple choice, scale 1–10) with no conditional logic.
@@ -37,10 +58,10 @@ The result: a Lead who reaches the HC's calendar has already been screened, has 
 Cross-reference `domain/actors.md`.
 
 | Actor             | Role                                    | What they do in this pipeline                                                                                                              |
-| ----------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Health Coach (HC) | Primary platform user                   | Configures pipeline once (questionnaire, test panel, settings); receives notifications; reviews brief; takes conversion/rejection decision |
-| Lead              | Prospective client, no platform account | Completes questionnaire; receives lab recommendation by email; uploads blood report via token-gated link                                   |
-| System            | Automation                              | Generates lab test recommendation; sends emails; generates AI pre-consultation brief; issues upload tokens                                 |
+| ----------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Health Coach (HC) | Primary platform user                   | Configures pipeline once (questionnaire, test panel, settings, Razorpay account connection); reviews and finalizes each Lead's AI-drafted test panel (one action: send); receives payment automatically via their own Razorpay account; reads pre-consultation brief; takes conversion/rejection decision |
+| Lead              | Prospective client, no platform account | Completes questionnaire; reviews and pays for the finalized test panel + consultation; schedules externally; verifies via OTP and uploads blood report |
+| System            | Automation                              | Drafts test recommendation via LLM; creates Razorpay orders and verifies payment webhooks; hands off to scheduling on payment success; sends OTP; generates AI pre-consultation brief; issues upload tokens |
 
 ---
 
@@ -48,11 +69,12 @@ Cross-reference `domain/actors.md`.
 
 **Binding convention, not advisory** — added 2026-08-13 after Stage 1's HC-facing setup page shipped under PHASE-01 as a standalone route (`/settings/leadgen`) with no in-app nav link, a gap PHASE-01's own final review flagged but left unresolved (`docs/SESSION_LOG.md`, PHASE-01 entry). It sat unlinked until `Unit_006_PlatformFoundations` PHASE-01 (built independently, on its own branch) introduced a Settings hub (`frontend/src/app/(app)/settings/(hub)/layout.tsx`) with a reserved but empty "Onboarding" sidebar slot. The two were reconciled 2026-08-13: Stage 1's setup UI now lives at `/settings/onboarding`, inside that hub, filling the slot Unit_006 reserved for it. See Changelog.
 
-This spec does not own the Settings hub, the top-level app nav, or the `/api/settings/*` namespace — `Unit_006_PlatformFoundations` does. Any future phase in this spec that adds HC-facing settings UI (e.g. the purge/deletion flow implied by the DPDP edge cases below) must:
+This spec does not own the Settings hub, the top-level app nav, or the `/api/settings/*` namespace — `Unit_006_PlatformFoundations` does. Any future phase in this spec that adds HC-facing settings UI (e.g. the purge/deletion flow implied by the DPDP edge cases below, or the Razorpay-account-connection UI this redesign now needs) must:
 
 1. Land as a new entry in `SETTINGS_SECTIONS` inside `frontend/src/app/(app)/settings/(hub)/layout.tsx` — never a standalone top-level route. This is `Unit_006_PlatformFoundations` PHASE-01's own established convention (see that unit's PHASE-01 doc §7–§8), not one invented here.
 2. Check `Unit_006_PlatformFoundations/SPEC-0001-platform-foundations.md` §8 (carry-over) first — PHASE-02 (account/data deletion) and PHASE-03 (consent) are already earmarked to claim sidebar slots in that same hub, and may have shipped or changed shape since this note was written.
 3. Get nav placement confirmed with SoJo while writing that phase's plan, not after building it — the mistake Unit_006 PHASE-01 itself made and documented as a lesson learned.
+4. **Check `Unit_004_OneStopSpot/SPEC-0001-one-stop-spot.md`'s F4 section before building any Razorpay-account-connection UI** — this spec's Stage 1 now needs the HC to have connected a Razorpay account (D-2), and Unit_004's F4 needs the identical capability for ongoing client billing. Building two separate "connect your Razorpay account" flows would be the same class of mistake the first_name/last_name and settings/onboarding duplications already were this session — see Open questions.
 
 ---
 
@@ -61,25 +83,30 @@ This spec does not own the Settings hub, the top-level app nav, or the `/api/set
 New terms introduced here. Each must also be added to `domain/glossary.md`.
 
 | Term                                | Definition                                                                                                                                                                                                                                                           |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Lead**                      | A prospective client who has submitted a screening questionnaire but has not yet completed M000. Distinct from a Client. Exists in the DB as a`leads` row with no platform account.                                                                                |
-| **Intake funnel**             | The four-stage automated sequence a Lead completes before becoming a Client: questionnaire → lab recommendation → blood report → pre-consultation brief.                                                                                                          |
-| **hc_slug**                   | A system-generated, permanently immutable URL identifier for the HC's public intake form. Format:`firstname-lastname-XXXXX` (all lowercase, 5-char alphanumeric suffix e.g. `a3k9m`). Generated once on first leadgen setup. No update path exists at any layer. |
-| **Pre-consultation brief**    | AI-generated summary the HC reads before the initial consultation call. Inputs: Lead's questionnaire responses + blood report text. Generated automatically when the blood report is uploaded. HC-internal — never shared with the Lead.                            |
-| **Lead upload token**         | A cryptographically secure, expiring token that grants a Lead one-time access to the blood report upload page. Stored as a SHA-256 hash in`lead_upload_tokens`. Pattern is identical to `client_invite_tokens` (ADR-0005).                                       |
-| **Standard baseline panel**   | The set of blood tests required of every Lead, regardless of questionnaire responses. Configured by the HC once in their Test Panel settings.                                                                                                                        |
-| **Condition-specific add-on** | Additional tests recommended on top of the baseline when a Lead's questionnaire response matches a configured keyword rule (e.g. "PCOD" → hormonal panel).                                                                                                          |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Lead**                      | A prospective client who has submitted a screening questionnaire but has not yet completed M000. Distinct from a Client. Exists in the DB as a `leads` row with no platform account.                                                                                |
+| **Intake funnel**             | The eight-stage automated sequence a Lead completes before becoming a Client: questionnaire → draft test recommendation + HC review → payment → scheduling handoff → blood report upload (OTP-verified) → pre-consultation brief → HC review + call → conversion.  |
+| **hc_slug**                   | A system-generated, permanently immutable URL identifier for the HC's public intake form. Format: `firstname-lastname-XXXXX` (all lowercase, 5-char alphanumeric suffix e.g. `a3k9m`). Generated once on first leadgen setup. No update path exists at any layer. |
+| **Draft test recommendation** | The AI-drafted test panel (standard baseline + LLM-suggested condition-specific additions) generated immediately after questionnaire submission, shown only to the HC for review — never seen by the Lead until the HC sends it. Distinct from the pre-consultation brief (D-7). |
+| **Pre-consultation brief**    | AI-generated summary the HC reads before the initial consultation call. Inputs: Lead's questionnaire responses + finalized test recommendation + blood report text + confirmed appointment time/meeting link. Generated automatically when the blood report is uploaded. HC-internal — never shared with the Lead. |
+| **Lead upload token**         | A cryptographically secure, expiring token that grants a Lead one-time access to the blood report upload page, gated behind OTP verification (D-6). Stored as a SHA-256 hash in `lead_upload_tokens`. Base pattern is identical to `client_invite_tokens` (ADR-0005); OTP fields are additive.       |
+| **Upload OTP**                | A short-lived, single-use numeric code emailed to the Lead when they open the upload link, required before the upload UI unlocks. Proves control of the Lead's registered contact channel, not just possession of the URL. |
+| **Standard baseline panel**   | The set of blood tests required of every Lead, regardless of questionnaire responses. Configured by the HC once in their Test Panel settings. Stays deterministic under D-4 — never AI-drafted.                                                                                                                                                                                                        |
+| **Condition-specific add-on** | Additional tests recommended on top of the baseline. As of this redesign, drafted by an LLM reading the Lead's questionnaire responses (D-4) rather than keyword-matched — always HC-reviewable before the Lead sees them.                                                                                                                          |
+| **Consultation payment**      | The one-time fee a Lead pays, via the HC's own connected Razorpay account, to confirm their first consultation. Gates the scheduling handoff (D-3). Tapas never holds these funds (D-2).                                                                            |
 
 ---
 
 ## User stories
 
 - As an HC, I want a shareable intake link so that prospective clients can begin the screening process without me manually sending forms.
-- As an HC, I want the system to recommend blood tests automatically based on the client's responses so that I receive relevant clinical data without coordinating it myself.
-- As an HC, I want a structured AI brief before the initial consultation call so that I walk into the call already prepared — questionnaire context, abnormal values surfaced, discussion points suggested.
+- As an HC, I want the system to draft blood test recommendations from what the client actually told me, so I don't have to read every questionnaire myself before knowing what to suggest — but I still want the final say before it reaches the client.
+- As an HC, I want to be paid for the first consultation automatically, through my own Razorpay account, without Tapas ever touching the money.
+- As an HC, I want a structured AI brief before the initial consultation call so that I walk into the call already prepared — questionnaire context, abnormal values surfaced, discussion points suggested, and I can see the confirmed appointment on my own calendar.
 - As an HC, I want to see all my leads in a pipeline view so that I know who is stuck at which stage and can take action (remind, convert, or reject).
 - As a Lead, I want a simple, mobile-friendly form so that I can complete the intake questionnaire without needing to create an account.
-- As a Lead, I want clear instructions about which blood tests to get so that I understand what is being asked of me and why.
+- As a Lead, I want clear instructions about which blood tests to get, and to pay and book my consultation in one straightforward flow, so I understand what's being asked of me and can commit with confidence.
+- As a Lead, I want confidence that only I can upload my own lab results using the link sent to me — not just anyone who happens to have the URL.
 - As a Lead, I want a straightforward upload experience so that I can submit my lab reports without technical friction.
 
 ---
@@ -88,30 +115,58 @@ New terms introduced here. Each must also be added to `domain/glossary.md`.
 
 ```mermaid
 flowchart TD
-    subgraph Setup["HC One-Time Setup (/settings/onboarding)"]
+    subgraph Setup["HC One-Time Setup (/settings/onboarding + Razorpay connection)"]
         S1[System reads first_name + last_name\nfrom HC profile\nUnit_006 settings/profile] --> S2[System generates hc_slug]
         S2 --> S3[HC configures questionnaire]
-        S3 --> S4[HC configures test panel\nbaseline + condition rules]
+        S3 --> S4[HC configures test panel\nbaseline + LLM-eligible add-on categories]
         S4 --> S5[HC configures settings\nfee, scheduling link, expiry]
-        S5 --> S6[Intake link live:\ntapas.app/intake/:slug]
+        S5 --> S6[HC connects Razorpay account\nD-2 — prerequisite for payment step]
+        S6 --> S7[Intake link live:\ntapas.app/intake/:slug]
     end
 
     subgraph Funnel["Lead Intake Funnel"]
         F1[Lead opens intake link] --> F2[Lead completes questionnaire\n+ acknowledges consent]
         F2 --> F3[System creates leads row\n+ lead_questionnaire_responses rows]
-        F3 --> F4[System generates test recommendation\nbaseline + condition add-ons]
-        F4 --> F5[System issues upload token\n14-day expiry]
-        F5 --> F6[System emails Lead:\nrecommended tests + upload link]
-        F6 --> F7[Lead opens upload link]
-        F7 --> F8[Lead uploads blood report PDF]
-        F8 --> F9[System validates + stores file in R2\ncreates lead_files row]
-        F9 --> F10[System extracts text from PDF]
-        F10 --> F11[System generates pre-consultation brief\nLLM call — lead_brief task type]
-        F11 --> F12[System emails HC:\nreport received + brief ready]
+        F3 --> F4[System drafts test recommendation\nLLM — lead_test_recommendation task type]
+        F4 --> F5[System emails HC:\nreview the AI-drafted panel]
+    end
+
+    subgraph HCReview["HC Reviews Draft Panel"]
+        F5 --> H1[HC opens review screen:\nLead summary + editable test list]
+        H1 --> H2[HC edits if needed, clicks Send]
+        H2 --> H3[test_recommendation finalized\nemailed to Lead]
+    end
+
+    subgraph Payment["Payment + Scheduling Handoff"]
+        H3 --> P1[Lead opens payment link]
+        P1 --> P2[Razorpay Order created\nHC's own connected account]
+        P2 --> P3[Lead pays via hosted checkout]
+        P3 --> P4{payment.captured webhook}
+        P4 -->|success| P5[leads.payment_status = paid\nLead handed off to scheduling link]
+        P4 -->|failure/timeout| P6[Lead sees retry — nothing held, safe to retry]
+        P5 --> P7[Lead books slot externally\nnote: leave buffer for blood test]
+        P7 --> P8[System issues upload token\n+ records scheduled_at, meeting_link]
+    end
+
+    subgraph Upload["Blood Report Upload — OTP Verified"]
+        P8 --> U1[Lead opens upload link]
+        U1 --> U2[System emails OTP to Lead]
+        U2 --> U3[Lead enters OTP]
+        U3 --> U4{OTP valid?}
+        U4 -->|yes| U5[Upload UI unlocks]
+        U4 -->|no / expired| U6[Lead can request a new OTP]
+        U5 --> U7[Lead uploads blood report PDF]
+        U7 --> U8[System validates + stores file in R2\ncreates lead_files row]
+        U8 --> U9[System extracts text from PDF]
+    end
+
+    subgraph Brief["Pre-Consultation Brief"]
+        U9 --> B1[System generates pre-consultation brief\nLLM — lead_brief task type\nincludes appointment + meeting link]
+        B1 --> B2[System emails HC:\nreply in same thread as panel-review email]
     end
 
     subgraph Review["HC Review + Decision"]
-        F12 --> R1[HC opens Lead Detail page\n/leads/:leadId]
+        B2 --> R1[HC opens Lead Detail page\n/leads/:leadId — Stage 8, separately planned]
         R1 --> R2[HC reads brief\nconducts consultation call externally]
         R2 --> R3{HC decision}
         R3 -->|Convert| R4[Single DB transaction:\ncreates clients row\ncreates M000 session\nupdates leads.converted_client_id]
@@ -125,14 +180,17 @@ flowchart TD
 ### Stage 1 — HC one-time setup
 
 1. HC opens `/settings/onboarding` for the first time — a sidebar entry inside `Unit_006_PlatformFoundations`'s Settings hub (see Shared surfaces below), not a standalone route.
-2. System checks `users.first_name` and `users.last_name` — owned by `Unit_006_PlatformFoundations` PHASE-01 (HC Settings & Profile), not collected here. If either is null, leadgen setup cannot proceed: frontend redirects the HC to `/settings/profile` to complete their name first, then returns them to `/settings/onboarding`. **Unit_006 PHASE-01 (extended to include these two fields) is a prerequisite for this stage** — see Open questions.
+2. System checks `users.first_name` and `users.last_name` — owned by `Unit_006_PlatformFoundations` PHASE-01 (HC Settings & Profile), not collected here. If either is null, leadgen setup cannot proceed: frontend redirects the HC to `/settings/profile` to complete their name first, then returns them to `/settings/onboarding`. This dependency is resolved — see Open questions.
 3. Once both fields are present, system generates slug: `lower(first_name)-lower(last_name)-<5-char-alphanumeric>`. Written to `hc_leadgen_config.hc_slug`. Immutable from this point — no update endpoint exists.
 4. HC configures intake questionnaire (Intake Form tab): six required fields always present and non-removable (full name, age, email, phone, primary health goal, current health concerns); HC adds custom questions of three types: free text, multiple choice (up to 6 options), scale 1–10.
-5. HC configures test panel (Test Panel tab): selects standard baseline tests from a curated list of common Indian health tests; adds condition-specific rules (keyword string → additional test name).
-6. HC configures settings (Setup tab): consultation fee (INR), duration (minutes), scheduling link (external paste-in), lead expiry window (days).
-7. HC copies intake link from the page header. Shares it via their own channels (WhatsApp, email, website, Instagram bio). **The URL is channel-agnostic** — it identifies only the HC (via `hc_slug`), never how the Lead arrived at it. Any future in-platform discovery surface could link to this same URL without requiring changes to this stage; see Open questions.
+5. HC configures test panel (Test Panel tab): selects standard baseline tests from a curated list of common Indian health tests (stays deterministic, D-4). Condition-specific keyword rules from the original design are retired — the LLM now drafts additions directly from questionnaire text (Stage 3).
+6. HC configures settings (Setup tab): consultation fee (INR), duration (minutes), scheduling link (external paste-in — the handoff destination after payment, D-3), lead expiry window (days).
+7. **HC connects their Razorpay account** (D-2). Until this is done, Stage 4's payment step cannot be reached for this HC's Leads — see Edge cases. Where this connection UI lives is a shared-capability question with `Unit_004_OneStopSpot` F4 — see Open questions; this spec builds only what it needs, following the Shared surfaces convention.
+8. HC copies intake link from the page header. Shares it via their own channels (WhatsApp, email, website, Instagram bio). **The URL is channel-agnostic** — it identifies only the HC (via `hc_slug`), never how the Lead arrived at it.
 
 ### Stage 2 — Lead completes questionnaire
+
+Unchanged from the original design.
 
 1. Lead opens `tapas.app/intake/:slug` on any device (mobile-first design).
 2. Page renders: HC's name, HC's profile photo, questionnaire. No platform branding that confuses the Lead about who they are engaging with.
@@ -141,63 +199,66 @@ flowchart TD
 5. System creates `leads` row (`status: questionnaire_submitted`), `lead_questionnaire_responses` rows (one per question), records `consent_given_at` and `consent_purpose` on the `leads` row.
 6. Page transitions to a confirmation state (same page, no redirect): *"Thank you. We've received your responses and will send your next steps to [email] shortly."*
 
-### Stage 3 — Lab test recommendation generated and emailed
+### Stage 3 — AI drafts test recommendation, HC reviews and sends
 
-Fires immediately after Stage 2 with no HC involvement.
+Fires immediately after Stage 2 for the AI draft; the HC action that follows is this pipeline's first mandatory touchpoint.
 
-1. System loads HC's test panel config.
-2. Standard baseline panel selected in full.
-3. Each `lead_questionnaire_responses.response_text` matched case-insensitively (`ILIKE`) against each condition rule's keyword list.
-4. Matching condition-specific tests appended; result deduplicated.
-5. Recommendation stored as JSONB in `leads.test_recommendation`:
-   ```json
-   {
-     "standard": ["CBC", "HbA1c", "TSH", "Lipid Profile", ...],
-     "additions": [
-       {"test": "Hormonal Panel (LH, FSH, AMH)", "triggered_by": "PCOD"}
-     ],
-     "all_tests": ["CBC", "HbA1c", "TSH", "Lipid Profile", "Hormonal Panel (LH, FSH, AMH)", ...]
-   }
-   ```
-6. `leads.status` → `tests_recommended`.
-7. System generates `lead_upload_tokens` row (raw token never stored — SHA-256 hash stored; 14-day expiry).
-8. System sends email to Lead via Resend:
-   - Subject: "Your health screening next steps — [HC Name]"
-   - Body: bulleted list of recommended tests, brief explanation, upload link `tapas.app/upload/:raw_token`, 14-day deadline.
+1. System loads HC's test panel config (standard baseline) and the Lead's `lead_questionnaire_responses`.
+2. System calls the LLM (`lead_test_recommendation` task type — see §LLM involvement) with the Lead's answers, asking it to suggest condition-specific additional tests beyond the standard baseline.
+3. Result stored as JSONB in `leads.draft_test_recommendation` (same shape as the original `test_recommendation`: `{standard, additions, all_tests}`) — **not yet shown to the Lead.**
+4. `leads.status` → `tests_drafted`.
+5. System emails the HC: *"A new Lead completed their questionnaire — review the recommended tests before they're sent."* No CTA to a page that doesn't exist (see PHASE-03's post-ship correction, retired by this redesign) — the email links to the HC review screen (Stage 3 continued).
+6. HC opens the review screen: first, a summary of the Lead built from their questionnaire responses; then, an editable list of the AI-drafted tests (standard baseline shown but not editable here — that's an HC's own Test Panel setting; additions are add/remove-editable).
+7. HC edits the additions list if they disagree with the AI, then clicks **Send** — a single action.
+8. On Send: `leads.test_recommendation` (the final, Lead-facing version) is written from the HC's edited list, `leads.status` → `tests_recommended`, and the system sends the Lead their next-steps email (test panel + payment + scheduling — Stage 4).
+9. There is no separate "save without sending" state (D-5) — closing the review screen without clicking Send leaves `leads.draft_test_recommendation` as the only record; the HC can reopen the same screen later to finish.
 
-### Stage 4 — Lead uploads blood report
+### Stage 4 — Lead pays, scheduling handoff
+
+1. System sends the Lead an email: bulleted list of finalized recommended tests, a "Pay & Schedule" link, brief explanation.
+2. Lead opens the link. System creates a Razorpay Order against the HC's connected account (D-2) for `hc_leadgen_config.consultation_fee_inr`.
+3. Lead completes payment via Razorpay's hosted checkout (test mode during dev — mock UPI/card/netbanking, both success and induced-failure paths).
+4. Razorpay sends a `payment.captured` webhook. System verifies the HMAC-SHA256 signature, checks idempotency (Razorpay retries webhooks — a given payment must only be processed once), and on success sets `leads.payment_status = paid`, `leads.payment_reference`, `leads.paid_at`.
+5. On payment failure or webhook timeout: nothing was held (D-3 — payment and scheduling are decoupled, so there's no reservation to release). Lead sees a plain "payment didn't go through, try again" state and can retry freely.
+6. On payment success: Lead is handed off to the HC's configured `scheduling_link` (external — mechanism not designed here). Page includes a note: *"Please leave enough time before your consultation to also complete your blood test — that's your responsibility to schedule."*
+7. Once the Lead has booked (confirmed by whatever mechanism the external scheduler provides — out of scope to design here, but the resulting appointment time and meeting link must reach this system so Stage 6's brief can include them), system records `leads.scheduled_at` and `leads.meeting_link`, issues the `lead_upload_tokens` row (raw token never stored — SHA-256 hash; 14-day expiry), and `leads.status` → `consultation_scheduled`.
+8. Lead receives their upload link and the same meeting link, in the scheduling confirmation.
+
+### Stage 5 — Lead uploads blood report (OTP-verified)
 
 1. Lead opens `tapas.app/upload/:token`.
 2. System validates token server-side before rendering any UI (hash match, not expired, not yet used). Invalid states show a plain-language message only — no upload UI shown.
-3. Page renders: HC name, upload instructions, consent notice for health data storage, file upload area.
-4. Lead selects files. Client-side pre-validation: PDF/JPEG/PNG only, ≤10 MB per file, ≤5 files, ≤30 MB total.
-5. On submit: server re-validates MIME type via magic bytes (not file extension), re-checks size.
-6. Each file uploaded to R2 at key: `leads/<lead_id>/reports/<epoch_ms>_<sanitized_filename>`.
-7. `lead_files` row created per file after R2 confirms success. Token NOT consumed on upload failure — Lead can retry.
-8. Token marked `used_at = NOW()` after all files accepted successfully.
-9. `leads.status` → `report_uploaded`.
-10. System attempts text extraction from each uploaded PDF.
-    - Success: extracted text passed to brief generation.
-    - Empty result (scan/handwritten): brief generation proceeds; brief notes "Blood report uploaded but could not be parsed automatically — review the PDF directly."
-11. System calls LLM (`lead_brief` task type) — see §LLM involvement.
-12. `leads.brief_text` and `leads.brief_llm_call_id` populated.
-13. HC notified by email: *"Lab reports received from [Lead Name]. Pre-consultation brief is ready."* with a deep link to `/leads/:leadId`.
+3. **OTP gate (D-6, new)**: on a valid token, system emails a short-lived numeric OTP to the Lead's registered email (`otp_channel = 'email'`; schema supports future `'sms'`, not built). Upload UI does not render until the Lead enters the correct code.
+4. Lead enters the OTP. System checks hash match, expiry (short — minutes, not days), and attempt count (rate-limited to prevent brute force). Wrong/expired code: Lead can request a new one (does not consume or invalidate the underlying upload token).
+5. On OTP success: page renders — HC name, upload instructions, consent notice for health data storage, file upload area.
+6. Lead selects files. Client-side pre-validation: PDF/JPEG/PNG only, ≤10 MB per file, ≤5 files, ≤30 MB total.
+7. On submit: server re-validates MIME type via magic bytes (not file extension), re-checks size.
+8. Each file uploaded to R2 at key: `leads/<lead_id>/reports/<epoch_ms>_<sanitized_filename>`.
+9. `lead_files` row created per file after R2 confirms success. Token NOT consumed on upload failure — Lead can retry (does not require a fresh OTP if the underlying token session is still verified).
+10. Token marked `used_at = NOW()` after all files accepted successfully.
+11. `leads.status` → `report_uploaded`.
+12. System attempts text extraction from each uploaded PDF (unchanged from original design — empty result on scan/handwritten reports feeds a gap note into the brief, not an error).
 
-### Stage 5 — HC reviews brief, conducts initial consultation
+### Stage 6 — Pre-consultation brief generated and sent
 
-1. HC opens email, clicks link to Lead Detail page `/leads/:leadId`.
-2. Lead Detail page shows:
-   - Questionnaire responses (all question-answer pairs)
-   - Recommended tests (with rationale for condition-specific additions)
-   - Uploaded blood report files (each with a download link)
-   - Pre-consultation brief (full AI-generated text)
-3. HC reads brief. Consultation call conducted externally (Zoom, phone — out of platform scope).
+1. System calls the LLM (`lead_brief` task type — see §LLM involvement) with: questionnaire responses, finalized `test_recommendation`, extracted blood report text, `leads.scheduled_at`, `leads.meeting_link`.
+2. `leads.brief_text` and `leads.brief_llm_call_id` populated.
+3. HC notified by email, **sent as a reply in the same thread as Stage 3's panel-review email** (same subject line — full RFC `In-Reply-To` threading not required, just easy for the HC to follow in their inbox): *"Lab reports received from [Lead Name]. Pre-consultation brief is ready — your confirmed appointment is [scheduled_at], meeting link: [meeting_link]."*
+4. On LLM failure: `leads.brief_text` remains NULL, `llm_calls` row still written with the failure recorded, HC email reads *"brief generation failed"* instead — Lead's upload has already succeeded regardless (unchanged non-blocking contract from the original design).
 
-### Stage 6 — Conversion or rejection
+### Stage 7 — HC reviews brief, conducts initial consultation
+
+1. HC opens the brief-ready email. (The Lead Detail page this originally linked to — `/leads/:leadId` — remains unbuilt; this stage's email is self-contained per PHASE-03's post-ship correction, not blocked on a future page.)
+2. HC reads the brief: questionnaire findings, blood report highlights, suggested discussion points, flags, plus the confirmed appointment time and meeting link from Stage 6.
+3. Consultation call conducted via the meeting link (Google Meet, as configured by whatever scheduling mechanism Stage 4 hands off to) — the call itself remains out of platform scope.
+
+### Stage 8 — Conversion or rejection
+
+Unchanged from the original design.
 
 **Path A — Convert to Client:**
 
-1. HC clicks "Convert to Client" on Lead Detail page.
+1. HC clicks "Convert to Client" (from wherever the HC's Lead-facing surface ends up being — Lead Detail page work remains unplanned, see Open questions).
 2. Confirmation modal pre-populated with Lead's name, email, phone, primary health goal.
 3. HC confirms.
 4. Single DB transaction:
@@ -230,85 +291,110 @@ Fires immediately after Stage 2 with no HC involvement.
 
 **`leads`**
 
-| Column                  | Type                      | Notes                                                                                                                                                |
-| ----------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                  | UUID PK                   |                                                                                                                                                      |
-| `hc_user_id`          | UUID FK → users.id       | Tenant scope. All queries filter by this.                                                                                                            |
-| `full_name`           | TEXT NOT NULL             |                                                                                                                                                      |
-| `email`               | TEXT NOT NULL             |                                                                                                                                                      |
-| `phone`               | TEXT                      |                                                                                                                                                      |
-| `status`              | TEXT NOT NULL             | Enum:`questionnaire_submitted`, `tests_recommended`, `report_uploaded`, `consultation_scheduled`, `converted`, `not_a_fit`, `archived` |
-| `test_recommendation` | JSONB                     | Null until Stage 3. Shape:`{standard, additions, all_tests}`                                                                                       |
-| `brief_text`          | TEXT                      | Null until Stage 4 brief generation.                                                                                                                 |
-| `brief_llm_call_id`   | UUID FK → llm_calls.id   | Null until brief generated.                                                                                                                          |
-| `consent_given_at`    | TIMESTAMPTZ               | Set at questionnaire submission. DPDP required.                                                                                                      |
-| `consent_purpose`     | TEXT                      | Verbatim purpose statement. DPDP required.                                                                                                           |
-| `converted_at`        | TIMESTAMPTZ               | Null unless converted.                                                                                                                               |
-| `converted_client_id` | UUID FK → clients.id     | Null unless converted.                                                                                                                               |
-| `archived_at`         | TIMESTAMPTZ               | Null unless archived / purged.                                                                                                                       |
-| `created_at`          | TIMESTAMPTZ DEFAULT NOW() |                                                                                                                                                      |
+| Column                        | Type                      | Notes                                                                                                                                                |
+| ------------------------------ | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                          | UUID PK                   |                                                                                                                                                      |
+| `hc_user_id`                  | UUID FK → users.id       | Tenant scope. All queries filter by this.                                                                                                            |
+| `full_name`                   | TEXT NOT NULL             |                                                                                                                                                      |
+| `email`                       | TEXT NOT NULL             |                                                                                                                                                      |
+| `phone`                       | TEXT                      |                                                                                                                                                      |
+| `status`                      | TEXT NOT NULL             | Enum: `questionnaire_submitted`, `tests_drafted`, `tests_recommended`, `payment_pending`, `payment_failed`, `consultation_scheduled`, `report_uploaded`, `converted`, `not_a_fit`, `archived` |
+| `draft_test_recommendation`   | JSONB                     | AI's first draft (Stage 3), HC-internal only. Null until Stage 3 LLM call completes. Shape: `{standard, additions, all_tests}`.                       |
+| `test_recommendation`         | JSONB                     | Finalized, HC-approved, Lead-facing version. Null until HC clicks Send. Same shape.                                                                  |
+| `payment_status`               | TEXT NOT NULL DEFAULT 'unpaid' | Enum: `unpaid`, `paid`, `failed`, `refunded`.                                                                                                    |
+| `payment_reference`            | TEXT                      | Razorpay order/payment ID. Null until a payment attempt exists.                                                                                       |
+| `paid_at`                      | TIMESTAMPTZ               | Null unless `payment_status = paid`.                                                                                                                  |
+| `scheduled_at`                 | TIMESTAMPTZ               | Confirmed consultation appointment time. Null until scheduling handoff completes.                                                                     |
+| `meeting_link`                 | TEXT                      | Google Meet (or whatever the scheduling handoff produces) link. Null until scheduling handoff completes.                                             |
+| `brief_text`                  | TEXT                      | Null until Stage 6 brief generation.                                                                                                                 |
+| `brief_llm_call_id`           | UUID FK → llm_calls.id   | Null until brief generated.                                                                                                                          |
+| `consent_given_at`            | TIMESTAMPTZ               | Set at questionnaire submission. DPDP required.                                                                                                      |
+| `consent_purpose`              | TEXT                      | Verbatim purpose statement. DPDP required.                                                                                                           |
+| `converted_at`                 | TIMESTAMPTZ               | Null unless converted.                                                                                                                               |
+| `converted_client_id`          | UUID FK → clients.id     | Null unless converted.                                                                                                                               |
+| `archived_at`                  | TIMESTAMPTZ               | Null unless archived / purged.                                                                                                                       |
+| `created_at`                   | TIMESTAMPTZ DEFAULT NOW() |                                                                                                                                                      |
 
 Constraint: `UNIQUE (hc_user_id, email)` — prevents duplicate leads from the same email to the same HC.
 
 ---
 
-**`lead_questionnaire_responses`**
+**`lead_questionnaire_responses`** — unchanged from original design.
 
 | Column            | Type                                  | Notes                                                                                       |
-| ----------------- | ------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `id`            | UUID PK                               |                                                                                             |
-| `lead_id`       | UUID FK → leads.id ON DELETE CASCADE |                                                                                             |
-| `question_key`  | TEXT                                  | Stable identifier from HC's questionnaire config (e.g.`q_energy_level`).                  |
-| `question_text` | TEXT                                  | Verbatim question at submission time. Preserved even if HC later edits their questionnaire. |
-| `response_text` | TEXT                                  | Lead's answer.                                                                              |
-| `submitted_at`  | TIMESTAMPTZ                           |                                                                                             |
+| ----------------- | ---------------------------------------| ------------------------------------------------------------------------------------------- |
+| `id`              | UUID PK                               |                                                                                             |
+| `lead_id`         | UUID FK → leads.id ON DELETE CASCADE |                                                                                             |
+| `question_key`    | TEXT                                  | Stable identifier from HC's questionnaire config (e.g. `q_energy_level`).                  |
+| `question_text`   | TEXT                                  | Verbatim question at submission time. Preserved even if HC later edits their questionnaire. |
+| `response_text`   | TEXT                                  | Lead's answer.                                                                              |
+| `submitted_at`    | TIMESTAMPTZ                           |                                                                                             |
 
 ---
 
-**`lead_upload_tokens`**
+**`lead_upload_tokens`** — extended with OTP fields (D-6).
 
-| Column         | Type                                  | Notes                                                                                                  |
-| -------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `id`         | UUID PK                               |                                                                                                        |
-| `lead_id`    | UUID FK → leads.id ON DELETE CASCADE |                                                                                                        |
-| `token_hash` | TEXT NOT NULL UNIQUE                  | SHA-256 of raw token. Raw token never stored. Identical pattern to`client_invite_tokens` (ADR-0005). |
-| `expires_at` | TIMESTAMPTZ NOT NULL                  | 14 days from creation.                                                                                 |
-| `used_at`    | TIMESTAMPTZ                           | Null = not yet used. Set after successful upload session.                                              |
-| `created_at` | TIMESTAMPTZ DEFAULT NOW()             |                                                                                                        |
+| Column           | Type                                  | Notes                                                                                                  |
+| ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `id`              | UUID PK                               |                                                                                                        |
+| `lead_id`         | UUID FK → leads.id ON DELETE CASCADE |                                                                                                        |
+| `token_hash`      | TEXT NOT NULL UNIQUE                  | SHA-256 of raw token. Raw token never stored. Base pattern identical to `client_invite_tokens` (ADR-0005). |
+| `expires_at`      | TIMESTAMPTZ NOT NULL                  | 14 days from creation.                                                                                 |
+| `used_at`         | TIMESTAMPTZ                           | Null = not yet used. Set after successful upload session.                                              |
+| `otp_hash`        | TEXT                                  | SHA-256 of the current OTP. Null until first OTP send. Regenerated on each resend.                     |
+| `otp_expires_at`  | TIMESTAMPTZ                           | Short-lived — minutes, not days. Null until first OTP send.                                            |
+| `otp_verified_at` | TIMESTAMPTZ                           | Null until Lead enters the correct code. Gates the upload UI.                                          |
+| `otp_attempts`    | INTEGER NOT NULL DEFAULT 0            | Incorrect-guess counter, rate-limits brute force.                                                       |
+| `otp_channel`     | TEXT NOT NULL DEFAULT 'email'         | Enum: `email`. `sms` reserved for a future phase, not built.                                            |
+| `created_at`      | TIMESTAMPTZ DEFAULT NOW()             |                                                                                                        |
 
 ---
 
-**`lead_files`**
+**`lead_files`** — unchanged from original design.
 
 | Column              | Type                                  | Notes                                                              |
-| ------------------- | ------------------------------------- | ------------------------------------------------------------------ |
-| `id`              | UUID PK                               |                                                                    |
-| `lead_id`         | UUID FK → leads.id ON DELETE CASCADE |                                                                    |
-| `hc_user_id`      | UUID FK → users.id                   | Direct tenant scoping — do not rely solely on lead join.          |
-| `filename`        | TEXT                                  | Original filename, sanitised.                                      |
-| `s3_key`          | TEXT                                  | R2 key:`leads/<lead_id>/reports/<epoch_ms>_<sanitised_filename>` |
-| `mime_type`       | TEXT                                  | Validated server-side via magic bytes.                             |
-| `file_size_bytes` | INTEGER                               |                                                                    |
-| `uploaded_at`     | TIMESTAMPTZ DEFAULT NOW()             |                                                                    |
-| `purpose`         | TEXT DEFAULT 'blood_report'           | Reserved for future file types per lead.                           |
+| -------------------- | -------------------------------------- | ------------------------------------------------------------------ |
+| `id`                 | UUID PK                               |                                                                    |
+| `lead_id`            | UUID FK → leads.id ON DELETE CASCADE |                                                                    |
+| `hc_user_id`         | UUID FK → users.id                   | Direct tenant scoping — do not rely solely on lead join.          |
+| `filename`           | TEXT                                  | Original filename, sanitised.                                      |
+| `s3_key`             | TEXT                                  | R2 key: `leads/<lead_id>/reports/<epoch_ms>_<sanitised_filename>` |
+| `mime_type`          | TEXT                                  | Validated server-side via magic bytes.                             |
+| `file_size_bytes`    | INTEGER                               |                                                                    |
+| `uploaded_at`        | TIMESTAMPTZ DEFAULT NOW()             |                                                                    |
+| `purpose`            | TEXT DEFAULT 'blood_report'           | Reserved for future file types per lead.                           |
 
 ---
 
 **`hc_leadgen_config`**
 
-| Column                        | Type                       | Notes                                                                           |
-| ----------------------------- | -------------------------- | ------------------------------------------------------------------------------- |
-| `id`                        | UUID PK                    |                                                                                 |
-| `hc_user_id`                | UUID FK → users.id UNIQUE | One row per HC.                                                                 |
-| `hc_slug`                   | TEXT UNIQUE NOT NULL       | System-generated. Immutable. Format:`firstname-lastname-XXXXX`.               |
-| `questionnaire`             | JSONB                      | Array of question objects:`{key, text, type, options?, required}`             |
-| `test_panel`                | JSONB                      | `{standard_tests: [...], condition_rules: [{keywords: [...], tests: [...]}]}` |
-| `consultation_fee_inr`      | INTEGER                    | Nullable until configured.                                                      |
-| `consultation_duration_min` | INTEGER DEFAULT 45         |                                                                                 |
-| `scheduling_link`           | TEXT                       | External calendar link (Calendly, Google Calendar).                             |
-| `notification_delivery`     | TEXT DEFAULT 'email'       | Enum:`email`. WhatsApp variants deferred.                                     |
-| `lead_expiry_days`          | INTEGER DEFAULT 60         |                                                                                 |
-| `updated_at`                | TIMESTAMPTZ                |                                                                                 |
+| Column                         | Type                       | Notes                                                                           |
+| ------------------------------- | ---------------------------- | ------------------------------------------------------------------------------- |
+| `id`                            | UUID PK                    |                                                                                 |
+| `hc_user_id`                    | UUID FK → users.id UNIQUE | One row per HC.                                                                 |
+| `hc_slug`                       | TEXT UNIQUE NOT NULL       | System-generated. Immutable. Format: `firstname-lastname-XXXXX`.               |
+| `questionnaire`                 | JSONB                      | Array of question objects: `{key, text, type, options?, required}`             |
+| `test_panel`                    | JSONB                      | `{standard_tests: [...]}` — `condition_rules` retired by D-4; additions are now LLM-drafted, not stored as HC-configured rules. |
+| `consultation_fee_inr`          | INTEGER                    | Nullable until configured. Now actually read and charged (D-1) — previously captured but unused.                              |
+| `consultation_duration_min`     | INTEGER DEFAULT 45         |                                                                                 |
+| `scheduling_link`               | TEXT                       | External scheduling handoff destination, reached only after payment success (D-3). |
+| `notification_delivery`         | TEXT DEFAULT 'email'       | Enum: `email`. WhatsApp variants deferred.                                     |
+| `lead_expiry_days`              | INTEGER DEFAULT 60         |                                                                                 |
+| `updated_at`                    | TIMESTAMPTZ                |                                                                                 |
+
+---
+
+**`hc_payment_accounts`** (new — shared-capability candidate, see Open questions)
+
+| Column                | Type                       | Notes                                                                              |
+| ---------------------- | ---------------------------- | ----------------------------------------------------------------------------------- |
+| `id`                   | UUID PK                    |                                                                                     |
+| `hc_user_id`           | UUID FK → users.id UNIQUE | One row per HC. Existence of this row (with `connected_at` non-null) is the gate for Stage 4's payment step. |
+| `razorpay_account_id`  | TEXT                       | HC's own Razorpay account identifier. Test-mode key during dev, per D-1.            |
+| `connected_at`         | TIMESTAMPTZ                | Null until the HC completes account connection.                                     |
+| `created_at`           | TIMESTAMPTZ DEFAULT NOW()  |                                                                                     |
+
+Deliberately named and scoped independently of `hc_leadgen_config` — this table is a candidate to be shared with `Unit_004_OneStopSpot` F4 (ongoing HC↔Client billing, same underlying "HC's own Razorpay account" concept). See Open questions before building the connection UI.
 
 ---
 
@@ -322,17 +408,18 @@ Constraint: `UNIQUE (hc_user_id, email)` — prevents duplicate leads from the s
 
 ### Entity read/write by stage
 
-| Entity                           | Stage 1                      | Stage 2 | Stage 3 | Stage 4 | Stage 5 | Stage 6                 |
-| -------------------------------- | ---------------------------- | ------- | ------- | ------- | ------- | ----------------------- |
-| `users`                        | Read (first_name, last_name) | —      | —      | —      | —      | —                      |
-| `hc_leadgen_config`            | Write                        | Read    | Read    | —      | —      | —                      |
-| `leads`                        | —                           | Write   | Write   | Write   | Read    | Write                   |
-| `lead_questionnaire_responses` | —                           | Write   | Read    | —      | Read    | —                      |
-| `lead_upload_tokens`           | —                           | —      | Write   | Write   | —      | —                      |
-| `lead_files`                   | —                           | —      | —      | Write   | Read    | —                      |
-| `clients`                      | —                           | —      | —      | —      | —      | Write (on convert)      |
-| `sessions`                     | —                           | —      | —      | —      | —      | Write (M000 on convert) |
-| `llm_calls`                    | —                           | —      | —      | Write   | —      | —                      |
+| Entity                           | Stage 1 | Stage 2 | Stage 3          | Stage 4 | Stage 5 | Stage 6 | Stage 7 | Stage 8                 |
+| --------------------------------- | -------- | -------- | ----------------- | -------- | -------- | -------- | -------- | ------------------------ |
+| `users`                           | Read     | —       | —                 | —       | —       | —       | —       | —                        |
+| `hc_leadgen_config`                | Write    | Read     | Read              | Read     | —       | —       | —       | —                        |
+| `hc_payment_accounts`              | Write    | —       | —                 | Read     | —       | —       | —       | —                        |
+| `leads`                            | —       | Write    | Write             | Write    | Write    | Write    | Read     | Write                     |
+| `lead_questionnaire_responses`      | —       | Write    | Read              | —       | —       | Read     | Read     | —                        |
+| `lead_upload_tokens`                | —       | —       | —                 | Write    | Write    | —       | —       | —                        |
+| `lead_files`                        | —       | —       | —                 | —       | Write    | Read     | Read     | —                        |
+| `clients`                           | —       | —       | —                 | —       | —       | —       | —       | Write (on convert)        |
+| `sessions`                          | —       | —       | —                 | —       | —       | —       | —       | Write (M000 on convert)   |
+| `llm_calls`                         | —       | —       | Write             | —       | —       | Write    | —       | —                        |
 
 ---
 
@@ -340,26 +427,34 @@ Constraint: `UNIQUE (hc_user_id, email)` — prevents duplicate leads from the s
 
 ### HC-facing (JWT required — `require_role('hc')`)
 
-| Method    | Path                         | Purpose                                                                                                                                                                                                  |
-| --------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`   | `/api/leadgen/config`      | Fetch full leadgen config (questionnaire, test panel, settings, slug)                                                                                                                                    |
-| `PATCH` | `/api/leadgen/config`      | Update any config section. Slug field is ignored if included — read-only.                                                                                                                               |
-| `POST`  | `/api/leadgen/config/init` | First-time setup — reads`users.first_name`/`users.last_name` (must already be set via Unit_006 profile settings; returns a structured error if either is null); generates slug; creates config row. |
-| `GET`   | `/api/leads`               | List leads, cursor-paginated, filterable by`status`                                                                                                                                                    |
-| `GET`   | `/api/leads/:id`           | Lead detail — responses, recommendation, files (with download URLs), brief                                                                                                                              |
-| `PATCH` | `/api/leads/:id`           | Update status:`not_a_fit` or `archived` only. Status transitions are one-way.                                                                                                                        |
-| `POST`  | `/api/leads/:id/remind`    | Issue a new upload token and resend the upload link email. Old token remains valid until its own expiry.                                                                                                 |
-| `POST`  | `/api/leads/:id/convert`   | Atomic conversion: create client, create M000, link lead → client.                                                                                                                                      |
-| `POST`  | `/api/leads/purge-expired` | Purge all leads past`lead_expiry_days`. Returns count of records deleted.                                                                                                                              |
+| Method    | Path                                   | Purpose                                                                                                                                                                                                  |
+| --------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`   | `/api/leadgen/config`                   | Fetch full leadgen config (questionnaire, test panel, settings, slug)                                                                                                                                    |
+| `PATCH` | `/api/leadgen/config`                   | Update any config section. Slug field is ignored if included — read-only.                                                                                                                               |
+| `POST`  | `/api/leadgen/config/init`              | First-time setup — reads `users.first_name`/`users.last_name` (must already be set via Unit_006 profile settings; returns a structured error if either is null); generates slug; creates config row. |
+| `GET`   | `/api/hc/payment-account`               | Check whether the HC has connected a Razorpay account. Shared-capability endpoint — see Open questions before finalizing ownership.                                                                     |
+| `POST`  | `/api/hc/payment-account/connect`       | Initiate Razorpay account connection for the HC. Shared-capability endpoint — see Open questions.                                                                                                        |
+| `GET`   | `/api/leads/:id/test-recommendation`    | Fetch the Lead's questionnaire summary + draft test recommendation, for the HC review screen (Stage 3).                                                                                                  |
+| `POST`  | `/api/leads/:id/test-recommendation/send` | Finalize (from the HC's edited list) and send to the Lead in one action (D-5). Writes `leads.test_recommendation`, advances status, triggers Stage 4's email.                                          |
+| `GET`   | `/api/leads`                           | List leads, cursor-paginated, filterable by `status`                                                                                                                                                    |
+| `GET`   | `/api/leads/:id`                       | Lead detail — responses, recommendation, payment status, schedule, files (with download URLs), brief. Not yet built — see Open questions.                                                               |
+| `PATCH` | `/api/leads/:id`                       | Update status: `not_a_fit` or `archived` only. Status transitions are one-way. Not yet built.                                                                                                            |
+| `POST`  | `/api/leads/:id/remind`                | Issue a new upload token and resend the upload link email. Old token remains valid until its own expiry. Not yet built.                                                                                  |
+| `POST`  | `/api/leads/:id/convert`               | Atomic conversion: create client, create M000, link lead → client. Not yet built.                                                                                                                        |
+| `POST`  | `/api/leads/purge-expired`             | Purge all leads past `lead_expiry_days`. Returns count of records deleted. Not yet built.                                                                                                                |
 
 ### Public (no JWT — lead-facing)
 
-| Method   | Path                         | Auth  | Purpose                                                                                                                                                              |
-| -------- | ---------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/api/intake/:slug`        | None  | Fetch HC's name, photo, and questionnaire. Response is an allowlist — no other HC data exposed.                                                                     |
-| `POST` | `/api/intake/:slug`        | None  | Submit questionnaire → create lead → trigger recommendation + token issuance + email. Rate-limited: 5 req/hour/IP via`slowapi`.                                  |
-| `GET`  | `/api/upload/:token`       | Token | Validate token; return HC name and contextual copy for the upload page.                                                                                              |
-| `POST` | `/api/upload/:token/files` | Token | Upload blood report files (multipart). Validates MIME via magic bytes. Stores to R2. Creates`lead_files` rows. Triggers brief generation after all files accepted. |
+| Method   | Path                                | Auth       | Purpose                                                                                                                                                              |
+| -------- | ------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/intake/:slug`                 | None        | Fetch HC's name, photo, and questionnaire. Response is an allowlist — no other HC data exposed.                                                                     |
+| `POST` | `/api/intake/:slug`                 | None        | Submit questionnaire → create lead → trigger draft recommendation. Rate-limited: 5 req/hour/IP via `slowapi`.                                                        |
+| `POST` | `/api/leads/:id/payment/order`      | Lead's payment link | Create a Razorpay Order against the HC's connected account for the configured consultation fee.                                                                     |
+| `POST` | `/api/payments/webhook`             | Razorpay HMAC signature | Server-to-server webhook receiver. Verifies signature, idempotent on Razorpay's retry behavior, advances `leads.payment_status`.                                     |
+| `GET`  | `/api/upload/:token`                | Token       | Validate token; return HC name and contextual copy for the upload page. Does not by itself unlock the upload UI — OTP verification is a separate step (D-6).        |
+| `POST` | `/api/upload/:token/otp/send`       | Token       | Send (or resend) an OTP to the Lead's registered email.                                                                                                              |
+| `POST` | `/api/upload/:token/otp/verify`     | Token       | Verify the entered OTP. On success, unlocks the upload UI for this token session.                                                                                    |
+| `POST` | `/api/upload/:token/files`          | Token + OTP-verified | Upload blood report files (multipart). Validates MIME via magic bytes. Stores to R2. Creates `lead_files` rows. Triggers brief generation after all files accepted. |
 
 All HC-facing endpoints enforce `leads.hc_user_id = current_tenant()`. Cross-tenant access returns 404, never 403 (consistent with platform pattern — do not leak existence).
 
@@ -367,17 +462,35 @@ All HC-facing endpoints enforce `leads.hc_user_id = current_tenant()`. Cross-ten
 
 ## LLM involvement
 
+This spec now has **two** distinct LLM task types (D-7) — kept clearly separate in naming and purpose.
+
+### `lead_test_recommendation` (new)
+
+|                        | Detail                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Task type**          | `lead_test_recommendation`                                                                                                                                                                                                                                                                                                                                     |
+| **Prompt file**        | `backend/prompts/lead_test_recommendation.md` — YAML frontmatter with `task_type: lead_test_recommendation`, version, changelog                                                                                                                                                                                                                                |
+| **Schema**             | `backend/src/llm_service/schemas/lead_test_recommendation.py` (Pydantic model)                                                                                                                                                                                                                                                                                 |
+| **Trigger**             | Automatically after questionnaire submission (Stage 2 → Stage 3), no HC involvement to *generate* the draft — HC involvement is required to *send* it (D-5)                                                                                                                                                                                                    |
+| **Inputs**              | HC's standard baseline test list (context only, not modified), Lead's questionnaire responses                                                                                                                                                                                                                                                                   |
+| **Output**              | Structured: `additions` — a list of `{test, rationale}` objects the LLM believes are warranted by the Lead's stated issues, on top of the standard baseline                                                                                                                                                                                                     |
+| **Snippet injection**   | None. The HC has no style history with this Lead.                                                                                                                                                                                                                                                                                                              |
+| **Observable**          | `llm_calls` row written per ADR-0006: prompt version, input tokens, output tokens, model used, latency ms, cost INR.                                                                                                                                                                                                                                            |
+| **On failure**          | `leads.draft_test_recommendation` remains NULL. HC review screen falls back to standard-baseline-only with a note that AI drafting failed and additions must be added manually if warranted. `leads.status` does not advance past `tests_drafted` until the HC has reviewed (even an empty-additions) panel and sent it — this is not a blocking failure, just a degraded draft. |
+
+### `lead_brief` (existing, extended)
+
 |                             | Detail                                                                                                                                                                                                                                                                                                                                                         |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Task type**         | `lead_brief`                                                                                                                                                                                                                                                                                                                                                 |
 | **Prompt file**       | `backend/prompts/lead_brief.md` — YAML frontmatter with `task_type: lead_brief`, version, changelog                                                                                                                                                                                                                                                       |
-| **Schema**            | `backend/src/llm_service/schemas/lead_brief.py` (Pydantic model)                                                                                                                                                                                                                                                                                             |
-| **Trigger**           | Automatically after blood report upload completes (Stage 4, step 11)                                                                                                                                                                                                                                                                                           |
-| **Inputs**            | HC questionnaire config (question labels + types), Lead's questionnaire responses,`leads.test_recommendation`, extracted blood report text (empty string if unextractable)                                                                                                                                                                                   |
-| **Output**            | Structured brief: key questionnaire findings, blood report highlights (or gap note if unextractable), suggested discussion points for the initial consultation, any flags (concerning responses, abnormal-looking values)                                                                                                                                      |
+| **Schema**            | `backend/src/llm_service/schemas/lead_brief.py` (Pydantic model) — extended with `scheduled_at`/`meeting_link` fields                                                                                                                                                                                                                                        |
+| **Trigger**           | Automatically after blood report upload completes (Stage 5 → Stage 6)                                                                                                                                                                                                                                                                                          |
+| **Inputs**            | HC questionnaire config (question labels + types), Lead's questionnaire responses, `leads.test_recommendation` (finalized, not the draft), extracted blood report text (empty string if unextractable), `leads.scheduled_at`, `leads.meeting_link`                                                                                                          |
+| **Output**            | Structured brief: key questionnaire findings, blood report highlights (or gap note if unextractable), suggested discussion points for the initial consultation, any flags (concerning responses, abnormal-looking values), confirmed appointment summary                                                                                                     |
 | **Snippet injection** | None. The HC has no style history with this Lead.                                                                                                                                                                                                                                                                                                              |
 | **Observable**        | `llm_calls` row written per ADR-0006: prompt version, input tokens, output tokens, model used, latency ms, cost INR. `leads.brief_llm_call_id` set to this row's ID.                                                                                                                                                                                       |
-| **On failure**        | `leads.brief_text` remains NULL. HC notification email says: *"Lab report received but brief could not be generated. Review files directly from the Lead profile."* Lead status still advances to `report_uploaded`. The failure is recorded in `llm_calls` with `status='failed'` and `error_detail` (per the P7 migration adding those columns). |
+| **On failure**        | `leads.brief_text` remains NULL. HC notification email says: *"Lab report received but brief could not be generated. Review files directly."* Lead status still advances to `report_uploaded`. Failure identified via the existing `error_message` non-null convention (not a `status`/`error_detail` column — that convention does not exist in this codebase; corrected from the original spec text, which referenced a nonexistent "P7 migration"). |
 
 Cross-reference `decisions/0003-llm-strategy.md`.
 
@@ -385,7 +498,10 @@ Cross-reference `decisions/0003-llm-strategy.md`.
 
 ## Coach-reviewed gate
 
-The pre-consultation brief is HC-internal. It is never delivered to the Lead. No `status` field governs it (unlike MOMs) because there is no client-facing delivery path. The brief is written to `leads.brief_text` and read only by the HC from `/leads/:leadId`.
+Both AI artifacts are HC-internal and HC-reviewed before anything reaches the Lead:
+
+- The **draft test recommendation** is never sent to the Lead automatically — the HC's Stage 3 review-and-send action is the only path a test panel reaches the Lead through (D-5).
+- The **pre-consultation brief** is never delivered to the Lead at all, at any stage. No `status` field governs it (unlike MOMs) because there is no client-facing delivery path.
 
 Blood report files are stored on behalf of the Lead and accessible only to the HC who owns the lead. No file is ever exposed through a client-facing endpoint.
 
@@ -396,17 +512,24 @@ Blood report files are stored on behalf of the Lead and accessible only to the H
 | Case                                                                                                                            | Behaviour                                                                                                                                                                                                                                                                                                                                                 |
 | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Same email submits questionnaire twice to same HC                                                                               | `UNIQUE(hc_user_id, email)` on `leads` rejects the second insert. `POST /api/intake/:slug` returns HTTP 409. Page shows: *"Our records show you've already submitted your intake form for this coach. If you have questions, please contact [HC Name] directly."*                                                                                 |
-| Lead submits questionnaire but never uploads report                                                                             | Token expires after 14 days. Lead stays at`tests_recommended` in the Pipeline tab. HC can click "Remind" to issue a new token and resend the email at any time.                                                                                                                                                                                         |
-| Blood report PDF is scan-based or handwritten (unextractable)                                                                   | Text extraction returns empty string. Brief generation proceeds. Brief section for blood data reads:*"Blood report uploaded but could not be parsed automatically — please review the attached PDF directly."* HC can download the original file. No error state surfaced to Lead.                                                                     |
-| R2 upload fails mid-transfer                                                                                                    | Token NOT marked used.`lead_files` row NOT created (DB row created only after R2 confirms success). Lead sees: *"Upload failed. Please wait a moment and try again. Your link is still valid."* Retry is safe and idempotent.                                                                                                                         |
-| LLM brief generation fails (timeout, 5xx from OpenRouter)                                                                       | `leads.brief_text` remains NULL. `llm_calls` row written with `status='failed'`. HC notification email reads: *"Lab report received, but brief generation failed. Review files directly from the Lead profile."* HC can view raw questionnaire responses and download the PDF.                                                                    |
-| Conversion DB transaction partially fails                                                                                       | Full rollback via savepoint. No`clients` row, no M000 session, no `leads.converted_client_id` are left in partial state. HC sees error message. Lead remains at `report_uploaded`. HC can retry.                                                                                                                                                    |
-| HC sends intake link to the same person twice                                                                                   | Second questionnaire submission hits the`UNIQUE(hc_user_id, email)` constraint → 409 → plain-language confirmation message. No duplicate lead created.                                                                                                                                                                                                |
-| Slug collision at generation                                                                                                    | 5-char alphanumeric suffix (36^5 ≈ 60 million combinations) makes collision negligible at any realistic HC count. No collision-detection logic is implemented. If a collision somehow occurs (astronomically unlikely), the`UNIQUE` constraint on `hc_leadgen_config.hc_slug` raises a DB error, caught and retried with a freshly generated suffix. |
-| HC has not completed leadgen setup but tries to access`/leads`                                                                | `hc_leadgen_config` row does not exist → API returns a structured "setup incomplete" response (not a 500). Frontend redirects HC to setup flow.                                                                                                                                                                                                        |
-| HC's`users.first_name`/`users.last_name` are null (Unit_006 profile setup not completed) and HC opens `/settings/onboarding` | `POST /api/leadgen/config/init` returns a structured "profile incomplete" response (not a 500 or raw constraint error). Frontend redirects HC to `/settings/profile` to complete their name, then back to leadgen setup.                                                                                                                              |
-| Lead opens an expired upload link                                                                                               | Page shows:*"This upload link has expired. Please contact [HC Name] for a new link."* No upload UI shown.                                                                                                                                                                                                                                               |
-| Lead opens an already-used upload link                                                                                          | Page shows:*"Your reports have already been uploaded successfully. No further action needed."*                                                                                                                                                                                                                                                          |
+| HC has not connected a Razorpay account and a Lead reaches Stage 4                                                              | `POST /api/leads/:id/payment/order` returns a structured "consultation payment not yet available" response, not a 500. Lead sees a plain-language message to contact the HC directly. HC's Stage 1 setup is flagged incomplete on their own dashboard.                                                                                                  |
+| Razorpay payment fails (declined card, insufficient funds, user cancels checkout)                                               | No webhook fires, or webhook reports failure. `leads.payment_status` stays `unpaid` or moves to `failed`. Lead sees a retry-safe state — nothing was held (D-3), so retrying is a fresh attempt, not a resume.                                                                                                                                          |
+| Razorpay webhook never arrives (network issue, Razorpay outage)                                                                 | Lead may have actually paid but the system doesn't know yet. Out of scope for this spec to design a reconciliation job — flagged in Open questions as a real gap once real money is involved.                                                                                                                                                          |
+| Razorpay sends the same webhook twice (documented retry behavior)                                                               | Webhook handler is idempotent on `payment_reference` — a second delivery of an already-processed payment is a no-op, not a double-charge or duplicate state write.                                                                                                                                                                                       |
+| Lead enters the wrong OTP repeatedly                                                                                            | `otp_attempts` rate-limits guessing. Beyond the limit, Lead must request a fresh OTP (does not invalidate the underlying upload token).                                                                                                                                                                                                                   |
+| OTP expires before the Lead enters it                                                                                           | Lead requests a new one via `POST /api/upload/:token/otp/send` — same token, fresh OTP.                                                                                                                                                                                                                                                                   |
+| Lead submits questionnaire but never completes payment                                                                          | Lead stays at `tests_recommended` (or `payment_failed`) in the Pipeline tab. HC can follow up manually — no automated reminder for unpaid Leads at MVP.                                                                                                                                                                                                    |
+| Blood report PDF is scan-based or handwritten (unextractable)                                                                   | Text extraction returns empty string. Brief generation proceeds. Brief section for blood data reads: *"Blood report uploaded but could not be parsed automatically — please review the attached PDF directly."* HC can download the original file. No error state surfaced to Lead.                                                                     |
+| R2 upload fails mid-transfer                                                                                                    | Token NOT marked used. `lead_files` row NOT created (DB row created only after R2 confirms success). Lead sees: *"Upload failed. Please wait a moment and try again. Your link is still valid."* Retry is safe and idempotent.                                                                                                                         |
+| LLM brief generation fails (timeout, 5xx from OpenRouter)                                                                       | `leads.brief_text` remains NULL. `llm_calls` row written with `error_message` set. HC notification email reads: *"Lab report received, but brief generation failed. Review files directly."* HC can view raw questionnaire responses and download the PDF.                                                                                            |
+| LLM test recommendation drafting fails                                                                                          | `leads.draft_test_recommendation` remains NULL. HC review screen shows standard-baseline-only, with a note that AI drafting failed — HC can still add tests manually and send.                                                                                                                                                                          |
+| Conversion DB transaction partially fails                                                                                       | Full rollback via savepoint. No `clients` row, no M000 session, no `leads.converted_client_id` are left in partial state. HC sees error message. Lead remains at `report_uploaded`. HC can retry.                                                                                                                                                    |
+| HC sends intake link to the same person twice                                                                                   | Second questionnaire submission hits the `UNIQUE(hc_user_id, email)` constraint → 409 → plain-language confirmation message. No duplicate lead created.                                                                                                                                                                                                |
+| Slug collision at generation                                                                                                    | 5-char alphanumeric suffix (36^5 ≈ 60 million combinations) makes collision negligible at any realistic HC count. No collision-detection logic is implemented. If a collision somehow occurs (astronomically unlikely), the `UNIQUE` constraint on `hc_leadgen_config.hc_slug` raises a DB error, caught and retried with a freshly generated suffix. |
+| HC has not completed leadgen setup but tries to access `/leads`                                                                 | `hc_leadgen_config` row does not exist → API returns a structured "setup incomplete" response (not a 500). Frontend redirects HC to setup flow.                                                                                                                                                                                                        |
+| HC's `users.first_name`/`users.last_name` are null and HC opens `/settings/onboarding`                                          | `POST /api/leadgen/config/init` returns a structured "profile incomplete" response (not a 500 or raw constraint error). Frontend redirects HC to `/settings/profile` to complete their name, then back to leadgen setup.                                                                                                                              |
+| Lead opens an expired upload link                                                                                               | Page shows: *"This upload link has expired. Please contact [HC Name] for a new link."* No upload UI shown, no OTP sent.                                                                                                                                                                                                                                 |
+| Lead opens an already-used upload link                                                                                          | Page shows: *"Your reports have already been uploaded successfully. No further action needed."*                                                                                                                                                                                                                                                          |
 
 ---
 
@@ -414,11 +537,10 @@ Blood report files are stored on behalf of the Lead and accessible only to the H
 
 ### Setup
 
-- [ ] `POST /api/leadgen/config/init`, given `users.first_name` + `users.last_name` already set (via Unit_006 profile settings), generates a slug matching `^[a-z]+-[a-z]+-[a-z0-9]{5}$` and creates `hc_leadgen_config` row
-- [ ] `POST /api/leadgen/config/init` with either `users.first_name` or `users.last_name` null returns a structured "profile incomplete" response, not a 500 or raw DB error
+- [ ] `POST /api/leadgen/config/init`, given `users.first_name` + `users.last_name` already set, generates a slug matching `^[a-z]+-[a-z]+-[a-z0-9]{5}$` and creates `hc_leadgen_config` row
 - [ ] `PATCH /api/leadgen/config` with `hc_slug` in the body silently ignores the field — slug in DB unchanged
-- [ ] No endpoint exists that updates `hc_slug` — verified by grepping for any PATCH/PUT route that writes `hc_slug`
 - [ ] Intake link `tapas.app/intake/:slug` returns 200 with questionnaire config for a configured HC
+- [ ] HC without a connected Razorpay account cannot complete Stage 4 for their Leads — verified end to end, not just at the payment-order endpoint
 
 ### Lead questionnaire submission
 
@@ -426,76 +548,72 @@ Blood report files are stored on behalf of the Lead and accessible only to the H
 - [ ] `lead_questionnaire_responses` rows created — one per question, preserving `question_text` verbatim
 - [ ] `leads.consent_given_at` and `leads.consent_purpose` non-null after submission
 - [ ] Second submission from same email to same HC returns 409 — no duplicate `leads` row
-- [ ] 6th submission from same IP within 1 hour returns 429 (tested in integration with mocked clock)
-- [ ] `GET /api/intake/:slug` response contains only `{hc_name, hc_photo_url, questionnaire}` — no other HC data
 
-### Lab recommendation and token
+### AI test recommendation and HC review
 
-- [ ] Standard baseline tests always present in `leads.test_recommendation.all_tests` regardless of questionnaire responses
-- [ ] Condition-specific tests added only when keyword matches — no false additions (tested with known keywords)
-- [ ] `lead_upload_tokens` row created with non-null `token_hash` and `expires_at` 14 days from creation
-- [ ] Raw token not present anywhere in the DB — only SHA-256 hash stored
-- [ ] Email sent to Lead via Resend with upload link containing the raw token
+- [ ] `leads.draft_test_recommendation` populated automatically after questionnaire submission, standard baseline always present regardless of AI output
+- [ ] Draft is never visible to or sent to the Lead via any endpoint
+- [ ] HC's Send action writes `leads.test_recommendation` from the HC's edited list, not the raw AI draft, when the HC made edits
+- [ ] `llm_calls` row written for every `lead_test_recommendation` call, success and failure
+- [ ] LLM failure does not block the HC from manually building and sending a panel
 
-### Blood report upload
+### Payment
 
-- [ ] `GET /api/upload/:expired_token` returns token-expired page, not upload UI
-- [ ] `GET /api/upload/:used_token` returns already-used page, not upload UI
-- [ ] `POST /api/upload/:token/files` with a PDF whose extension is `.jpg` but magic bytes are PDF: accepted (MIME from bytes, not extension)
-- [ ] `POST /api/upload/:token/files` with a `.exe` file: rejected regardless of declared MIME type
-- [ ] File stored in R2 under `leads/<lead_id>/reports/` prefix — verified by checking key structure
-- [ ] `lead_files` row created only after R2 confirms success
-- [ ] Token `used_at` set only after all files in the batch are accepted
-- [ ] On R2 failure: token NOT marked used — Lead can retry
+- [ ] `POST /api/leads/:id/payment/order` fails with a structured error (not 500) if the HC has no connected Razorpay account
+- [ ] Successful `payment.captured` webhook, HMAC-verified, sets `leads.payment_status = paid` and advances the Lead to scheduling handoff
+- [ ] Invalid webhook signature is rejected, does not advance any Lead's state
+- [ ] Duplicate webhook delivery (same `payment_reference`) is a no-op on the second delivery
+- [ ] Failed payment leaves `leads.payment_status` in a retry-safe state — no partial charge, no held resource
+
+### Scheduling handoff
+
+- [ ] Lead is only shown the scheduling link after `leads.payment_status = paid`
+- [ ] `leads.scheduled_at` and `leads.meeting_link` are populated once scheduling completes and reach the brief generation step
+
+### Blood report upload — OTP
+
+- [ ] Upload UI does not render any file-picker element until OTP verification succeeds
+- [ ] Correct OTP within expiry unlocks the upload UI for that token session
+- [ ] Incorrect OTP is rejected, `otp_attempts` increments, rate limit enforced
+- [ ] Expired OTP is rejected; a fresh OTP can be requested without invalidating the upload token itself
+- [ ] `GET /api/upload/:token`, `POST /api/upload/:token/otp/send`, `POST /api/upload/:token/otp/verify` do not leak Lead PII beyond what the original (pre-OTP) endpoint already allowed
 
 ### Brief generation
 
-- [ ] `llm_calls` row written for every brief generation (success and failure)
+- [ ] `llm_calls` row written for every `lead_brief` generation (success and failure)
 - [ ] `leads.brief_llm_call_id` populated on success
-- [ ] `leads.brief_text` is non-null on success; null on LLM failure
+- [ ] Brief includes `scheduled_at`/`meeting_link` when present
 - [ ] On LLM failure: `leads.status` = `report_uploaded` (not blocked), HC email mentions failure
-- [ ] Brief for a Lead with unextractable PDF: generated, contains gap note, does not error
 
 ### Tenant isolation
 
-- [ ] `GET /api/leads/:id` for a lead owned by HC2 accessed with HC1's JWT returns 404
-- [ ] `POST /api/leads/:id/convert` by wrong HC returns 404
-- [ ] Cross-tenant isolation verified in integration tests for all HC-facing lead endpoints
-
-### Conversion
-
-- [ ] Conversion creates `clients` row, M000 session, and populates `leads.converted_client_id` in a single transaction
-- [ ] M000 session notes pre-populated with questionnaire responses + brief text on conversion
-- [ ] Integration test: kill DB connection mid-conversion → assert no `clients` row, no M000 session, `leads.converted_client_id` still null (rollback verified)
-- [ ] Blood report files accessible from Client Detail page via `leads.converted_client_id` join — no file duplication
-
-### Purge
-
-- [ ] `POST /api/leads/purge-expired` deletes `lead_files` rows, `lead_questionnaire_responses` rows, `lead_upload_tokens` rows, and `leads` row for each expired lead
-- [ ] R2 objects under `leads/<lead_id>/` deleted for each purged lead
-- [ ] `converted` leads are never purged regardless of age
+- [ ] All new HC-facing endpoints (`payment-account`, `test-recommendation`) enforce `leads.hc_user_id = current_tenant()` — cross-tenant access returns 404
+- [ ] Webhook handler resolves the correct HC/Lead from Razorpay's payload without trusting client-supplied tenant claims
 
 ### DPDP
 
-- [ ] Consent captured at questionnaire submission — `consent_given_at` and `consent_purpose` non-null before any `lead_questionnaire_responses` rows are created (same transaction)
-- [ ] Intake page and upload page carry `<meta name="robots" content="noindex">`
-- [ ] No lead's email, phone, or response data appears in structured logs — scrubbed by existing `scrub()` before logging
+- [ ] Consent captured at questionnaire submission — unchanged from original design
+- [ ] No lead's email, phone, response data, OTP, or payment reference appears in structured logs — scrubbed by existing `scrub()` before logging
 
 ---
 
 ## Open questions
 
 - ~~**M000 session notes pre-population on conversion**~~ — **Resolved 2026-07-21**: confirmed by SoJo. M000 session notes are pre-populated with questionnaire responses + brief text on conversion, as originally spec'd default.
-- ~~**Unit_006 PHASE-01 as a prerequisite**~~ — **Resolved 2026-08-21**: `Unit_006_PlatformFoundations` PHASE-01 (HC Settings & Profile) was extended (Tasks 4-6) to ship `users.first_name`/`users.last_name` as required, user-editable fields via `GET`/`PATCH /api/settings/profile` and the `/settings/profile` page. Unit_003 Stage 1's dependency is satisfied; the temporary `backend/scripts/seed_hc_names.py` backfill script (used ahead of this landing) has been retired now that HCs can set their own name via self-service. See `Unit_006_PlatformFoundations/SPEC-0001-platform-foundations.md` Changelog and `Unit_006_PlatformFoundations/PHASE-01-hc-settings-profile.md` §2.
-- **Future in-platform discovery entry channel (forward-compatibility note, not a build item)**: Stage 1's intake URL (`/intake/:slug`) is deliberately channel-agnostic — it identifies only the HC, not the referral path. It requires no changes to support a hypothetical future client-facing coach-discovery surface (e.g. a "Contact HC" action linking to this same URL). No such surface is in scope for this unit, and none currently exists as a planned unit.
+- ~~**Unit_006 PHASE-01 as a prerequisite**~~ — **Resolved 2026-08-21**: `Unit_006_PlatformFoundations` PHASE-01 was extended to ship `users.first_name`/`users.last_name` as required, user-editable fields. See that unit's Changelog.
+- **Future in-platform discovery entry channel (forward-compatibility note, not a build item)**: Stage 1's intake URL (`/intake/:slug`) is deliberately channel-agnostic. No such surface is in scope for this unit.
+- **Where does "HC connects Razorpay account" actually live, and who builds it first?** This spec's Stage 1 and `Unit_004_OneStopSpot`'s F4 both need the identical capability (an HC's own connected Razorpay account, per D-2). Building it twice would repeat the exact mistake this session already found and fixed twice (first_name/last_name, and the settings/onboarding page duplication). Whoever builds PHASE-05 first should design `hc_payment_accounts` as a shared, unit-agnostic capability, not something owned exclusively by this spec — owner: SoJo, to coordinate with whoever is driving Unit_004 — by: before PHASE-05 implementation begins.
+- **Webhook reliability / reconciliation**: if a Razorpay webhook never arrives (network partition, Razorpay-side outage), a Lead may have paid without this system knowing. No reconciliation job is designed in this spec — flagged as a real gap now that actual money is involved, not merely a nice-to-have. Owner: SoJo — by: before PHASE-05 is considered production-ready (test-mode development can proceed without it).
+- **Lead Detail page (`/leads/:leadId`) and the rest of the HC-facing lead-management endpoints** (`GET /api/leads`, `GET /api/leads/:id`, `PATCH /api/leads/:id`, `POST /api/leads/:id/remind`, `POST /api/leads/:id/convert`, `POST /api/leads/purge-expired`) remain entirely unbuilt and unplanned as their own phase. Stage 7/8 currently reference this page conceptually but nothing routes an HC there yet — Stage 7's email is self-contained (per PHASE-03's post-ship correction) precisely because this page doesn't exist. A real phase plan for this is still owed.
 
 ---
 
 ## Out of scope (future)
 
-- WhatsApp notification delivery (Twilio / Meta Business API)
-- Payment processing for initial consultation (Razorpay)
-- Native calendar / scheduling (replacing external Calendly link)
+- WhatsApp notification delivery, including WhatsApp OTP (Twilio / Meta Business API)
+- Native calendar / scheduling (replacing the external scheduling handoff) — owned by a separate workstream, not this spec
+- Refunds, disputes, partial payments, recurring/subscription billing for the consultation fee
+- Payment reconciliation job for missed webhooks (see Open questions)
 - Automated lead expiry (scheduled Cloud Run job or `pg_cron`)
 - OCR for handwritten / scan-based blood reports (Google Vision, AWS Textract)
 - Conditional logic or branching in the questionnaire
@@ -504,14 +622,16 @@ Blood report files are stored on behalf of the Lead and accessible only to the H
 - Referral source tracking ("how did you hear about this coach")
 - Questionnaire response sentiment analysis
 - Slug aliases or redirect after rename (slug is immutable — no redirect scenario exists)
+- The Lead Detail page and remaining lead-management endpoints (see Open questions) — real future scope, just not designed here
 
 ---
 
 ## Changelog
 
 | Date       | Change                                                                                                                                                                                                                                                                                                                                                                     | Reason                                                                                                                                                                                                                                                   |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 2026-06-26 | Initial draft.                                                                                                                                                                                                                                                                                                                                                             | Client Discovery Pipeline design session complete — all architectural decisions locked, brainstorming approved by SoJo.                                                                                                                                 |
-| 2026-07-21 | Moved`first_name`/`last_name` collection out of Stage 1 into a read-only dependency on `Unit_006_PlatformFoundations` PHASE-01; resolved the M000 pre-population open question (confirmed yes); documented Stage 1's intake URL as channel-agnostic (forward-compatible with a possible future client-facing coach-discovery surface — out of scope for this unit). | Brainstorming session with SoJo: avoid Unit_003 duplicating HC-identity data entry that Unit_006 already owns as "HC profile completeness"; close an outstanding open question; clarify no rework is needed if a future discovery surface is ever built. |
-| 2026-08-13 | Moved Stage 1's HC setup page from the standalone, unlinked `/settings/leadgen` route to `/settings/onboarding`, inside `Unit_006_PlatformFoundations`'s Settings hub (`settings/(hub)/layout.tsx`), replacing that hub's empty "Onboarding" placeholder. Added the "Shared surfaces" section above, formalizing that this spec's settings-adjacent UI must use `Unit_006_PlatformFoundations`'s `SETTINGS_SECTIONS` sidebar convention going forward. All `/settings/leadgen` references in this doc updated to `/settings/onboarding`. | PHASE-01 shipped the setup page on this branch before `Unit_006_PlatformFoundations` PHASE-01's Settings-hub IA existed on a sibling branch (their branches diverged); PHASE-01's own final review had already flagged the page as unreachable from any nav (`docs/SESSION_LOG.md`) but left it unresolved. Reconciled after SoJo noticed the two features — one built independently by each unit under the word "onboarding" — were meant to be the same thing. |
-| 2026-08-21 | Resolved the "Unit_006 PHASE-01 as a prerequisite" open question: `Unit_006_PlatformFoundations` PHASE-01 was extended to ship `first_name`/`last_name` on `/settings/profile`, and the temporary `backend/scripts/seed_hc_names.py` backfill script was deleted. | `Unit_006_PlatformFoundations` PHASE-01 Tasks 4-6 landed the self-service fields this spec's Stage 1 depended on, closing the cross-unit dependency and removing the last manual workaround. |
+| 2026-07-21 | Moved `first_name`/`last_name` collection out of Stage 1 into a read-only dependency on `Unit_006_PlatformFoundations` PHASE-01; resolved the M000 pre-population open question; documented Stage 1's intake URL as channel-agnostic. | Brainstorming session with SoJo. |
+| 2026-08-13 | Moved Stage 1's HC setup page to `/settings/onboarding`, inside `Unit_006_PlatformFoundations`'s Settings hub. Added the "Shared surfaces" section. | Reconciled two independently-built "onboarding" features after both units' branches merged into `main`. |
+| 2026-08-21 | Resolved the "Unit_006 PHASE-01 as a prerequisite" open question. | `Unit_006_PlatformFoundations` PHASE-01 Tasks 4-6 landed self-service `first_name`/`last_name`. |
+| 2026-08-24 | **Major redesign**, prompted by a post-ship review of PHASE-03 finding the HC notification email pointed at a Lead Detail page that doesn't exist, escalated with SoJo into a full rework of Stages 3-8: rule-based test recommendation replaced with LLM drafting + mandatory HC review/send step (D-4, D-5); native Razorpay payment added, HC-owned account per D-2 (payment was previously a documented non-goal — now core to the flow); payment and scheduling deliberately decoupled (D-3); blood-report upload link hardened with an OTP gate (D-6); the AI brief split into two distinct artifacts, draft test recommendation and pre-consultation brief, never conflated (D-7); pipeline grew from six stages to eight. Original Stage 3-6 content preserved in git history for this file, not duplicated here. | Payment mechanism and merchant-of-record posture decided in a separate SoJo planning session (handover brief, 2026-08-24) and confirmed compatible with `Unit_004_OneStopSpot` F4's existing HC-owned-Razorpay pattern; the rest of the redesign (AI recommendation, OTP, decoupled scheduling) worked through directly with SoJo, flaw by flaw, before any implementation began. |
