@@ -159,14 +159,20 @@ async def send_test_recommendation(
     should be dropped) — the review screen this endpoint serves is explicitly
     editable, so re-submitting an edit and re-sending is the expected repair
     path, not an error condition. This also mirrors this codebase's existing
-    convention for repeatable finalize-and-notify "/send" actions:
-    `POST /api/clients/:id/diet-chart/send` (diet_charts.py) has no
-    already-sent guard either — every call writes a fresh `DietChartSend` and
-    the client is emailed again — and `POST /api/clients/:id/invite`
-    (clients.py) doesn't reject a second call, it invalidates the previous
-    invite token and issues + emails a new one. `status_code=201` on this
-    route mirrors `send_client_diet_chart`'s status code for the same shape
-    of action.
+    convention of no already-sent guard on repeatable finalize "/send"
+    actions: `POST /api/clients/:id/diet-chart/send` (diet_charts.py) can be
+    called any number of times — each call inserts a fresh `DietChartSend`
+    row recording the send event, with nothing blocking a repeat (the
+    endpoint itself does not send an email; it only persists the record) —
+    and `POST /api/clients/:id/invite` (clients.py) likewise rejects nothing
+    on a second call: it invalidates the previous invite token and issues a
+    new one (returned to the caller; the endpoint itself does not email it
+    either). Neither precedent involves the endpoint sending an email on
+    repeat — the part of the precedent that actually applies here is that
+    repeating a finalize-style action is the established, unguarded pattern
+    in this codebase, which is what justifies allowing double-Send above.
+    `status_code=201` on this route mirrors `send_client_diet_chart`'s status
+    code for the same shape of action.
     """
     lead = await _get_owned_lead(db, lead_id, hc_id)
 
