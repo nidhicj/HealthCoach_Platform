@@ -133,6 +133,25 @@ async def test_get_requires_no_auth(http_client, hc_user: User, db: AsyncSession
     assert resp.status_code == 200, resp.text
 
 
+async def test_get_context_hc_name_falls_back_when_names_unset(
+    http_client, hc_user: User, db: AsyncSession
+):
+    """Review round 1, Important finding #1: first_name/last_name are
+    nullable on User — an unset name must render as the same 'Your Coach'
+    fallback leads.py::send_test_recommendation already uses, not
+    'None None'."""
+    hc_user.first_name = None
+    hc_user.last_name = None
+    await db.flush()
+    await _make_config(db, hc_user, consultation_fee_inr=1500)
+    lead = await _make_lead(db, hc_user)
+
+    resp = await http_client.get(f"/api/leads/{lead.id}/payment")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["hc_name"] == "Your Coach"
+    assert "None" not in resp.json()["hc_name"]
+
+
 # ── POST /api/leads/:id/payment/order ───────────────────────────────────────
 
 
@@ -252,6 +271,55 @@ async def test_order_account_row_exists_but_not_connected_returns_structured_err
     assert resp.json()["detail"]["error"] == "payment_not_available"
 
 
+async def test_order_credentials_missing_key_id_returns_structured_error(
+    http_client, hc_user: User, db: AsyncSession
+):
+    """Review round 1, Important finding #2: bare `credentials["key_id"]`
+    subscription would 500 (KeyError) if the key were ever missing from an
+    otherwise-connected account. Must degrade to the same structured error
+    as the other 'payment setup incomplete' states instead."""
+    await _make_config(db, hc_user, consultation_fee_inr=1500)
+    account = HcPaymentAccount(
+        hc_user_id=hc_user.id,
+        credentials={"key_secret": "rzp_test_secret456", "webhook_secret": "whsec_test_789"},
+        connected_at=datetime.now(UTC),
+    )
+    db.add(account)
+    await db.flush()
+    lead = await _make_lead(db, hc_user)
+
+    with patch(_PATCH_CREATE_ORDER, new=AsyncMock()) as mock_create_order:
+        resp = await http_client.post(f"/api/leads/{lead.id}/payment/order")
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "payment_not_available"
+    mock_create_order.assert_not_awaited()
+
+
+async def test_order_credentials_missing_key_secret_returns_structured_error(
+    http_client, hc_user: User, db: AsyncSession
+):
+    """Same as above, for the key_secret lookup — this one guards against a
+    500 happening AFTER the reload-idempotency short-circuit, since
+    key_secret is only read on the create-a-new-order path."""
+    await _make_config(db, hc_user, consultation_fee_inr=1500)
+    account = HcPaymentAccount(
+        hc_user_id=hc_user.id,
+        credentials={"key_id": "rzp_test_key123", "webhook_secret": "whsec_test_789"},
+        connected_at=datetime.now(UTC),
+    )
+    db.add(account)
+    await db.flush()
+    lead = await _make_lead(db, hc_user)  # no payment_reference — forces the create path
+
+    with patch(_PATCH_CREATE_ORDER, new=AsyncMock()) as mock_create_order:
+        resp = await http_client.post(f"/api/leads/{lead.id}/payment/order")
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "payment_not_available"
+    mock_create_order.assert_not_awaited()
+
+
 async def test_order_fee_not_configured_returns_structured_error(
     http_client, hc_user: User, db: AsyncSession
 ):
@@ -328,3 +396,60 @@ async def test_order_failed_payment_retries_with_a_fresh_order(
 
     await db.refresh(lead)
     assert lead.payment_reference == "order_retry_fresh"
+
+
+async def test_order_already_paid_lead_is_rejected_and_not_mutated(
+    http_client, hc_user: User, db: AsyncSession
+):
+    """Review round 1, Critical finding: a Lead who already paid (and may
+    have advanced further, e.g. to 'converted') must not have lead.status
+    silently reset to 'payment_pending' or lead.payment_reference overwritten
+    by a re-hit of this public, unauthenticated, always-reachable endpoint —
+    no new Razorpay Order should even be attempted."""
+    await _make_config(db, hc_user, consultation_fee_inr=1500)
+    await _make_connected_account(db, hc_user)
+    lead = await _make_lead(
+        db, hc_user, status="converted", payment_status="paid",
+        payment_reference="order_that_was_actually_paid",
+    )
+    # converted_client_id is FK-constrained to a real clients row — not
+    # populated here (out of scope to set up), status="converted" alone is
+    # enough to exercise "a Lead who has advanced well past payment".
+    lead.converted_at = datetime.now(UTC)
+    await db.flush()
+
+    with patch(_PATCH_CREATE_ORDER, new=AsyncMock()) as mock_create_order:
+        resp = await http_client.post(f"/api/leads/{lead.id}/payment/order")
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "already_paid"
+    mock_create_order.assert_not_awaited()
+
+    await db.refresh(lead)
+    # The whole point of the fix: status and payment_reference are untouched.
+    assert lead.status == "converted"
+    assert lead.payment_reference == "order_that_was_actually_paid"
+    assert lead.payment_status == "paid"
+
+
+async def test_order_already_paid_lead_at_earlier_downstream_status_also_rejected(
+    http_client, hc_user: User, db: AsyncSession
+):
+    """Same guard, checked at an earlier downstream status
+    ('consultation_scheduled') — not just the terminal 'converted' case
+    above — to confirm the guard is keyed purely off payment_status, not
+    some allowlist of 'late' statuses."""
+    await _make_config(db, hc_user, consultation_fee_inr=1500)
+    await _make_connected_account(db, hc_user)
+    lead = await _make_lead(
+        db, hc_user, status="consultation_scheduled", payment_status="paid",
+        payment_reference="order_paid_1",
+    )
+
+    resp = await http_client.post(f"/api/leads/{lead.id}/payment/order")
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "already_paid"
+
+    await db.refresh(lead)
+    assert lead.status == "consultation_scheduled"
+    assert lead.payment_reference == "order_paid_1"

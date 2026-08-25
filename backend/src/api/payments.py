@@ -11,11 +11,15 @@ security requirements: the upload token must be single-use and revocable
 (consuming/invalidating it is part of that flow's own state machine), while
 this payment link's safety against replay comes from a different mechanism —
 `payment_status` itself gates what's revealed (GET never mutates and only
-returns `scheduling_link` once `payment_status == "paid"`; POST is idempotent
-while `unpaid`, see `create_payment_order`'s docstring) — so reusing the
+returns `scheduling_link` once `payment_status == "paid"`; POST never mints a
+second real order for the same Lead once one is pending OR once payment has
+already succeeded, see `create_payment_order`'s docstring) — so reusing the
 Lead's permanent identifier as the link's bearer credential is a deliberate
 simplification for this endpoint, not an oversight of the hashed-token
-pattern used elsewhere.
+pattern used elsewhere. This matters because the endpoint is reachable at any
+time from a bookmarked/emailed link, a stale browser tab, or a replayed
+request — "the frontend won't offer the form once paid" is UX, not a security
+boundary this backend can rely on.
 
 `leads.py`'s router (`src/api/leads.py`) is HC-authenticated throughout
 (`HcClaimsDep`/`TenantDep`) — these routes are deliberately public (a Lead
@@ -97,6 +101,31 @@ def _payment_not_available_error() -> HTTPException:
     )
 
 
+def _already_paid_error() -> HTTPException:
+    # Guards create_payment_order's "already paid" path (review round 1,
+    # Critical finding): a Lead can reach this public endpoint at any time
+    # via a bookmarked/emailed link, a stale tab, or a replayed request —
+    # long after payment_status flipped to "paid" and lead.status has moved
+    # on to consultation_scheduled/report_uploaded/converted/etc. Falling
+    # through to the "create new order" branch in that state would silently
+    # reset lead.status back to "payment_pending" and overwrite
+    # payment_reference with a fresh, unrelated Order, discarding the
+    # reference to what was actually paid and (if a stale checkout flow ever
+    # completed against the new order) risking a second real charge. This is
+    # a read-only short-circuit: no DB write, no create_order() call. A
+    # frontend that still calls this after GET already reported
+    # payment_status == "paid" should treat this the same way it already
+    # treats that GET response — nothing new to signal beyond what GET gave
+    # it up front.
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "error": "already_paid",
+            "message": "This consultation has already been paid for.",
+        },
+    )
+
+
 def _razorpay_unreachable_error() -> HTTPException:
     # Mirrors payment_accounts.py's _razorpay_unreachable_error: same 502
     # framing (the upstream we depend on failed, not our own endpoint being
@@ -144,7 +173,18 @@ async def get_lead_payment_context(lead_id: UUID, db: DbDep) -> LeadPaymentConte
     if hc_user is None:
         raise _lead_not_found_error()
 
-    hc_name = f"{hc_user.first_name} {hc_user.last_name}".strip()
+    # Fallback guards against a blank/"None None" render if both names are
+    # unset (`first_name`/`last_name` are nullable on User) — review round 1,
+    # Important finding #1: this function already degrades gracefully for
+    # `credentials is None`/`consultation_fee_inr is None` a few lines away
+    # in the POST handler below; this GET handler's own untested, previously
+    # undefended assumption that names are always populated by the time a
+    # Lead reaches this Lead-facing page deserved the same treatment. Same
+    # fallback string as `leads.py::send_test_recommendation`'s identical
+    # guard for the same underlying gap.
+    hc_first = hc_user.first_name or ""
+    hc_last = hc_user.last_name or ""
+    hc_name = f"{hc_first} {hc_last}".strip() or "Your Coach"
 
     return LeadPaymentContextOut(
         hc_name=hc_name,
@@ -161,22 +201,36 @@ async def create_payment_order(
     """Create a Razorpay Order for this Lead's consultation fee (SPEC-0001
     Stage 4 step 1), or return the already-pending one on reload.
 
-    Reload-idempotency: a Lead reopening the payment page before completing
-    (or ever starting) Razorpay's hosted Checkout must not mint a fresh Order
-    every time — that would litter the HC's Razorpay dashboard with
-    abandoned duplicates every reload. This is scoped to
-    `payment_status == "unpaid"` specifically, not just "a payment_reference
-    is present": a failed/cancelled attempt is retry-safe by spec ("nothing
-    was held... retrying is a fresh attempt, not a resume" — edge-cases
-    table), so a Lead whose most recent attempt ended in `payment_status ==
-    "failed"` falls through to mint a NEW order below rather than
-    resurrecting the failed one. `payment_status == "paid"` also falls
-    through to this same "create new" path rather than the reuse branch —
-    not expected to be reachable in practice (the frontend stops offering
-    the payment form once `GET .../payment` reports `paid`), but nothing
-    here treats an already-paid Lead specially; it is out of this task's
-    scope to add a dedicated guard for a state the frontend is not expected
-    to reach.
+    Three distinct outcomes for a Lead who already has SOME payment history,
+    keyed off `payment_status` — this endpoint is public and reachable at
+    any time via a bookmarked/emailed link, a stale browser tab, or a
+    replayed request, so each of these is a real, not merely theoretical,
+    call pattern (review round 1, Critical finding):
+
+    - `payment_status == "paid"`: short-circuits to `_already_paid_error()`
+      (409) immediately, before even looking up the payment account/fee
+      config. Read-only — no DB write, no `create_order()` call. Falling
+      through to "create new order" here (the original, pre-review-round
+      behavior) would silently reset `lead.status` back to
+      `"payment_pending"` even if it had already advanced to
+      `consultation_scheduled`/`report_uploaded`/`converted`/etc., overwrite
+      `payment_reference` with a fresh, unrelated Order (discarding the
+      reference to what was actually paid), and hand back a real, valid
+      `key_id` + Order that — if a stale checkout flow ever completed
+      against it — could charge the Lead a second time.
+    - `payment_status == "unpaid"` AND `payment_reference` already set:
+      reload-idempotency — return the existing pending Order rather than
+      minting a fresh one, so repeatedly reopening the payment page before
+      completing (or ever starting) Razorpay's hosted Checkout doesn't
+      litter the HC's Razorpay dashboard with abandoned duplicates.
+    - `payment_status == "failed"` (or `"refunded"`, or `"unpaid"` with no
+      `payment_reference` yet): falls through to mint a NEW order. A
+      failed/cancelled attempt is retry-safe by spec ("nothing was held...
+      retrying is a fresh attempt, not a resume" — edge-cases table), so a
+      Lead whose most recent attempt ended in `"failed"` must NOT have that
+      failed order resurrected — this is why the reuse branch above is
+      scoped to `"unpaid"` specifically, not "any non-null
+      `payment_reference`".
 
     `create_order()` (src/lib/razorpay_client.py) deliberately propagates a
     non-2xx Razorpay response (or a network failure) rather than swallowing
@@ -189,6 +243,9 @@ async def create_payment_order(
     lead = await db.get(Lead, lead_id)
     if lead is None:
         raise _lead_not_found_error()
+
+    if lead.payment_status == "paid":
+        raise _already_paid_error()
 
     account = (await db.execute(
         select(HcPaymentAccount).where(HcPaymentAccount.hc_user_id == lead.hc_user_id)
@@ -209,7 +266,14 @@ async def create_payment_order(
     if config is None or config.consultation_fee_inr is None:
         raise _payment_not_available_error()
 
-    key_id: str = credentials["key_id"]
+    key_id: str | None = credentials.get("key_id")
+    if not key_id:
+        # Same "shouldn't happen, but this is public — degrade, don't
+        # KeyError/500" discipline as the `credentials is None` guard above
+        # (review round 1, Important finding #2: this previously used bare
+        # `credentials["key_id"]` subscription).
+        raise _payment_not_available_error()
+
     # THE load-bearing conversion (task brief §3): Razorpay's Orders API
     # takes an amount in paise; `consultation_fee_inr` is stored as whole
     # rupees (src/db/models/leadgen.py). Missing this ×100 either fails
@@ -222,7 +286,11 @@ async def create_payment_order(
             order_id=lead.payment_reference, key_id=key_id, amount_paise=amount_paise
         )
 
-    key_secret: str = credentials["key_secret"]
+    key_secret: str | None = credentials.get("key_secret")
+    if not key_secret:
+        # Same rationale as the key_id guard above.
+        raise _payment_not_available_error()
+
     logger = get_logger(
         request_id=getattr(request.state, "request_id", ""), hc_id=str(lead.hc_user_id)
     )
