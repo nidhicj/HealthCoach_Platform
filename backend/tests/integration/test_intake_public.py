@@ -4,6 +4,7 @@ PHASE-02 (original), PHASE-04 (Stage 3 replaced: AI-drafted test recommendation
 + HC review, rule-based recommendation/upload-token-issuance/immediate Lead
 email removed).
 """
+import json
 import uuid as uuid_mod
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
@@ -536,7 +537,8 @@ async def test_ai_addition_duplicating_standard_test_not_duplicated_in_all_tests
 
 
 async def test_real_db_failure_swallowed_inside_ai_drafting_does_not_500_the_submission(
-    http_client: AsyncClient, hc_user, hc_headers, db, monkeypatch
+    http_client: AsyncClient, hc_user, hc_headers, db, monkeypatch,
+    capsys: pytest.CaptureFixture[str],
 ):
     """Review finding 2 (task-3 fix round): `generate_lead_test_recommendation()`
     shares this request's live DB session, and its own never-raise contract means
@@ -562,6 +564,12 @@ async def test_real_db_failure_swallowed_inside_ai_drafting_does_not_500_the_sub
     statement, until an explicit rollback — `SessionTransaction.is_active`
     itself stays `True` throughout, so that flag can't be used to detect it),
     not a Mock — exactly the class of failure this fix has to survive.
+
+    Also covers Fix #6 (final-review-fix round): this retry path used to be
+    silent on entry — no log trace that the first commit failed. This is the
+    one test in the suite that already reproduces a real first-commit
+    failure into this exact `except` block, so it doubles as the test for
+    the added `logger.warn` call.
     """
     config = await _configure_with_test_panel(http_client, hc_user, hc_headers, db)
 
@@ -598,6 +606,17 @@ async def test_real_db_failure_swallowed_inside_ai_drafting_does_not_500_the_sub
         "all_tests": ["CBC", "HbA1c", "TSH", "Lipid Profile"],
     }
     mock_email.assert_called_once()  # HC still notified, same as every other fallback case.
+
+    # Fix #6: the first commit's failure must leave a log trace, even though
+    # it recovers via the retry below it.
+    lines = [json.loads(line) for line in capsys.readouterr().out.strip().splitlines() if line]
+    retry_logs = [
+        line for line in lines if line["event"] == "lead_test_recommendation_commit_retry"
+    ]
+    assert len(retry_logs) == 1
+    assert retry_logs[0]["level"] == "warn"
+    assert retry_logs[0]["extra"]["lead_id"] == str(lead_id)
+    assert retry_logs[0]["extra"]["error"]  # non-empty exception string
 
 
 async def test_review_email_delivery_failure_does_not_fail_request_and_draft_persists(

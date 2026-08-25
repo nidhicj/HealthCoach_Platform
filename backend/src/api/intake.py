@@ -180,11 +180,15 @@ async def submit_intake_questionnaire(
     responses: dict[str, object] = body.model_extra or {}
     _validate_intake_responses(questionnaire, responses)
 
-    # Captured as plain locals for the same reason as `email_value`/
-    # `full_name_value` below — `db.commit()`/`db.rollback()` further down
-    # expire ORM-managed attributes, and reading `user.email` after that point
-    # would trigger an implicit lazy reload that fails outside the async
-    # greenlet context.
+    # Captured as plain locals — not strictly required (this session has
+    # expire_on_commit=False, per src/db/session.py, so `db.commit()` does not
+    # expire `user`'s attributes), but matches this function's own defensive
+    # convention below (`email_value`/`full_name_value`) of not reading ORM
+    # attributes off objects after a commit/rollback boundary: it's
+    # `db.rollback()` in the `except IntegrityError` block further down that
+    # actually expires ORM-managed attributes, and reading `user.email` after
+    # that point would trigger an implicit lazy reload that fails outside the
+    # async greenlet context.
     hc_name = f"{user.first_name} {user.last_name}".strip()
     hc_email = user.email
 
@@ -330,7 +334,13 @@ async def submit_intake_questionnaire(
     # re-applied before the retry.
     try:
         await db.commit()
-    except Exception:
+    except Exception as exc:
+        logger = get_logger(
+            request_id=getattr(request.state, "request_id", ""), hc_id=str(hc_user_id)
+        )
+        logger.warn(
+            "lead_test_recommendation_commit_retry", lead_id=str(lead_id), error=str(exc)
+        )
         await db.rollback()
         lead.draft_test_recommendation = draft_test_recommendation
         lead.status = lead_status
