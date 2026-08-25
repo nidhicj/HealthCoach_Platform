@@ -45,6 +45,16 @@ _EXPIRED_MESSAGE_TEMPLATE = "This upload link has expired. Please contact {hc_na
 # expired. Please ask your coach for a new one."
 _NOT_FOUND_MESSAGE = "This upload link is invalid. Please contact your health coach for a new link."
 
+# Verbatim copy from SPEC-0001's edge-cases table (PHASE-05 Task 6) — the Lead
+# opened a valid, unexpired-in-principle upload link before paying for their
+# consultation. `expires_at` genuinely is NULL for such a token (Task 3/Task 4)
+# until the payment webhook (Task 6) activates it, so this state must be
+# checked and returned before any `expires_at` comparison is reached.
+_PAYMENT_PENDING_MESSAGE = (
+    "Please complete your consultation booking first — then come back to this "
+    "same link to upload your results."
+)
+
 # Task 6 — no SPEC-0001-quoted copy exists for this confirmation (only the
 # expired/used edge-case rows are quoted verbatim). Plain-language, tone-matched
 # to this file's other Lead-facing copy.
@@ -66,14 +76,21 @@ class UploadTokenStateOut(BaseModel):
     for state=="valid" — the single piece of information an unconsumed, unexpired
     link is allowed to reveal. No Lead PII, no questionnaire data ever appears here.
 
-    Also reused by `POST /{token}/files` (Task 6) for its three token-invalid
-    branches ("not found"/"used"/"expired"), so the frontend can share one
-    discriminated-state renderer across both the GET check and the POST result —
-    per the Task 6 brief's "matching error responses via the SAME discriminated
-    response shape" requirement. POST never returns state=="valid" (a valid token
-    always proceeds to either a validation error or `UploadFilesOut`).
+    Also reused by `POST /{token}/files` (Task 6 of PHASE-03) for its
+    token-invalid branches ("not found"/"used"/"expired"/"payment_pending"),
+    so the frontend can share one discriminated-state renderer across both the
+    GET check and the POST result — per that task's brief's "matching error
+    responses via the SAME discriminated response shape" requirement. POST
+    never returns state=="valid" (a valid token always proceeds to either a
+    validation error or `UploadFilesOut`).
+
+    `"payment_pending"` (PHASE-05 Task 6): the Lead's consultation hasn't been
+    paid for yet — `leads.payment_status != "paid"`. Distinct from "expired":
+    an unpaid Lead's `LeadUploadToken.expires_at` is genuinely `NULL` (Task 3/
+    Task 4), not a past timestamp, and the copy tells the Lead to go pay
+    rather than implying the link itself needs replacing.
     """
-    state: Literal["not_found", "expired", "used", "valid"]
+    state: Literal["not_found", "expired", "used", "valid", "payment_pending"]
     message: str | None = None
     hc_name: str | None = None
 
@@ -91,16 +108,16 @@ class UploadFilesOut(BaseModel):
 async def _resolve_token(
     db: AsyncSession, token: str
 ) -> tuple[
-    Literal["not_found", "expired", "used", "valid"],
+    Literal["not_found", "expired", "used", "valid", "payment_pending"],
     LeadUploadToken | None,
     Lead | None,
     User | None,
 ]:
     """Shared token-state resolution, used by both the GET state-check (Task 5)
-    and the POST upload endpoint (Task 6) — single source of truth for the
-    not-found -> used -> expired -> valid check order (mirrors
-    `src.auth.router._verify_invite`'s equivalent invite-token validation
-    sequence).
+    and the POST upload endpoint (Task 6 of PHASE-03) — single source of truth
+    for the not-found -> used -> payment_pending -> expired -> valid check
+    order (mirrors `src.auth.router._verify_invite`'s equivalent invite-token
+    validation sequence).
 
     Returns `(state, upload_token, lead, hc_user)`. Only the fields resolvable
     before `state` was determined are populated — e.g. for state=="not_found"
@@ -138,13 +155,23 @@ async def _resolve_token(
     if user is None:
         return "not_found", upload_token, lead, None
 
-    # `expires_at` is `datetime | None` as of PHASE-05 Task 3 (SPEC-0001 D-8) —
-    # no shipped code path writes None into it yet (that starts with Task 4),
-    # so this comparison cannot actually see a None here today; the
-    # `type: ignore` only silences the resulting mypy --strict gap until
-    # Task 6 adds its payment-gate check ahead of this line (per that task's
-    # brief, load-bearing — it must run BEFORE this comparison to avoid a
-    # real runtime TypeError once Task 4 starts minting None `expires_at`).
+    # PHASE-05 Task 6, load-bearing ordering: `expires_at` is `datetime | None`
+    # as of Task 3 (SPEC-0001 D-8), and Task 4's Send action mints every token
+    # with `expires_at=None` — it stays None until this Lead's payment webhook
+    # (Task 6, src/api/payments.py::razorpay_webhook) activates it. For any
+    # unpaid Lead, `upload_token.expires_at` genuinely IS None here, so this
+    # payment-status check MUST run and return before the `expires_at`
+    # comparison below is ever reached — otherwise that comparison raises
+    # `TypeError: '<' not supported between instances of 'NoneType' and
+    # 'datetime'` for every unpaid Lead who opens their upload link.
+    if lead.payment_status != "paid":
+        return "payment_pending", upload_token, lead, user
+
+    # Reachable only once payment_status == "paid" — the webhook that flips
+    # payment_status also sets this same token's expires_at in the same
+    # commit (see razorpay_webhook), so expires_at is expected non-None here.
+    # The `type: ignore` remains because that invariant isn't visible to
+    # mypy from this function's own types.
     if upload_token.expires_at < datetime.now(UTC):  # type: ignore[operator]
         return "expired", upload_token, lead, user
 
@@ -199,8 +226,12 @@ async def get_upload_token_state(token: str, db: DbDep) -> UploadTokenStateOut:
     if state == "used":
         return UploadTokenStateOut(state="used", message=_USED_MESSAGE)
 
-    assert lead is not None and user is not None  # guaranteed by _resolve_token for expired/valid
+    # guaranteed by _resolve_token for payment_pending/expired/valid
+    assert lead is not None and user is not None
     hc_name = f"{user.first_name} {user.last_name}".strip()
+
+    if state == "payment_pending":
+        return UploadTokenStateOut(state="payment_pending", message=_PAYMENT_PENDING_MESSAGE)
 
     if state == "expired":
         return UploadTokenStateOut(
@@ -271,6 +302,13 @@ async def upload_lead_files(
         return UploadTokenStateOut(state="not_found", message=_NOT_FOUND_MESSAGE)
     if state == "used":
         return UploadTokenStateOut(state="used", message=_USED_MESSAGE)
+    if state == "payment_pending":
+        # PHASE-05 Task 6: without this branch, an unpaid Lead's token would
+        # fall through to the "valid" logic below (this function only checked
+        # not_found/used/expired before Task 6 added this fourth non-valid
+        # state) — the payment gate would be enforced by the GET state-check
+        # but silently bypassed by POST, letting an unpaid Lead upload files.
+        return UploadTokenStateOut(state="payment_pending", message=_PAYMENT_PENDING_MESSAGE)
     if state == "expired":
         assert lead is not None and hc_user is not None
         hc_name = f"{hc_user.first_name} {hc_user.last_name}".strip()

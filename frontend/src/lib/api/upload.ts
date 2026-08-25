@@ -11,16 +11,20 @@ import { API_URL } from "@/lib/config";
  * POST /api/upload/{token}/files  — submit blood report files (multipart/form-data)
  *
  * Token state machine (backend's `UploadTokenStateOut`, shared verbatim by both
- * endpoints — see `backend/src/api/upload.py`): exactly four states —
- * "not_found" | "expired" | "used" | "valid". There is no separate "invalid"
- * state; a token that never existed or was tampered with resolves to
- * "not_found". Both the GET check and a POST against a non-"valid" token
- * return this SAME shape at HTTP 200 (never a 4xx) — a Lead-facing state
- * machine, not a tenant-isolation boundary — so the frontend can render "which
- * invalid state occurred" from one discriminated-state renderer shared across
- * both calls. `POST` only ever returns `UploadFilesResponse` on genuine
- * success (201) or a token-state object with state != "valid" (200); it never
- * returns state=="valid".
+ * endpoints — see `backend/src/api/upload.py`): exactly five states —
+ * "not_found" | "expired" | "used" | "valid" | "payment_pending". There is no
+ * separate "invalid" state; a token that never existed or was tampered with
+ * resolves to "not_found". "payment_pending" (PHASE-05 Task 6) means the
+ * Lead's consultation payment hasn't gone through yet — this token's
+ * `expires_at` is genuinely NULL server-side until the Razorpay webhook
+ * activates it, so it is checked and returned before any expiry comparison.
+ * Both the GET check and a POST against a non-"valid" token return this SAME
+ * shape at HTTP 200 (never a 4xx) — a Lead-facing state machine, not a
+ * tenant-isolation boundary — so the frontend can render "which invalid state
+ * occurred" from one discriminated-state renderer shared across both calls.
+ * `POST` only ever returns `UploadFilesResponse` on genuine success (201) or a
+ * token-state object with state != "valid" (200); it never returns
+ * state=="valid".
  *
  * POST failure modes, distinguished by HTTP status (confirmed by reading
  * `backend/src/api/upload.py`'s POST handler, not assumed):
@@ -44,7 +48,7 @@ import { API_URL } from "@/lib/config";
  */
 
 const UploadTokenStateSchema = z.object({
-  state: z.enum(["not_found", "expired", "used", "valid"]),
+  state: z.enum(["not_found", "expired", "used", "valid", "payment_pending"]),
   message: z.string().nullable().optional(),
   hc_name: z.string().nullable().optional(),
 });
@@ -168,7 +172,8 @@ export class UploadRetryableError extends UploadError {
 }
 
 /**
- * Fetch the current state of an upload token (not_found/expired/used/valid).
+ * Fetch the current state of an upload token
+ * (not_found/expired/used/valid/payment_pending).
  * Always resolves — the backend always returns HTTP 200 for this endpoint
  * (see module docstring), so this never throws on a "bad" token; the caller
  * inspects `result.state` to decide what to render. Only throws `UploadError`
@@ -213,8 +218,9 @@ export async function getUploadTokenState(token: string): Promise<UploadTokenSta
  *   Decision D-2, this response deliberately never reveals whether
  *   pre-consultation brief generation succeeded — from the Lead's point of
  *   view the upload always succeeded once this is returned.
- * - `UploadTokenState` (HTTP 200) — the token was not_found/expired/used;
- *   no files were processed. `state` is never "valid" in this branch.
+ * - `UploadTokenState` (HTTP 200) — the token was
+ *   not_found/expired/used/payment_pending; no files were processed. `state`
+ *   is never "valid" in this branch.
  *
  * Throws:
  * - `UploadValidationError` (422) — batch/file validation failure.
@@ -274,7 +280,7 @@ export async function uploadLeadFiles(token: string, files: File[]): Promise<Upl
     return UploadFilesResponseSchema.parse(body);
   }
 
-  // res.status === 200 — token resolved to not_found/expired/used before any
+  // res.status === 200 — token resolved to not_found/expired/used/payment_pending before any
   // file was processed (see module docstring). Shares the GET endpoint's schema.
   return UploadTokenStateSchema.parse(body);
 }

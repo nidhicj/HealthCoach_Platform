@@ -20,12 +20,22 @@ from src.db.models import Lead, LeadFile, LeadUploadToken, User
 pytestmark = pytest.mark.asyncio
 
 
-async def _make_lead(db: AsyncSession, hc_user: User) -> Lead:
+async def _make_lead(
+    db: AsyncSession, hc_user: User, *, payment_status: str = "paid"
+) -> Lead:
+    """`payment_status` defaults to "paid" (PHASE-05 Task 6): every test in
+    this file predating Task 6 exercises the not_found/used/expired/valid
+    token states, all of which are only reachable once a Lead has paid (see
+    `_resolve_token`'s payment gate) — this file's own
+    `test_get_upload_token_state_for_unpaid_lead_returns_payment_pending`/
+    `test_post_upload_for_unpaid_lead_returns_payment_pending_not_upload`
+    below are the ones that deliberately override this to "unpaid"."""
     lead = Lead(
         hc_user_id=hc_user.id,
         full_name="Jane Doe",
         email=f"jane-{uuid.uuid4().hex[:8]}@example.com",
         status="tests_recommended",
+        payment_status=payment_status,
     )
     db.add(lead)
     await db.flush()
@@ -142,6 +152,129 @@ async def test_used_takes_precedence_over_expired_when_both_true(
     resp = await http_client.get(f"/api/upload/{raw_token}")
     assert resp.status_code == 200, resp.text
     assert resp.json()["state"] == "used"
+
+
+# ── PHASE-05 Task 6: payment-status gate ──────────────────────────────────────
+#
+# `_resolve_token` now checks `lead.payment_status != "paid"` BEFORE the
+# `expires_at` comparison (load-bearing ordering — see that function's own
+# comment). For an unpaid Lead, `expires_at` is genuinely `None` (Task 3/
+# Task 4's real shape), so these tests are the ones that would have caught a
+# `TypeError: '<' not supported between instances of 'NoneType' and
+# 'datetime'` if the ordering were wrong — verified explicitly here, not just
+# trusted by inspection of the diff.
+
+
+async def test_get_payment_pending_lead_returns_200_no_crash(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    lead = await _make_lead(db, hc_user, payment_status="unpaid")
+    # Task 4's real shape for a freshly-sent, not-yet-paid token: expires_at
+    # is None, not some future/past timestamp.
+    raw_token = await _make_token(db, lead, expires_at=None)
+
+    resp = await http_client.get(f"/api/upload/{raw_token}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["state"] == "payment_pending"
+    assert body["message"] == (
+        "Please complete your consultation booking first — then come back to "
+        "this same link to upload your results."
+    )
+    assert body["hc_name"] is None
+
+
+async def test_get_payment_pending_takes_precedence_over_a_would_be_valid_expiry(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    """Proves the payment check is genuinely evaluated BEFORE the expiry
+    comparison, not merely "happens to work because expires_at is None" —
+    even a token with a real, far-future expires_at must still report
+    payment_pending while the Lead hasn't paid."""
+    lead = await _make_lead(db, hc_user, payment_status="unpaid")
+    raw_token = await _make_token(
+        db, lead, expires_at=datetime.now(UTC) + timedelta(days=14)
+    )
+
+    resp = await http_client.get(f"/api/upload/{raw_token}")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["state"] == "payment_pending"
+
+
+async def test_get_valid_state_reachable_once_payment_status_is_paid(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    """The other side of the gate: once payment_status flips to "paid" (as
+    the webhook, src/api/payments.py::razorpay_webhook, does) and
+    expires_at is set, the token falls through correctly to "valid" using
+    that now-set expires_at."""
+    hc_user.first_name = "Asha"
+    hc_user.last_name = "Rao"
+    await db.flush()
+    lead = await _make_lead(db, hc_user, payment_status="paid")
+    raw_token = await _make_token(
+        db, lead, expires_at=datetime.now(UTC) + timedelta(days=14)
+    )
+
+    resp = await http_client.get(f"/api/upload/{raw_token}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["state"] == "valid"
+    assert body["hc_name"] == "Asha Rao"
+
+
+async def test_get_expired_state_reachable_once_payment_status_is_paid_but_window_lapsed(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    """A paid Lead whose 14-day upload window (set by the webhook) has since
+    lapsed still correctly falls through to "expired", not "payment_pending"."""
+    lead = await _make_lead(db, hc_user, payment_status="paid")
+    raw_token = await _make_token(
+        db, lead, expires_at=datetime.now(UTC) - timedelta(days=1)
+    )
+
+    resp = await http_client.get(f"/api/upload/{raw_token}")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["state"] == "expired"
+
+
+async def test_post_upload_for_payment_pending_lead_returns_payment_pending_not_upload(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    """Regression coverage for the POST handler's own fallthrough: before
+    this fix, `upload_lead_files` only branched on not_found/used/expired
+    before assuming "valid" — an unpaid Lead's token would have fallen
+    through to the real upload logic (or crashed on the same None
+    comparison _resolve_token guards against). Proves the file is never
+    even read/uploaded for a payment_pending token."""
+    lead = await _make_lead(db, hc_user, payment_status="unpaid")
+    raw_token = await _make_token(db, lead, expires_at=None)
+    await db.commit()
+
+    with patch("src.api.upload.s3_put", new_callable=AsyncMock) as mock_put:
+        resp = await http_client.post(
+            f"/api/upload/{raw_token}/files",
+            files=[("files", ("report.pdf", _valid_pdf_with_text(), "application/pdf"))],
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["state"] == "payment_pending"
+    assert body["message"] == (
+        "Please complete your consultation booking first — then come back to "
+        "this same link to upload your results."
+    )
+    mock_put.assert_not_called()
+
+    token_row = (await db.execute(
+        select(LeadUploadToken).where(LeadUploadToken.lead_id == lead.id)
+    )).scalar_one()
+    assert token_row.used_at is None
+    lead_files = (await db.execute(
+        select(LeadFile).where(LeadFile.lead_id == lead.id)
+    )).scalars().all()
+    assert lead_files == []
 
 
 async def test_raw_token_is_never_matched_directly_only_via_hash(
@@ -1005,6 +1138,10 @@ async def test_brief_failure_audit_row_survives_in_a_separate_session(engine):
         full_name="Audit Row",
         email=f"ar-{uuid.uuid4().hex[:8]}@test.com",
         status="tests_recommended",
+        # PHASE-05 Task 6's payment gate: this test drives the real POST
+        # endpoint end-to-end, so the token must belong to an already-paid
+        # Lead to reach the "valid" upload logic this test actually exercises.
+        payment_status="paid",
     )
     setup.add(lead)
     await setup.flush()

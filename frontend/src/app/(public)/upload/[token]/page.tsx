@@ -28,23 +28,31 @@ function formatBytes(bytes: number): string {
 }
 
 /**
- * Plain-language fallback copy for the three non-valid token states. The
+ * Plain-language fallback copy for the four non-valid token states. The
  * backend always sends a `message` in practice (see
  * `backend/src/api/upload.py`), but `UploadTokenState.message` is nullable
  * in the schema, so this keeps rendering defensive rather than showing a
  * blank page.
+ *
+ * `payment_pending` (PHASE-05 Task 6): the Lead opened this link before
+ * completing their consultation payment — the copy here matches the
+ * backend's own message constant (`_PAYMENT_PENDING_MESSAGE`), used only if
+ * the backend response is ever missing `message`.
  */
-const DEFAULT_STATE_MESSAGE: Record<"not_found" | "expired" | "used", string> = {
+const DEFAULT_STATE_MESSAGE: Record<"not_found" | "expired" | "used" | "payment_pending", string> = {
   not_found:
     "This upload link doesn't seem to be valid. Please check the link or contact your health coach.",
   expired: "This upload link has expired. Please contact your health coach for a new link.",
   used: "This upload link has already been used. If you need to upload additional reports, please contact your health coach.",
+  payment_pending:
+    "Please complete your consultation booking first — then come back to this same link to upload your results.",
 };
 
-const STATE_HEADING: Record<"not_found" | "expired" | "used", string> = {
+const STATE_HEADING: Record<"not_found" | "expired" | "used" | "payment_pending", string> = {
   not_found: "Link not found",
   expired: "Link expired",
   used: "Already uploaded",
+  payment_pending: "Payment pending",
 };
 
 type View =
@@ -53,6 +61,7 @@ type View =
   | { kind: "not_found"; message: string }
   | { kind: "expired"; message: string }
   | { kind: "used"; message: string }
+  | { kind: "payment_pending"; message: string }
   | { kind: "valid"; hcName: string | null }
   | { kind: "success" };
 
@@ -173,7 +182,12 @@ export default function UploadPage() {
     );
   }
 
-  if (view.kind === "not_found" || view.kind === "expired" || view.kind === "used") {
+  if (
+    view.kind === "not_found" ||
+    view.kind === "expired" ||
+    view.kind === "used" ||
+    view.kind === "payment_pending"
+  ) {
     return (
       <main className="mx-auto max-w-md px-4 py-16 text-center">
         <h1 className="font-heading text-2xl font-bold text-foreground">

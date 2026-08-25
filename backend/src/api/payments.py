@@ -26,15 +26,19 @@ boundary this backend can rely on.
 with no platform account must be able to reach them straight from the "book &
 pay" button in Stage 3's email), so they live in their own file with their
 own un-auth'd router, making that boundary visible in the code rather than
-only in a comment on a shared one. `POST /api/payments/webhook` (Task 6)
-belongs in this same file, as a second router (`prefix="/api/payments"`) —
-not added yet.
+only in a comment on a shared one. `POST /api/payments/webhook` (Task 6) is a
+second router in this same file (`webhook_router`, `prefix="/api/payments"`)
+— its "auth" is the HMAC signature check itself, not a bearer token, so it
+gets its own `APIRouter` rather than sharing `router` above.
 
 Security note: like `intake.py`/`upload.py`, responses here are a strict
 allowlist — response models are built field-by-field, never
 `.model_validate()`d off a full ORM object. `key_secret` (and the whole
 `credentials` dict) never appears in a response body or a log line.
 """
+import json
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -43,11 +47,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from src.api.deps import DbDep
-from src.db.models import HcLeadgenConfig, HcPaymentAccount, Lead, User
-from src.lib.razorpay_client import create_order
+from src.db.models import HcLeadgenConfig, HcPaymentAccount, Lead, LeadUploadToken, User
+from src.lib.razorpay_client import create_order, verify_webhook_signature
 from src.telemetry.log import get_logger
 
 router = APIRouter(prefix="/api/leads", tags=["payments"])
+webhook_router = APIRouter(prefix="/api/payments", tags=["payments"])
 
 
 # ── schemas ────────────────────────────────────────────────────────────────────
@@ -67,6 +72,12 @@ class CreatePaymentOrderOut(BaseModel):
     order_id: str
     key_id: str
     amount_paise: int
+
+
+class WebhookAckOut(BaseModel):
+    """Body Razorpay receives back on every 200 — Razorpay itself only checks
+    the status code, this is purely for humans reading logs/traces."""
+    status: str = "ok"
 
 
 # ── errors ─────────────────────────────────────────────────────────────────────
@@ -139,6 +150,35 @@ def _razorpay_unreachable_error() -> HTTPException:
             "message": "Couldn't reach Razorpay to start your payment — please try again.",
         },
     )
+
+
+# Uniform 400 body for every pre-trust webhook rejection (malformed payload,
+# unresolvable hc_user_id, unknown/unconnected account, missing
+# webhook_secret, signature mismatch). `POST /api/payments/webhook` is
+# unauthenticated by design — the HMAC check itself IS the auth — so
+# distinguishing rejection reasons in the HTTP response would hand an
+# unauthenticated caller an oracle (e.g. "which hc_user_id values are
+# onboarded on this platform" by comparing which 400 body comes back). The
+# real reason for each rejection is only ever recorded server-side, in the
+# log line immediately before the raise.
+_WEBHOOK_REJECT_MESSAGE = "Invalid webhook request."
+
+_RAZORPAY_PAYMENT_CAPTURED_EVENT = "payment.captured"
+
+
+def _webhook_reject() -> HTTPException:
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=_WEBHOOK_REJECT_MESSAGE)
+
+
+def _nested_dict(obj: Any, *keys: str) -> dict[str, Any]:
+    """Defensively walk a chain of dict keys in an untrusted (pre-signature-
+    verification) payload, returning `{}` the moment anything along the way
+    isn't a dict — never raises on a malformed/malicious webhook body."""
+    for key in keys:
+        if not isinstance(obj, dict):
+            return {}
+        obj = obj.get(key)
+    return obj if isinstance(obj, dict) else {}
 
 
 # ── routes ─────────────────────────────────────────────────────────────────────
@@ -319,3 +359,200 @@ async def create_payment_order(
     await db.commit()
 
     return CreatePaymentOrderOut(order_id=order_id, key_id=key_id, amount_paise=amount_paise)
+
+
+@webhook_router.post("/webhook")
+async def razorpay_webhook(request: Request, db: DbDep) -> WebhookAckOut:
+    """Razorpay webhook receiver (PHASE-05 Task 6) — the point where the
+    platform decides "this Lead really paid" and trusts it. Get this exactly
+    right; nothing here is simplified for convenience.
+
+    Verification algorithm (this phase's plan doc §3, followed exactly):
+
+      1. Read the RAW request body bytes (`await request.body()`) before any
+         JSON parsing — needed verbatim for HMAC. A re-serialized/re-parsed
+         body is not guaranteed to reproduce the exact bytes Razorpay signed.
+      2. Parse the JSON (still untrusted). Extract `hc_user_id` from
+         `payload.payment.entity.notes` — this nesting was confirmed against
+         Razorpay's real `payment.captured` webhook payload documentation
+         during implementation (Task 5's `create_payment_order` sets
+         `notes={"hc_user_id": ..., "lead_id": ...}` on the Order at creation
+         time; Razorpay carries an Order's `notes` onto its resulting
+         `payment.entity` verbatim — see task-6-report.md for the confirmed
+         payload shape).
+      3. Look up that `hc_user_id`'s `HcPaymentAccount` row. No row / not
+         connected / no `webhook_secret` on file -> reject 400 immediately —
+         logged as a suspicious event (this could be a forged webhook
+         attempt targeting an `hc_user_id` that was never onboarded, not
+         merely a data anomaly). Never attempt verification against any
+         other account's secret.
+      4. Recompute HMAC-SHA256 over the raw body with that HC's
+         `webhook_secret` (`razorpay_client.verify_webhook_signature` — the
+         already-shipped, already-tested implementation, not reimplemented
+         here) and compare to the `X-Razorpay-Signature` header via
+         `hmac.compare_digest` (inside that function, for a constant-time
+         comparison). Mismatch -> reject 400; the payload is never processed
+         past this point.
+      5. Only past step 4 is anything in the payload trusted — including the
+         `event` field itself, which is why the `event` check below happens
+         AFTER signature verification, not before.
+
+    Every rejection before step 4 completes returns the SAME generic 400
+    body (`_WEBHOOK_REJECT_MESSAGE`) for the oracle-avoidance reason
+    documented at that constant. The real reason is only ever in the
+    server-side log line immediately before each `raise`.
+
+    Once verified, only `event == "payment.captured"` is processed (this
+    task's documented scope). Any other event type this same webhook URL
+    happens to receive (an HC's Razorpay dashboard could have more than one
+    event enabled for it) is a genuine, correctly-signed webhook this
+    handler simply doesn't act on — 200 no-op, not a 400, and not logged as
+    suspicious.
+
+    Idempotency: the verified payload's `order_id`
+    (`payload.payment.entity.order_id`) is looked up against
+    `leads.payment_reference`, cross-checked against the verified
+    `hc_user_id` for tenant safety (Task 5's `create_payment_order` always
+    writes both together, so a genuine match implies both belong to the same
+    Lead). If no Lead matches, or the matched Lead is already
+    `payment_status == "paid"`, this is a no-op 200 — Razorpay retries
+    non-2xx responses, so a duplicate `payment.captured` delivery for an
+    already-processed payment, or one this platform can't resolve to a
+    Lead, must never be treated as an error worth retrying forever.
+
+    On genuine first-time success: `payment_status="paid"`,
+    `payment_reference` (re-)confirmed, `paid_at=now()`, AND this Lead's
+    currently-unused `LeadUploadToken` (`used_at IS NULL` — Task 4
+    guarantees at most one such row per Lead at any moment) gets
+    `expires_at = now() + 14 days` — the D-8 mechanism that actually unlocks
+    Stage 4's upload link. Both writes happen in the same commit; it's easy
+    to do the first and forget the second. If zero or more than one unused
+    token row exists (a data anomaly Task 4's invalidation should prevent,
+    but this handler must not crash on it), that's logged as unexpected and
+    skipped — the payment itself still succeeded and must not fail the
+    webhook response over it.
+
+    Returns 200 on every branch reached past signature verification,
+    including every edge-case bookkeeping path above — never makes Razorpay
+    retry a webhook that was already correctly handled.
+    """
+    logger = get_logger(request_id=getattr(request.state, "request_id", ""))
+
+    # Step 1 — raw bytes, before any JSON parsing.
+    raw_body = await request.body()
+
+    # Step 2 — parse (still untrusted).
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError:
+        logger.warn("razorpay_webhook_malformed_json")
+        raise _webhook_reject()
+
+    if not isinstance(payload, dict):
+        logger.warn("razorpay_webhook_malformed_payload_shape")
+        raise _webhook_reject()
+
+    payment_entity = _nested_dict(payload, "payload", "payment", "entity")
+    notes = payment_entity.get("notes")
+    hc_user_id_raw = notes.get("hc_user_id") if isinstance(notes, dict) else None
+    if not hc_user_id_raw or not isinstance(hc_user_id_raw, str):
+        logger.warn("razorpay_webhook_missing_hc_user_id")
+        raise _webhook_reject()
+
+    try:
+        hc_user_id = UUID(hc_user_id_raw)
+    except ValueError:
+        logger.warn("razorpay_webhook_invalid_hc_user_id")
+        raise _webhook_reject()
+
+    # Step 3 — resolve the claimed HC's webhook_secret. No match / not
+    # connected / no secret on file -> reject immediately, do not attempt
+    # verification against any other account's secret.
+    account = (await db.execute(
+        select(HcPaymentAccount).where(HcPaymentAccount.hc_user_id == hc_user_id)
+    )).scalar_one_or_none()
+
+    if account is None or account.connected_at is None or account.credentials is None:
+        logger.warn(
+            "razorpay_webhook_unknown_hc_account",
+            hc_user_id=str(hc_user_id),
+            note="possible forged webhook attempt",
+        )
+        raise _webhook_reject()
+
+    webhook_secret = account.credentials.get("webhook_secret")
+    if not webhook_secret:
+        logger.warn(
+            "razorpay_webhook_no_webhook_secret_on_file",
+            hc_user_id=str(hc_user_id),
+            note="possible forged webhook attempt",
+        )
+        raise _webhook_reject()
+
+    # Step 4 — constant-time HMAC verification (razorpay_client.py, Task 1).
+    signature = request.headers.get("X-Razorpay-Signature", "")
+    if not verify_webhook_signature(
+        raw_body=raw_body, signature=signature, webhook_secret=webhook_secret
+    ):
+        logger.warn("razorpay_webhook_signature_mismatch", hc_user_id=str(hc_user_id))
+        raise _webhook_reject()
+
+    # ── Step 5 — past this point, the payload (including `event`) is trusted. ──
+
+    razorpay_event = payload.get("event")
+    if razorpay_event != _RAZORPAY_PAYMENT_CAPTURED_EVENT:
+        logger.info(
+            "razorpay_webhook_ignored_event",
+            hc_user_id=str(hc_user_id),
+            razorpay_event=str(razorpay_event),
+        )
+        return WebhookAckOut()
+
+    order_id = payment_entity.get("order_id")
+    if not order_id or not isinstance(order_id, str):
+        logger.error("razorpay_webhook_captured_missing_order_id", hc_user_id=str(hc_user_id))
+        return WebhookAckOut()
+
+    lead = (await db.execute(
+        select(Lead).where(Lead.payment_reference == order_id, Lead.hc_user_id == hc_user_id)
+    )).scalar_one_or_none()
+
+    if lead is None:
+        logger.error(
+            "razorpay_webhook_no_matching_lead", hc_user_id=str(hc_user_id), order_id=order_id
+        )
+        return WebhookAckOut()
+
+    if lead.payment_status == "paid":
+        # Idempotent no-op — duplicate delivery of an already-processed payment.
+        logger.info("razorpay_webhook_duplicate_delivery_noop", lead_id=str(lead.id))
+        return WebhookAckOut()
+
+    now = datetime.now(UTC)
+    lead.payment_status = "paid"
+    lead.payment_reference = order_id
+    lead.paid_at = now
+
+    unused_tokens = (await db.execute(
+        select(LeadUploadToken).where(
+            LeadUploadToken.lead_id == lead.id, LeadUploadToken.used_at.is_(None)
+        )
+    )).scalars().all()
+
+    if len(unused_tokens) == 1:
+        unused_tokens[0].expires_at = now + timedelta(days=14)
+    else:
+        # Task 4 invalidates any prior unused token on every Send, so this
+        # should be unreachable — but this handler must not crash on a data
+        # anomaly. The payment itself still succeeded; log and move on.
+        logger.error(
+            "razorpay_webhook_unexpected_unused_token_count",
+            lead_id=str(lead.id),
+            count=len(unused_tokens),
+        )
+
+    await db.commit()
+    logger.info(
+        "razorpay_webhook_payment_captured", lead_id=str(lead.id), hc_user_id=str(hc_user_id)
+    )
+    return WebhookAckOut()
