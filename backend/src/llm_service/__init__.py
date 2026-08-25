@@ -13,7 +13,7 @@ from src.db.models.clients import Client
 from src.db.models.coaching import ActionItem, CheckIn, Mom
 from src.db.models.content import ContentAssignment, DietChart
 from src.db.models.files import ClientFile
-from src.db.models.leadgen import Lead, LeadQuestionnaireResponse
+from src.db.models.leadgen import HcLeadgenConfig, Lead, LeadQuestionnaireResponse
 from src.db.models.sessions import Session
 from src.lib.file_extraction import extract_text
 from src.lib.s3 import s3_get
@@ -24,6 +24,7 @@ from src.llm_service.prompts import load_prompt
 from src.llm_service.retry import STRICT_FORMAT_HINT, parse_or_retry
 from src.llm_service.schemas.brief import BriefSchema
 from src.llm_service.schemas.lead_brief import LeadBriefSchema
+from src.llm_service.schemas.lead_test_recommendation import LeadTestRecommendationSchema
 from src.llm_service.schemas.mom import MomDraftSchema
 from src.llm_service.snippets import select as select_snippets
 from src.llm_service.snippets import update_usage
@@ -632,3 +633,172 @@ async def generate_lead_brief(
     except Exception as exc:
         await _write_failure_row(str(exc))
         return None, None
+
+
+async def generate_lead_test_recommendation(
+    db: AsyncSession,
+    *,
+    lead_id: UUID,
+    hc_user_id: UUID,
+    request_id: UUID | None = None,
+) -> list[dict[str, str]] | None:
+    """
+    Generate AI-drafted test recommendation *additions* for a Lead, on top of the
+    HC's standard baseline panel. Returns a list of `{"test": str, "rationale": str}`
+    dicts (an empty list is a valid, common result — see prompt rules), or None on
+    any failure.
+
+    Per PHASE-04 plan (mirroring PHASE-03 D-2 for generate_lead_brief): this
+    function must NEVER raise — its caller is `POST /api/intake/:slug`, a public,
+    unauthenticated, Lead-facing endpoint whose success must not depend on this LLM
+    call succeeding. The entire body below is wrapped in try/except: any failure
+    (missing Lead/HcLeadgenConfig, config/prompt load failure, LLM call exception,
+    persistent validation failure after parse_or_retry) writes the `llm_calls` row
+    with `error_message` set (mirroring the exception path already used by
+    generate_lead_brief/generate_mom_draft/generate_brief — no new schema) and
+    returns None instead of raising.
+
+    No snippets — this is a standalone function, not a wrapper around
+    generate_brief(), per the prompt design (Task 1).
+    """
+    # None of these are assigned yet — get_llm_config()/load_prompt() can each raise
+    # (missing/corrupt prompts/lead_test_recommendation.md, missing/invalid
+    # llm_config.yaml). Keep safe placeholders here so _write_failure_row has
+    # something to report even if we fail before the real values are ever assigned
+    # inside the try block below.
+    prompt_file: object | None = None
+    models: list[str] = []
+    system_prompt = ""
+
+    async def _write_failure_row(error_message: str) -> None:
+        try:
+            await write_llm_call(
+                db,
+                hc_user_id=hc_user_id,
+                client_id=None,
+                session_id=None,
+                use_case="lead_test_recommendation",
+                prompt_version=prompt_file.version if prompt_file is not None else "unknown",
+                model_requested=models[0] if models else "",
+                model_served=None,
+                fallback_count=0,
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=0,
+                validation_failed=False,
+                snippet_count=0,
+                snippet_tokens=0,
+                inr_cost_estimate=None,
+                raw_request_id=None,
+                error_message=error_message,
+                prompt_text=system_prompt,
+                completion_text="",
+                request_id=request_id,
+            )
+        except Exception:
+            pass  # logging the failure must not itself raise (mirrors generate_lead_brief)
+
+    try:
+        cfg = get_llm_config()
+        prompt_file = load_prompt("lead_test_recommendation")
+        models = build_models_array(cfg)
+        system_prompt = prompt_file.body  # overwritten below; fallback if we fail before then
+
+        lead = (await db.execute(
+            select(Lead).where(Lead.id == lead_id)
+        )).scalar_one_or_none()
+        if lead is None:
+            raise ValueError(f"Lead not found: {lead_id}")
+
+        config = (await db.execute(
+            select(HcLeadgenConfig).where(HcLeadgenConfig.hc_user_id == hc_user_id)
+        )).scalar_one_or_none()
+        if config is None:
+            raise ValueError(f"HcLeadgenConfig not found for hc_user_id: {hc_user_id}")
+
+        standard_tests: list[str] = list((config.test_panel or {}).get("standard_tests") or [])
+        baseline_tests_section = (
+            ", ".join(standard_tests) if standard_tests else "No standard tests configured."
+        )
+
+        # Questionnaire answers: same shape/section-building as generate_lead_brief —
+        # LeadQuestionnaireResponse rows already snapshot each question's label text
+        # at submission time (see src/api/intake.py), including a row with
+        # response_text=None for unanswered questions.
+        q_rows = (await db.execute(
+            select(LeadQuestionnaireResponse).where(LeadQuestionnaireResponse.lead_id == lead_id)
+        )).scalars().all()
+        if q_rows:
+            questionnaire_section = "\n\n".join(
+                f"Q: {r.question_text}\nA: {r.response_text or '(not answered)'}"
+                for r in q_rows
+            )
+        else:
+            questionnaire_section = "No questionnaire responses on record."
+
+        system_prompt = (
+            prompt_file.body
+            .replace("{{BASELINE_TESTS_SECTION}}", baseline_tests_section)
+            .replace("{{QUESTIONNAIRE_SECTION}}", questionnaire_section)
+        )
+        user_message = "Generate the test recommendation additions."
+
+        try:
+            result = await call_openrouter(
+                models=models,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                no_training=cfg.no_training_header,
+                no_retention=cfg.no_retention_header,
+            )
+        except Exception as exc:
+            await _write_failure_row(str(exc))
+            return None
+
+        async def retry_fn() -> str:
+            retry_result = await call_openrouter(
+                models=models,
+                system_prompt=system_prompt + STRICT_FORMAT_HINT,
+                user_message=user_message,
+                no_training=cfg.no_training_header,
+                no_retention=cfg.no_retention_header,
+            )
+            return retry_result.content
+
+        parsed, validation_failed, error_msg = await parse_or_retry(
+            result.content, LeadTestRecommendationSchema, retry_fn
+        )
+
+        fb_count = fallback_count_for(result.model_served, cfg)
+        await write_llm_call(
+            db,
+            hc_user_id=hc_user_id,
+            client_id=None,
+            session_id=None,
+            use_case="lead_test_recommendation",
+            prompt_version=prompt_file.version,
+            model_requested=models[0],
+            model_served=result.model_served,
+            fallback_count=fb_count,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            latency_ms=result.latency_ms,
+            validation_failed=validation_failed,
+            snippet_count=0,
+            snippet_tokens=0,
+            inr_cost_estimate=None,
+            raw_request_id=result.raw_request_id,
+            error_message=error_msg,
+            prompt_text=system_prompt,
+            completion_text=result.content,
+            request_id=request_id,
+        )
+
+        if validation_failed or parsed is None:
+            return None
+
+        return [{"test": a.test, "rationale": a.rationale} for a in parsed.additions]
+
+    except Exception as exc:
+        await _write_failure_row(str(exc))
+        return None
