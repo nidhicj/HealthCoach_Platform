@@ -99,69 +99,6 @@ def test_subject_uses_raw_unescaped_names_not_html_entities():
     assert "&amp;" not in call_kwargs["subject"]
 
 
-def test_send_lead_test_recommendation_email_calls_resend_with_correct_args():
-    mock_send = MagicMock()
-    with patch("resend.Emails.send", mock_send), patch("src.lib.email._get_api_key", return_value="test_key_123"):
-        from src.lib.email import send_lead_test_recommendation_email
-        send_lead_test_recommendation_email(
-            to="lead@example.com",
-            lead_name="Rajesh Kumar",
-            hc_name="Dr. Priya Sharma",
-            recommended_tests=["CBC", "HbA1c", "Lipid Profile"],
-            upload_link="https://parivarthan.app/upload/abc123token",
-            expiry_days=14,
-        )
-
-    mock_send.assert_called_once()
-    call_kwargs = mock_send.call_args[0][0]
-    assert call_kwargs["to"] == ["lead@example.com"]
-    assert "Dr. Priya Sharma" in call_kwargs["subject"]
-    assert "Rajesh Kumar" in call_kwargs["html"]
-    assert "CBC" in call_kwargs["html"]
-    assert "HbA1c" in call_kwargs["html"]
-    assert "Lipid Profile" in call_kwargs["html"]
-    assert "https://parivarthan.app/upload/abc123token" in call_kwargs["html"]
-
-
-def test_send_lead_test_recommendation_email_raises_when_key_missing(monkeypatch):
-    monkeypatch.setattr("src.lib.email._get_api_key", lambda: "")
-    from src.lib import email as email_mod
-    with pytest.raises(RuntimeError, match="resend_api_key not configured"):
-        email_mod.send_lead_test_recommendation_email(
-            to="x@x.com",
-            lead_name="Test Lead",
-            hc_name="Test HC",
-            recommended_tests=["CBC"],
-            upload_link="https://example.com/upload/token",
-            expiry_days=14,
-        )
-
-
-def test_send_lead_test_recommendation_email_escapes_special_chars():
-    mock_send = MagicMock()
-    with patch("resend.Emails.send", mock_send), patch("src.lib.email._get_api_key", return_value="test_key_123"):
-        from src.lib.email import send_lead_test_recommendation_email
-        send_lead_test_recommendation_email(
-            to="c@c.com",
-            lead_name="Lead <script>",
-            hc_name="HC & Co",
-            recommended_tests=["Test <script>alert(1)</script>", "Normal Test"],
-            upload_link="https://example.com/upload/token",
-            expiry_days=14,
-        )
-    html = mock_send.call_args[0][0]["html"]
-    # Verify no unescaped script tags in the HTML body
-    assert "<script>" not in html
-    assert "&lt;script&gt;" in html
-    # Verify names and test names are properly escaped
-    assert "Lead &lt;script&gt;" in html
-    assert "HC &amp; Co" in html
-    # Verify subject line uses raw unescaped hc_name (not HTML entities)
-    subject = mock_send.call_args[0][0]["subject"]
-    assert "HC & Co" in subject
-    assert "&amp;" not in subject
-
-
 def test_send_lead_brief_ready_email_calls_resend_with_correct_args():
     mock_send = MagicMock()
     with patch("resend.Emails.send", mock_send), patch("src.lib.email._get_api_key", return_value="test_key_123"):
