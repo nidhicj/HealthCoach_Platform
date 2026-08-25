@@ -64,7 +64,9 @@
 
 **Standard baseline panel** — the set of blood tests required of every Lead, regardless of questionnaire responses. Configured by the HC once in their Test Panel settings.
 
-**Condition-specific add-on** — additional tests recommended on top of the baseline when a Lead's questionnaire response matches a configured keyword rule (e.g. "PCOD" → hormonal panel).
+**Condition-specific add-on** — additional tests recommended on top of the baseline, drafted by an LLM reading the Lead's actual questionnaire answers (`generate_lead_test_recommendation`). Prior to PHASE-04 this was matched via a configured keyword rule (e.g. "PCOD" → hormonal panel); that mechanism is retired — see SPEC-0001 D-4.
+
+**Draft test recommendation** — the AI-drafted `{standard, additions, all_tests}` panel (`leads.draft_test_recommendation`), written when a Lead submits the intake questionnaire and shown to the HC for review. Distinct from **Test recommendation** (`leads.test_recommendation`), the HC's finalized version after edit/send — the draft is never shown to or sent to the Lead. Also distinct from the **Pre-consultation brief** above, which is a separate artifact generated later, after the blood report is uploaded — per SPEC-0001 D-7, "brief" is never used for this earlier, test-panel-only artifact.
 
 ---
 

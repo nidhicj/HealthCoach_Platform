@@ -4,6 +4,37 @@ Append-only. Latest at top. Claude writes a new entry at the end of each substan
 
 ---
 
+## 2026-08-25 — Unit_003: PHASE-03 shipped, Stages 3-8 redesigned, PHASE-04 shipped
+
+**Branch**: `feature/unit-003-client-discovery-pipeline`
+
+**Done**:
+- **PHASE-03** (blood report upload + pre-consultation brief generation) implemented and shipped via `superpowers:subagent-driven-development` — `generate_lead_brief()` LLM orchestration, `GET`/`POST /api/upload/:token*` public token-gated endpoints, the Lead-facing upload page, HC brief-ready/brief-failed notification emails. Commit range `2c04d98..a426574` (2026-08-19). A post-ship review of this phase then found the HC notification email linked to a Lead Detail page (`/leads/:leadId`) that doesn't exist and had no plan to.
+- That gap escalated, working through it directly with SoJo, into a full redesign of the pipeline's Stages 3-8 — not a patch. Landed as a rewrite of `SPEC-0001-client-discovery-pipeline.md` (commit `82e066b`, "Decisions log" D-1 through D-7): test recommendation moves from a rule-based keyword engine to an LLM reading the Lead's actual free-text answers (D-4), mandatory HC review-and-single-Send step before anything reaches the Lead (D-5), native Razorpay payment added — HC-owned account, Tapas never merchant of record (D-1/D-2, payment mechanism decided in a separate SoJo planning session and reconciled against `Unit_004_OneStopSpot` F4's existing pattern), payment and scheduling deliberately decoupled with no slot-hold (D-3, confirmed via research that Razorpay has no such primitive), blood-report upload link to get an OTP gate — email now, phone-ready later (D-6), and the AI brief split into two never-conflated artifacts, draft test recommendation vs. pre-consultation brief (D-7). Pipeline grew from six stages to eight.
+- **PHASE-04** (Stage 3 of the redesign: AI-drafted test recommendation + HC review/send UI) planned (`3ca0886`) and implemented via the same SDD discipline — 7 tasks, each with a fresh implementer, a task-scoped review (spec + quality), and fix rounds on real findings. Commit range `3772f22..ef17ece`. Notable mid-phase catches: a cross-tenant prompt-poisoning path in `generate_lead_test_recommendation` (HC-user-id not reconciled against the Lead's own, fixed with a one-line check), a dedup regression + an unguarded `PendingRollbackError` on a public endpoint (fixed with rollback-then-retry, independently reproduced against real Postgres), a fabricated precedent citation in a docstring, and a self-scoped migration (`leads.draft_test_recommendation`, `1f2a6c9d4e17`) for a field SPEC-0001 required but no task had scoped.
+- **PHASE-04 final whole-phase review** (opus, range `3ca0886..ef17ece`) came back "Ready to merge — With fixes": no Critical findings, but a genuine cross-task composition bug no single task review could see — `GET /api/leads/:id/test-recommendation` never returned the already-sent panel, so reopening the HC review screen after a successful Send re-seeded the editor from the raw AI draft, and a second Send could silently overwrite an already-curated, already-emailed panel. One fix round (commits `65011bc..cf512b7`) closed this plus a missing status guard and five minor issues; an independent scoped re-review confirmed all 7 findings addressed with no new breakage. Backend finished at 506/506 tests passing, frontend `tsc` clean under `src/`.
+- Corrected documentation debt the final review surfaced: `docs/domain/glossary.md`'s "Condition-specific add-on" entry still described the retired keyword-matching mechanism (now fixed, plus a new "Draft test recommendation" entry added); `SPEC-0001` had asserted a fix to the Stage 6/7 brief-ready email's dead `/leads/:leadId` CTA that was never actually made in code — that false claim (introduced during the 2026-08-24 redesign) is retracted and the still-live bug is now tracked in Open questions with an owner (PHASE-06); a second real gap (a Lead becomes invisible if the Stage-3 HC review email fails to send, with no list UI or `/remind` endpoint to recover it) is also now tracked there, owner SoJo, decide before PHASE-05. `PHASE-04-*.md`'s own Status/Verification-date fields and post-implementation record (§6-§9) were filled in.
+- Live-verified the AI drafting itself works, not just automated tests: submitted a real questionnaire through the actual intake UI (`/intake/nidhi-joshi-5asz8`) describing PCOS-suggestive symptoms and fatigue/cold-intolerance on a vegetarian diet; `leads.draft_test_recommendation` came back with genuinely condition-specific reasoning (LH/FSH/testosterone/fasting insulin for the PCOS-suggestive symptoms, ferritin/B12/Free T4 for the fatigue/vegetarian-diet pattern) — not hardcoded, not keyword-matched.
+
+**Decided**:
+- Dispatch-order reversal (Task 4 before Task 3) and other in-flight rulings are recorded in `.superpowers/sdd/PHASE-04-ai-test-recommendation-and-hc-review/progress.md` (workspace deleted after this session per the SDD skill's normal cleanup — the ledger's rulings are preserved here and in PHASE-04's own §6-§9 before deletion).
+- Cross-task composition bugs survive individually-clean task reviews — the reopen-then-resend bug is the clearest evidence yet that the SDD skill's final whole-phase review step is load-bearing, not procedural overhead, even on a phase where every task review came back clean.
+
+**Pending / next session**:
+- **PHASE-05** (payment + scheduling handoff — native Razorpay, test mode) is the next planned phase per the redesign. Not yet started; needs its own phase-plan doc written first, per this repo's convention.
+- Full authenticated live browser click-through of the HC review screen (open → edit → send → reopen → confirm "already sent" state) was not completed this session — no live HC OAuth session was established in Playwright. The reopen-after-send logic specifically was verified instead via real-Postgres-backed integration tests and two independent code reviews. Recommend as the first verification step whenever this flow is next touched.
+- Two items now tracked in SPEC-0001's Open questions with owners but not yet actioned: the still-broken Stage 6/7 dead-link CTA (owner PHASE-06) and the Lead-invisible-on-failed-email gap (owner SoJo, decide before PHASE-05 — may argue for a Lead list/detail page before payment work).
+- A test Lead ("Priya Verification-Test", `priya.verify@example.com`) exists in the local dev DB from this session's live verification — harmless dev data, left in place, safe to ignore or delete.
+
+**Context the next session needs**:
+- `SPEC-0001-client-discovery-pipeline.md` is the current authority for Stages 1-8; do not trust anything in git history before commit `82e066b` for Stage 3 onward, it's superseded.
+- PHASE-05's design constraints (native Razorpay test-mode, HC-owned accounts, decoupled pay-then-schedule, no slot-hold) are all locked decisions (D-1/D-2/D-3) from this session, not open for re-litigation without a new SoJo conversation.
+
+**Open questions for SoJo**:
+- See `SPEC-0001-client-discovery-pipeline.md` §Open questions for the full list, particularly the two added this session (Stage 6/7 dead CTA owner/timing, Lead-visibility gap and whether it reorders PHASE-05).
+
+---
+
 ## 2026-08-19 — Unit_003: committed the onboarding-hub reconciliation; PHASE-03 next
 
 **Branch**: `feature/unit-003-client-discovery-pipeline`
