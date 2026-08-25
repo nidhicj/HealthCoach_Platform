@@ -181,6 +181,16 @@ def _nested_dict(obj: Any, *keys: str) -> dict[str, Any]:
     return obj if isinstance(obj, dict) else {}
 
 
+def _hc_user_id_from_notes(entity: dict[str, Any]) -> str | None:
+    """Pull a usable `hc_user_id` out of one entity's `notes` dict, or
+    `None` if `notes` is absent/not a dict/has no non-empty string
+    `hc_user_id`. Shared by both extraction paths `razorpay_webhook` tries
+    below (PHASE-05 final-review fix round, Fix #3)."""
+    notes = entity.get("notes")
+    hc_user_id_raw = notes.get("hc_user_id") if isinstance(notes, dict) else None
+    return hc_user_id_raw if isinstance(hc_user_id_raw, str) and hc_user_id_raw else None
+
+
 # ── routes ─────────────────────────────────────────────────────────────────────
 
 
@@ -373,13 +383,22 @@ async def razorpay_webhook(request: Request, db: DbDep) -> WebhookAckOut:
          JSON parsing — needed verbatim for HMAC. A re-serialized/re-parsed
          body is not guaranteed to reproduce the exact bytes Razorpay signed.
       2. Parse the JSON (still untrusted). Extract `hc_user_id` from
-         `payload.payment.entity.notes` — this nesting was confirmed against
-         Razorpay's real `payment.captured` webhook payload documentation
-         during implementation (Task 5's `create_payment_order` sets
-         `notes={"hc_user_id": ..., "lead_id": ...}` on the Order at creation
-         time; Razorpay carries an Order's `notes` onto its resulting
-         `payment.entity` verbatim — see task-6-report.md for the confirmed
-         payload shape).
+         `payload.payment.entity.notes` — Task 5's `create_payment_order`
+         sets `notes={"hc_user_id": ..., "lead_id": ...}` on the Order at
+         creation time, and Razorpay's `payment.captured` webhook payload
+         docs describe an Order's `notes` as carried onto its resulting
+         `payment.entity` verbatim (see task-6-report.md for the payload
+         shape this was checked against during implementation). This has
+         NOT been confirmed against a real Razorpay sandbox (no test-mode
+         credentials exist in this environment) — the single biggest
+         unverified assumption in this whole handler (flagged explicitly in
+         PHASE-05's final-review fix round, Fix #3). Defense in depth: if
+         `payload.payment.entity.notes` is absent, not a dict, or has no
+         usable `hc_user_id`, this step falls back to
+         `payload.order.entity.notes` (same `notes` Task 5 set on the Order
+         itself) before giving up. If BOTH paths come up empty, that's
+         logged with which path(s) were tried, so a real failure here is
+         diagnosable from logs rather than a silent black box.
       3. Look up that `hc_user_id`'s `HcPaymentAccount` row. No row / not
          connected / no `webhook_secret` on file -> reject 400 immediately —
          logged as a suspicious event (this could be a forged webhook
@@ -453,11 +472,20 @@ async def razorpay_webhook(request: Request, db: DbDep) -> WebhookAckOut:
         raise _webhook_reject()
 
     payment_entity = _nested_dict(payload, "payload", "payment", "entity")
-    notes = payment_entity.get("notes")
-    hc_user_id_raw = notes.get("hc_user_id") if isinstance(notes, dict) else None
-    if not hc_user_id_raw or not isinstance(hc_user_id_raw, str):
-        logger.warn("razorpay_webhook_missing_hc_user_id")
-        raise _webhook_reject()
+    hc_user_id_raw = _hc_user_id_from_notes(payment_entity)
+    if hc_user_id_raw is None:
+        # Fallback path (Fix #3): `payload.payment.entity.notes` is the
+        # primary, documented-but-unconfirmed path (see this function's
+        # docstring). Try the Order's own notes next — Task 5 sets the same
+        # notes on Order creation — before giving up.
+        order_entity = _nested_dict(payload, "payload", "order", "entity")
+        hc_user_id_raw = _hc_user_id_from_notes(order_entity)
+        if hc_user_id_raw is None:
+            logger.warn(
+                "razorpay_webhook_missing_hc_user_id",
+                tried=["payment.entity.notes", "order.entity.notes"],
+            )
+            raise _webhook_reject()
 
     try:
         hc_user_id = UUID(hc_user_id_raw)

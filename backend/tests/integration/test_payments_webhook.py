@@ -13,6 +13,7 @@ import hmac
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +36,7 @@ _NOTES_UNSET = object()  # sentinel distinct from a deliberate notes=None
 def _razorpay_payload(
     *, order_id: str, hc_user_id: str, lead_id: str, event: str = "payment.captured",
     notes: dict[str, str] | None | object = _NOTES_UNSET,
+    order_notes: dict[str, str] | None | object = _NOTES_UNSET,
 ) -> bytes:
     """Builds the raw JSON bytes of a Razorpay webhook body, shaped per
     Razorpay's real `payment.captured` webhook payload docs (confirmed
@@ -43,10 +45,16 @@ def _razorpay_payload(
 
     `notes` defaults to the sentinel `_NOTES_UNSET` (not `None`) so callers
     can still deliberately pass `notes=None` to simulate a payload with no
-    notes at all, distinct from the default (a real notes dict)."""
+    notes at all, distinct from the default (a real notes dict).
+
+    `order_notes` (PHASE-05 final-review fix round, Fix #3): optionally adds
+    a `payload.order.entity.notes` block for exercising the webhook's
+    fallback extraction path. Defaults to the sentinel too, meaning "omit
+    the `order` block entirely" — most tests don't need one, matching a
+    real Razorpay payload where `contains` is just `["payment"]`."""
     if notes is _NOTES_UNSET:
         notes = {"hc_user_id": hc_user_id, "lead_id": lead_id}
-    payload = {
+    payload: dict[str, Any] = {
         "entity": "event",
         "account_id": "acc_test_fixture",
         "event": event,
@@ -67,6 +75,16 @@ def _razorpay_payload(
         },
         "created_at": 1700000000,
     }
+    if order_notes is not _NOTES_UNSET:
+        payload["payload"]["order"] = {
+            "entity": {
+                "id": order_id,
+                "entity": "order",
+                "amount": 150000,
+                "currency": "INR",
+                "notes": order_notes,
+            }
+        }
     return json.dumps(payload).encode()
 
 
@@ -284,6 +302,98 @@ async def test_webhook_missing_notes_rejected(http_client, db: AsyncSession):
     await _make_account(db, hc_user)
     raw_body = _razorpay_payload(
         order_id="order_no_notes", hc_user_id=str(hc_user.id), lead_id="irrelevant", notes=None
+    )
+    signature = _sign(raw_body, _WEBHOOK_SECRET)
+    resp = await http_client.post(
+        "/api/payments/webhook",
+        content=raw_body,
+        headers={"X-Razorpay-Signature": signature, "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 400, resp.text
+
+
+# ── notes extraction fallback (PHASE-05 final-review fix round, Fix #3) ─────
+#
+# `payload.payment.entity.notes` is the primary, but never-confirmed-against-
+# a-real-sandbox, extraction path (see razorpay_webhook's docstring). These
+# three tests are exactly the ones the fix brief calls for: the current
+# fixture shape must still pass unmodified, the new order.entity.notes
+# fallback must genuinely unblock a webhook that would otherwise 400, and a
+# payload with notes in neither location must still reject exactly as before.
+
+
+async def test_webhook_notes_under_payment_entity_only_still_succeeds(
+    http_client, db: AsyncSession
+):
+    """The pre-existing, primary extraction path — proves Fix #3's fallback
+    logic didn't regress the current (and, per the module docstring, more
+    likely correct) shape."""
+    hc_user = await _make_hc_user(db)
+    await _make_account(db, hc_user)
+    lead = await _make_lead(db, hc_user, payment_reference="order_payment_notes_only")
+    await db.commit()
+
+    raw_body = _razorpay_payload(
+        order_id="order_payment_notes_only", hc_user_id=str(hc_user.id), lead_id=str(lead.id),
+        # order_notes left at the sentinel default -> no `order` block at all.
+    )
+    signature = _sign(raw_body, _WEBHOOK_SECRET)
+
+    resp = await http_client.post(
+        "/api/payments/webhook",
+        content=raw_body,
+        headers={"X-Razorpay-Signature": signature, "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    await db.refresh(lead)
+    assert lead.payment_status == "paid"
+
+
+async def test_webhook_falls_back_to_order_entity_notes_when_payment_entity_has_none(
+    http_client, db: AsyncSession
+):
+    """`payload.payment.entity.notes` is absent; `payload.order.entity.notes`
+    carries the real `hc_user_id`/`lead_id`. Proves the fallback genuinely
+    unblocks a webhook that would otherwise 400 and strand a Lead who really
+    paid at `payment_pending` forever — the exact failure mode Fix #3 exists
+    to prevent."""
+    hc_user = await _make_hc_user(db)
+    await _make_account(db, hc_user)
+    lead = await _make_lead(db, hc_user, payment_reference="order_notes_fallback")
+    token = await _make_token(db, lead)
+    await db.commit()
+
+    raw_body = _razorpay_payload(
+        order_id="order_notes_fallback", hc_user_id=str(hc_user.id), lead_id=str(lead.id),
+        notes=None,
+        order_notes={"hc_user_id": str(hc_user.id), "lead_id": str(lead.id)},
+    )
+    signature = _sign(raw_body, _WEBHOOK_SECRET)
+
+    resp = await http_client.post(
+        "/api/payments/webhook",
+        content=raw_body,
+        headers={"X-Razorpay-Signature": signature, "Content-Type": "application/json"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    await db.refresh(lead)
+    assert lead.payment_status == "paid"
+    await db.refresh(token)
+    assert token.expires_at is not None  # the D-8 activation still ran end-to-end
+
+
+async def test_webhook_notes_in_neither_entity_still_rejects(http_client, db: AsyncSession):
+    """Both extraction paths come up empty (`order.entity` is present in the
+    payload — e.g. Razorpay's `contains` included `order` — but its `notes`
+    is also unset) — must still reject exactly as before, not silently
+    accept some other unverified source of `hc_user_id`."""
+    hc_user = await _make_hc_user(db)
+    await _make_account(db, hc_user)
+    raw_body = _razorpay_payload(
+        order_id="order_neither_notes", hc_user_id=str(hc_user.id), lead_id="irrelevant",
+        notes=None, order_notes=None,
     )
     signature = _sign(raw_body, _WEBHOOK_SECRET)
     resp = await http_client.post(
