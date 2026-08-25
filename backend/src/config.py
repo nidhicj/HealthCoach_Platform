@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     demographics_encryption_key: str = ""
     google_calendar_encryption_key: str = ""
 
+    razorpay_test_key_id: str = ""
+    razorpay_test_key_secret: str = ""
+    razorpay_test_webhook_secret: str = ""
+    razorpay_credentials_encryption_key: str = ""
+
     r2_account_id: str = ""
     r2_access_key_id: str = ""
     r2_secret_access_key: str = ""
