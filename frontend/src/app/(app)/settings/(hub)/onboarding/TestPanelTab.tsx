@@ -35,7 +35,8 @@ export function TestPanelTab({ config, onUpdate }: { config: LeadgenConfigStatus
         />
       </label>
       <p className="text-xs text-muted-foreground">
-        Condition-specific rules (keyword → additional test) are not yet editable in this UI — coming in a later phase.
+        Condition-specific test recommendations are now AI-drafted per Lead, based on their
+        questionnaire responses, rather than configured here.
       </p>
       <button onClick={handleSave} disabled={saving} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
         {saving ? "Saving..." : "Save"}
