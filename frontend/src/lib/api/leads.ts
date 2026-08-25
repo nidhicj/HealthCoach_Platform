@@ -37,6 +37,12 @@ export const LeadTestRecommendationOutSchema = z.object({
   // is always present.
   ready: z.boolean(),
   draft_test_recommendation: TestRecommendationOutSchema.nullable(),
+  // Non-null once the HC has already Sent a panel for this Lead
+  // (`leads.test_recommendation`) — the review screen reopens from a stale
+  // link at any time, so the editor must seed from this (the already-sent
+  // panel) rather than `draft_test_recommendation` when present. Nullable to
+  // match `draft_test_recommendation`'s typing above, not optional-with-default.
+  test_recommendation: TestRecommendationOutSchema.nullable(),
 });
 
 export const SendTestRecommendationOutSchema = z.object({

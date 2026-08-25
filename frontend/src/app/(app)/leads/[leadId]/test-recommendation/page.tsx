@@ -62,8 +62,14 @@ export default function LeadTestRecommendationPage() {
     getLeadTestRecommendation(leadId)
       .then((res) => {
         setData(res);
-        if (res.ready && res.draft_test_recommendation) {
-          setAdditions(res.draft_test_recommendation.additions.map(fromDraft));
+        // A panel already sent (`test_recommendation` non-null) is the
+        // correct starting point for further edits, not the original AI
+        // draft — this review link stays live in the HC's inbox
+        // indefinitely, so reopening it after a Send must not silently
+        // discard what the HC already curated and sent.
+        const source = res.test_recommendation ?? res.draft_test_recommendation;
+        if (res.ready && source) {
+          setAdditions(source.additions.map(fromDraft));
         }
       })
       .catch((err) =>
@@ -108,7 +114,12 @@ export default function LeadTestRecommendationPage() {
       // matches what was just sent, without a second round-trip.
       setData((prev) =>
         prev
-          ? { ...prev, status: result.status, draft_test_recommendation: result.test_recommendation }
+          ? {
+              ...prev,
+              status: result.status,
+              draft_test_recommendation: result.test_recommendation,
+              test_recommendation: result.test_recommendation,
+            }
           : prev,
       );
       // Clear the "edited" diff marker on AI-suggested rows now that their
@@ -249,6 +260,12 @@ export default function LeadTestRecommendationPage() {
                     remove, or add your own before sending.
                   </p>
                 </div>
+                {data.test_recommendation && (
+                  <p className="font-sans text-xs text-muted-foreground">
+                    This panel was already sent to {data.full_name}. Editing and sending
+                    again will replace what they received.
+                  </p>
+                )}
                 <Separator />
 
                 {additions.length === 0 ? (

@@ -144,6 +144,48 @@ async def test_get_requires_hc_role(http_client, hc_user, db):
     assert r.status_code == 403
 
 
+async def test_get_returns_null_test_recommendation_before_any_send(
+    http_client, hc_headers, hc_user, db
+):
+    """Fix #1 (final-review-fix round): `test_recommendation` must be present
+    on the response shape (null when nothing has been sent yet), not omitted
+    — this is the field the frontend now branches on to decide what to seed
+    its editor from."""
+    lead = await _make_lead(db, hc_user)
+    r = await http_client.get(f"/api/leads/{lead.id}/test-recommendation", headers=hc_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["test_recommendation"] is None
+
+
+async def test_get_after_send_returns_finalized_panel_as_test_recommendation(
+    http_client, hc_headers, hc_user, db
+):
+    """Fix #1 (final-review-fix round): once the HC has already Sent a panel,
+    reopening the review screen must surface it via `test_recommendation` —
+    the correct starting point for further edits — distinct from the
+    original, unmodified `draft_test_recommendation`."""
+    await _set_hc_name(db, hc_user)
+    lead = await _make_lead(db, hc_user)
+
+    edited_additions = [{"test": "Iron Panel", "rationale": "HC's own clinical judgment call."}]
+    with patch(_PATCH_SEND_EMAIL):
+        send_r = await http_client.post(
+            f"/api/leads/{lead.id}/test-recommendation/send",
+            headers=hc_headers,
+            json={"additions": edited_additions},
+        )
+    assert send_r.status_code == 201, send_r.text
+
+    r = await http_client.get(f"/api/leads/{lead.id}/test-recommendation", headers=hc_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["test_recommendation"]["additions"] == edited_additions
+    assert body["test_recommendation"]["all_tests"] == ["CBC", "HbA1c", "TSH", "Iron Panel"]
+    # The raw AI draft is untouched by Send — still what Task 3 originally wrote.
+    assert body["draft_test_recommendation"] == _DRAFT
+
+
 # ── POST /api/leads/:id/test-recommendation/send ────────────────────────────
 
 
@@ -302,6 +344,122 @@ async def test_send_with_null_draft_returns_409_not_500(http_client, hc_headers,
     )
     assert r.status_code == 409
     assert r.json()["detail"]["error"] == "draft_not_ready"
+
+
+async def test_send_with_status_past_review_stage_returns_409(http_client, hc_headers, hc_user, db):
+    """Fix #2 (final-review-fix round): a Lead whose status has already
+    advanced past the reviewable window (`tests_drafted` / `tests_recommended`)
+    must be rejected — not silently walked backward to `tests_recommended` by
+    a stale review-screen link still sitting in the HC's inbox. Only later
+    SPEC-0001 statuses (unreachable in shipped code today) exercise this;
+    `report_uploaded` stands in for "any later stage"."""
+    lead = await _make_lead(db, hc_user, status_="report_uploaded")
+
+    r = await http_client.post(
+        f"/api/leads/{lead.id}/test-recommendation/send",
+        headers=hc_headers,
+        json={"additions": []},
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"]["error"] == "status_not_reviewable"
+
+    # Status must not have been walked backward.
+    await db.refresh(lead)
+    assert lead.status == "report_uploaded"
+
+
+async def test_send_strips_padded_test_name_before_storing_and_deduping(
+    http_client, hc_headers, hc_user, db
+):
+    """Fix #3 (final-review-fix round): `TestAdditionIn._test_not_blank`
+    validated the stripped value but returned the unstripped one — a padded
+    name like " CBC " would defeat the exact-string dedup against the "CBC"
+    standard-baseline entry and ship both variants to the Lead's email."""
+    await _set_hc_name(db, hc_user)
+    lead = await _make_lead(db, hc_user)
+
+    additions = [{"test": " CBC ", "rationale": "Padded, duplicates the standard baseline."}]
+    with patch(_PATCH_SEND_EMAIL):
+        r = await http_client.post(
+            f"/api/leads/{lead.id}/test-recommendation/send",
+            headers=hc_headers,
+            json={"additions": additions},
+        )
+    assert r.status_code == 201, r.text
+    body = r.json()
+
+    # Stored stripped, not with its original padding.
+    assert body["test_recommendation"]["additions"] == [
+        {"test": "CBC", "rationale": "Padded, duplicates the standard baseline."}
+    ]
+    # Dedup against the standard baseline's "CBC" now actually takes effect —
+    # "CBC" appears once, not as two variants ("CBC" and " CBC ").
+    assert body["test_recommendation"]["all_tests"] == ["CBC", "HbA1c", "TSH"]
+
+
+async def test_send_rejects_over_length_test_name(http_client, hc_headers, hc_user, db):
+    """Fix #4 (final-review-fix round): `TestAdditionIn.test` has a 200-char
+    bound (Pydantic `Field(max_length=200)`)."""
+    lead = await _make_lead(db, hc_user)
+    r = await http_client.post(
+        f"/api/leads/{lead.id}/test-recommendation/send",
+        headers=hc_headers,
+        json={"additions": [{"test": "x" * 201, "rationale": "ok"}]},
+    )
+    assert r.status_code == 422
+
+
+async def test_send_rejects_over_length_rationale(http_client, hc_headers, hc_user, db):
+    """Fix #4 (final-review-fix round): `TestAdditionIn.rationale` has a
+    2000-char bound (Pydantic `Field(max_length=2000)`)."""
+    lead = await _make_lead(db, hc_user)
+    r = await http_client.post(
+        f"/api/leads/{lead.id}/test-recommendation/send",
+        headers=hc_headers,
+        json={"additions": [{"test": "CBC", "rationale": "x" * 2001}]},
+    )
+    assert r.status_code == 422
+
+
+async def test_send_rejects_over_length_additions_list(http_client, hc_headers, hc_user, db):
+    """Fix #4 (final-review-fix round): `SendTestRecommendationIn.additions`
+    has a 50-item sanity cap (Pydantic `Field(max_length=50)`) — a Lead's test
+    panel realistically never approaches this."""
+    lead = await _make_lead(db, hc_user)
+    additions = [{"test": f"Test {i}", "rationale": "r"} for i in range(51)]
+    r = await http_client.post(
+        f"/api/leads/{lead.id}/test-recommendation/send",
+        headers=hc_headers,
+        json={"additions": additions},
+    )
+    assert r.status_code == 422
+
+
+async def test_send_falls_back_to_generic_hc_name_when_names_unset(
+    http_client, hc_headers, hc_user, db
+):
+    """Fix #7 (final-review-fix round): if the HC's first/last name are both
+    unset, `hc_name` must not render as an empty string in the Lead-facing
+    email — falls back to a generic label. Unreachable via the product flow
+    today (Stage 1 leadgen setup gates on both names being present), but the
+    endpoint must not depend on that to stay correct. `hc_user` here is used
+    without `_set_hc_name`, so both names are null by construction."""
+    lead = await _make_lead(db, hc_user)
+
+    with patch(_PATCH_SEND_EMAIL) as mock_email:
+        r = await http_client.post(
+            f"/api/leads/{lead.id}/test-recommendation/send",
+            headers=hc_headers,
+            json={"additions": _DRAFT["additions"]},
+        )
+    assert r.status_code == 201, r.text
+
+    mock_email.assert_called_once_with(
+        to=lead.email,
+        lead_name="Jane Doe",
+        hc_name="Your Coach",
+        test_list=_DRAFT["all_tests"],
+    )
 
 
 # ── Idempotency: double-Send is allowed, second call wins ───────────────────

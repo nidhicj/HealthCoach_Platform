@@ -14,7 +14,7 @@ D-4) into `leads.test_recommendation`, and the Lead-facing email goes out
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
 from src.api.deps import DbDep, HcClaimsDep, TenantDep
@@ -58,25 +58,32 @@ class LeadTestRecommendationOut(BaseModel):
     # must return a structured response instead of crashing if it happens.
     ready: bool
     draft_test_recommendation: TestRecommendationOut | None = None
+    # Non-null once the HC has already Sent a panel for this Lead
+    # (`leads.test_recommendation`) — the review screen link stays live in the
+    # HC's inbox indefinitely, so reopening it after a Send must let the
+    # frontend seed its editor from the already-sent panel, not silently
+    # discard it in favor of the original AI draft. See final-review-fix
+    # round Fix #1.
+    test_recommendation: TestRecommendationOut | None = None
 
 
 class TestAdditionIn(BaseModel):
-    test: str
-    rationale: str
+    test: str = Field(max_length=200)
+    rationale: str = Field(max_length=2000)
 
     @field_validator("test")
     @classmethod
     def _test_not_blank(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("test name cannot be blank")
-        return v
+        return v.strip()
 
 
 class SendTestRecommendationIn(BaseModel):
     """The HC's edited `additions` list. `standard` is deliberately absent —
     it's not editable here (D-4); it's the HC's Test Panel setting, carried
     over verbatim from the draft this Lead already has."""
-    additions: list[TestAdditionIn]
+    additions: list[TestAdditionIn] = Field(max_length=50)
 
 
 class SendTestRecommendationOut(BaseModel):
@@ -125,6 +132,11 @@ async def get_test_recommendation(
         ],
         ready=draft is not None,
         draft_test_recommendation=TestRecommendationOut(**draft) if draft is not None else None,
+        test_recommendation=(
+            TestRecommendationOut(**lead.test_recommendation)
+            if lead.test_recommendation is not None
+            else None
+        ),
     )
 
 
@@ -134,6 +146,16 @@ def _draft_not_ready_error() -> HTTPException:
         detail={
             "error": "draft_not_ready",
             "message": "This Lead's AI-drafted test recommendation isn't ready yet.",
+        },
+    )
+
+
+def _status_not_reviewable_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "error": "status_not_reviewable",
+            "message": "This Lead has moved past the test-recommendation review stage.",
         },
     )
 
@@ -179,6 +201,17 @@ async def send_test_recommendation(
     if lead.draft_test_recommendation is None:
         raise _draft_not_ready_error()
 
+    # `leads.status` is documented (SPEC-0001 Data section) as one-way through
+    # a fixed enum. Repeated sends while still at `tests_drafted` or
+    # `tests_recommended` are the deliberate double-Send allowance described
+    # in this function's docstring above — that is unaffected by this guard.
+    # A Lead that has moved on to a later stage (payment, scheduling, report
+    # upload, etc. — not reachable yet, but will be once PHASE-05 ships) must
+    # not have its status walked backward to `tests_recommended` by a stale
+    # review-screen link still sitting in the HC's inbox.
+    if lead.status not in {"tests_drafted", "tests_recommended"}:
+        raise _status_not_reviewable_error()
+
     # `standard` is carried over verbatim from the draft Task 3 already wrote
     # for this Lead — never re-read fresh from `hc_leadgen_config.test_panel`,
     # which may have changed since the draft was generated. The baseline is
@@ -209,7 +242,15 @@ async def send_test_recommendation(
     hc_user = await db.get(User, UUID(hc_id))
     hc_first = (hc_user.first_name if hc_user else None) or ""
     hc_last = (hc_user.last_name if hc_user else None) or ""
-    hc_name = f"{hc_first} {hc_last}".strip()
+    # Fallback guards against a blank/double-space artifact in
+    # send_finalized_test_recommendation_email's copy (src/lib/email.py) if
+    # both names are unset. Unreachable today — Stage 1 leadgen setup gates
+    # on both first/last name being present (PHASE-01/PHASE-06) — but cheap
+    # to guard. "Your Coach" (not "Your health coach") deliberately avoids a
+    # literal duplicate where the template already reads "Your health coach,
+    # {hc_name}, recommends..." — substituting "Your health coach" there
+    # would repeat the phrase back to back.
+    hc_name = f"{hc_first} {hc_last}".strip() or "Your Coach"
 
     # Non-blocking — matches this codebase's established convention for
     # outbound email that must never fail the primary action (see
