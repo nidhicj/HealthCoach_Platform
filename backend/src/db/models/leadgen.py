@@ -45,6 +45,11 @@ class Lead(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False)
     draft_test_recommendation: Mapped[dict | None] = mapped_column(JSONB)
     test_recommendation: Mapped[dict | None] = mapped_column(JSONB)
+    payment_status: Mapped[str] = mapped_column(Text, nullable=False, default="unpaid", server_default=text("'unpaid'"))
+    payment_reference: Mapped[str | None] = mapped_column(Text)
+    paid_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    scheduled_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    meeting_link: Mapped[str | None] = mapped_column(Text)
     brief_text: Mapped[str | None] = mapped_column(Text)
     brief_llm_call_id: Mapped[UUID | None] = mapped_column(ForeignKey("llm_calls.id"))
     consent_given_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
@@ -74,7 +79,13 @@ class LeadUploadToken(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, server_default=func.gen_random_uuid())
     lead_id: Mapped[UUID] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), nullable=False)
     token_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    # Nullable per SPEC-0001 D-8 (PHASE-05 Task 3): the row is now minted at
+    # Stage 3 Send-time, before payment. NULL until leads.payment_status
+    # flips to paid (Task 6 gate). See
+    # alembic/versions/c6fcc8bae2f1_lead_upload_tokens_expires_at_nullable.py
+    # for the full reasoning, including why the downgrade is one-way once
+    # real NULLs exist.
+    expires_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 
