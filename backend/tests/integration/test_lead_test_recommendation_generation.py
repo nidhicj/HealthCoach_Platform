@@ -215,6 +215,30 @@ async def test_lead_not_found_returns_none_without_raising(
     assert "Lead not found" in row.error_message
 
 
+async def test_hc_user_id_mismatch_returns_none_without_raising(
+    db: AsyncSession, hc2_user: User, lead: Lead
+):
+    """`lead` is owned by `hc_user` (see the `lead` fixture). Calling with a
+    *different* HC's hc_user_id must not silently build hc2's HcLeadgenConfig
+    into a prompt attributed against hc_user's Lead — it must fail closed:
+    return None (never raise) and record the mismatch in the llm_calls error
+    row, same non-raising contract as every other failure path."""
+    result = await generate_lead_test_recommendation(
+        db, lead_id=lead.id, hc_user_id=hc2_user.id
+    )
+    assert result is None
+
+    row = await _llm_calls_row(db)
+    assert row is not None
+    assert row.use_case == "lead_test_recommendation"
+    assert row.error_message is not None
+    assert "hc_user_id mismatch" in row.error_message
+    # The error row is attributed to the hc_user_id that was actually passed in
+    # (hc2), not the Lead's true owner — consistent with write_llm_call always
+    # using the caller-supplied hc_user_id for attribution.
+    assert str(row.hc_user_id) == str(hc2_user.id)
+
+
 async def test_missing_leadgen_config_returns_none_without_raising(
     db: AsyncSession, hc_user: User
 ):

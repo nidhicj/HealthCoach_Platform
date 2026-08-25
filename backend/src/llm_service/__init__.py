@@ -709,6 +709,19 @@ async def generate_lead_test_recommendation(
         )).scalar_one_or_none()
         if lead is None:
             raise ValueError(f"Lead not found: {lead_id}")
+        if lead.hc_user_id != hc_user_id:
+            # Cross-tenant guard: hc_user_id is a caller-supplied parameter, not
+            # derived from the Lead row itself. If a caller ever resolves lead_id
+            # and hc_user_id from mismatched sources, silently trusting hc_user_id
+            # here would build one HC's proprietary HcLeadgenConfig.test_panel into
+            # a prompt attributed against a different HC's Lead. Fail loud (into the
+            # outer except below, which writes the llm_calls error row and returns
+            # None per this function's never-raise contract) instead of silently
+            # crossing tenants.
+            raise ValueError(
+                f"hc_user_id mismatch: lead {lead_id} belongs to hc_user_id "
+                f"{lead.hc_user_id}, but {hc_user_id} was passed"
+            )
 
         config = (await db.execute(
             select(HcLeadgenConfig).where(HcLeadgenConfig.hc_user_id == hc_user_id)
