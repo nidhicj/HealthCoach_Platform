@@ -137,7 +137,14 @@ async def _resolve_token(
     if user is None:
         return "not_found", upload_token, lead, None
 
-    if upload_token.expires_at < datetime.now(UTC):
+    # `expires_at` is `datetime | None` as of PHASE-05 Task 3 (SPEC-0001 D-8) —
+    # no shipped code path writes None into it yet (that starts with Task 4),
+    # so this comparison cannot actually see a None here today; the
+    # `type: ignore` only silences the resulting mypy --strict gap until
+    # Task 6 adds its payment-gate check ahead of this line (per that task's
+    # brief, load-bearing — it must run BEFORE this comparison to avoid a
+    # real runtime TypeError once Task 4 starts minting None `expires_at`).
+    if upload_token.expires_at < datetime.now(UTC):  # type: ignore[operator]
         return "expired", upload_token, lead, user
 
     return "valid", upload_token, lead, user
@@ -298,7 +305,8 @@ async def upload_lead_files(
     if locked_token.used_at is not None:
         return UploadTokenStateOut(state="used", message=_USED_MESSAGE)
     hc_name_for_lock_checks = f"{hc_user.first_name} {hc_user.last_name}".strip()
-    if locked_token.expires_at < datetime.now(UTC):
+    # Same PHASE-05 Task 3 / Task 6 note as `_resolve_token` above.
+    if locked_token.expires_at < datetime.now(UTC):  # type: ignore[operator]
         return UploadTokenStateOut(
             state="expired",
             message=_EXPIRED_MESSAGE_TEMPLATE.format(hc_name=hc_name_for_lock_checks),
