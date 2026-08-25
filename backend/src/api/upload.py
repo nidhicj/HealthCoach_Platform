@@ -28,10 +28,28 @@ from src.telemetry.log import get_logger
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
-# Verbatim copy from SPEC-0001's edge-cases table, row "Lead opens an already-used
-# upload link".
+# PHASE-05 final-review fix round, Fix #1: `used_at` is now set in TWO
+# different situations, and the DB cannot currently distinguish which one
+# happened —
+#   1. the Lead genuinely completed the upload flow (`upload_lead_files`
+#      setting it on success; the original, PHASE-03 meaning this copy was
+#      first written for, quoting SPEC-0001's edge-cases table row "Lead
+#      opens an already-used upload link" verbatim), or
+#   2. the HC re-Sent the test-recommendation panel, and `leads.py`'s Send
+#      action invalidated this token to keep at most one live token per Lead
+#      (PHASE-05 Task 4).
+# The old copy ("...already been uploaded successfully...") asserted cause 1
+# with false certainty: a Lead who gets a re-Send email, then opens an OLDER
+# email still sitting in their inbox, would be told with confidence that
+# their reports are already uploaded when in fact nothing was uploaded. Both
+# causes lead to the identical correct next action for the Lead (use the
+# most recent email, or contact their coach directly) — so this copy stays
+# honest and actionable under EITHER cause rather than disambiguating them,
+# which wouldn't change what the Lead should do next.
 _USED_MESSAGE = (
-    "Your reports have already been uploaded successfully. No further action needed."
+    "This upload link is no longer active. If you haven't uploaded your results "
+    "yet, please check your email for the most recent message from your health "
+    "coach, or contact them directly for a new link."
 )
 
 # Verbatim copy from SPEC-0001's edge-cases table, row "Lead opens an expired
@@ -67,6 +85,24 @@ _UPLOAD_SUCCESS_MESSAGE = (
 _MAX_FILES = 5
 _MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 _MAX_TOTAL_SIZE_BYTES = 30 * 1024 * 1024  # 30 MB
+
+
+def _hc_name_or_fallback(user: User) -> str:
+    """Same 'Your Coach' fallback as `payments.py::get_lead_payment_context`
+    and `leads.py::send_test_recommendation` (PHASE-05 final-review fix
+    round, Minor C) — `first_name`/`last_name` are nullable on `User`, and
+    without this guard an unset name renders as the literal string
+    "None None" everywhere this file interpolates an HC's name: the "valid"
+    state's top-level `hc_name`, `_EXPIRED_MESSAGE_TEMPLATE`, and the HC's
+    own brief-ready/brief-failed email greeting (`send_lead_brief_ready_email`
+    /`send_lead_brief_failed_email` both render "Hi {hc_name},"). Extracted
+    once here — this file has four call sites for the identical pattern,
+    unlike payments.py/leads.py's one call site each — to keep a single
+    source of truth rather than drifting across four inline copies.
+    """
+    first = user.first_name or ""
+    last = user.last_name or ""
+    return f"{first} {last}".strip() or "Your Coach"
 
 
 class UploadTokenStateOut(BaseModel):
@@ -167,12 +203,21 @@ async def _resolve_token(
     if lead.payment_status != "paid":
         return "payment_pending", upload_token, lead, user
 
-    # Reachable only once payment_status == "paid" — the webhook that flips
-    # payment_status also sets this same token's expires_at in the same
-    # commit (see razorpay_webhook), so expires_at is expected non-None here.
-    # The `type: ignore` remains because that invariant isn't visible to
-    # mypy from this function's own types.
-    if upload_token.expires_at < datetime.now(UTC):  # type: ignore[operator]
+    # Reached once payment_status == "paid". The webhook that flips
+    # payment_status normally also sets this same token's expires_at in the
+    # same commit (see razorpay_webhook) — but that handler's anomalous-
+    # unused-token-count branch (0 or 2+ unused tokens for this Lead at
+    # payment time, logged as razorpay_webhook_unexpected_unused_token_count)
+    # deliberately skips activation rather than guess which token to
+    # activate, so a paid Lead CAN reach this line with expires_at still
+    # None. PHASE-05 final-review fix round, Fix #2: `is None` is now
+    # checked explicitly and fails CLOSED — treated the same as "expired"
+    # (no upload access granted, but a normal, actionable response) — rather
+    # than assumed away, both because the anomaly is real and reachable, and
+    # because this is a public endpoint that must never 500 on it. The
+    # underlying anomaly (how a Lead ends up with 0 or 2+ unused tokens)
+    # stays a separately-tracked, parked item — not fixed here.
+    if upload_token.expires_at is None or upload_token.expires_at < datetime.now(UTC):
         return "expired", upload_token, lead, user
 
     return "valid", upload_token, lead, user
@@ -228,7 +273,7 @@ async def get_upload_token_state(token: str, db: DbDep) -> UploadTokenStateOut:
 
     # guaranteed by _resolve_token for payment_pending/expired/valid
     assert lead is not None and user is not None
-    hc_name = f"{user.first_name} {user.last_name}".strip()
+    hc_name = _hc_name_or_fallback(user)
 
     if state == "payment_pending":
         return UploadTokenStateOut(state="payment_pending", message=_PAYMENT_PENDING_MESSAGE)
@@ -311,7 +356,7 @@ async def upload_lead_files(
         return UploadTokenStateOut(state="payment_pending", message=_PAYMENT_PENDING_MESSAGE)
     if state == "expired":
         assert lead is not None and hc_user is not None
-        hc_name = f"{hc_user.first_name} {hc_user.last_name}".strip()
+        hc_name = _hc_name_or_fallback(hc_user)
         return UploadTokenStateOut(
             state="expired", message=_EXPIRED_MESSAGE_TEMPLATE.format(hc_name=hc_name)
         )
@@ -343,7 +388,7 @@ async def upload_lead_files(
     locked_token = await _reload_locked_token(db, upload_token.id)
     if locked_token.used_at is not None:
         return UploadTokenStateOut(state="used", message=_USED_MESSAGE)
-    hc_name_for_lock_checks = f"{hc_user.first_name} {hc_user.last_name}".strip()
+    hc_name_for_lock_checks = _hc_name_or_fallback(hc_user)
     # Same PHASE-05 Task 3 / Task 6 note as `_resolve_token` above.
     if locked_token.expires_at < datetime.now(UTC):  # type: ignore[operator]
         return UploadTokenStateOut(
@@ -474,7 +519,7 @@ async def upload_lead_files(
     lead_id: UUID = lead.id
     hc_user_id: UUID = lead.hc_user_id
     lead_full_name = lead.full_name
-    hc_name = f"{hc_user.first_name} {hc_user.last_name}".strip()
+    hc_name = _hc_name_or_fallback(hc_user)
     hc_email = hc_user.email
 
     # ── Text extraction + brief generation (SPEC-0001 Stage 4 steps 12-13) ──────

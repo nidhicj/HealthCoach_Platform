@@ -84,6 +84,49 @@ async def test_valid_token_returns_200_with_only_hc_name(
     assert body["message"] is None
 
 
+async def test_valid_token_hc_name_falls_back_when_names_unset(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    """PHASE-05 final-review fix round, Minor C: first_name/last_name are
+    nullable on User — an unset name must render as the same 'Your Coach'
+    fallback payments.py::get_lead_payment_context/leads.py's Send action
+    already use, not the literal string 'None None'."""
+    hc_user.first_name = None
+    hc_user.last_name = None
+    await db.flush()
+    lead = await _make_lead(db, hc_user)
+    raw_token = await _make_token(db, lead)
+
+    resp = await http_client.get(f"/api/upload/{raw_token}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["state"] == "valid"
+    assert body["hc_name"] == "Your Coach"
+    assert "None" not in body["hc_name"]
+
+
+async def test_expired_token_hc_name_falls_back_when_names_unset(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    """Same Minor C fallback, exercised via the "expired" state's
+    `_EXPIRED_MESSAGE_TEMPLATE` interpolation site (a second, distinct
+    construction site from the "valid" state's top-level hc_name)."""
+    hc_user.first_name = None
+    hc_user.last_name = None
+    await db.flush()
+    lead = await _make_lead(db, hc_user)
+    raw_token = await _make_token(
+        db, lead, expires_at=datetime.now(UTC) - timedelta(days=1)
+    )
+
+    resp = await http_client.get(f"/api/upload/{raw_token}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["state"] == "expired"
+    assert body["message"] == "This upload link has expired. Please contact Your Coach for a new link."
+    assert "None" not in body["message"]
+
+
 async def test_nonexistent_token_returns_200_not_found_state(http_client: AsyncClient):
     resp = await http_client.get("/api/upload/this-token-does-not-exist-at-all")
     assert resp.status_code == 200, resp.text
@@ -96,9 +139,13 @@ async def test_nonexistent_token_returns_200_not_found_state(http_client: AsyncC
     )
 
 
-async def test_used_token_returns_200_used_state_with_spec_message(
+async def test_used_token_returns_200_used_state_with_honest_message(
     http_client: AsyncClient, hc_user: User, db: AsyncSession
 ):
+    """PHASE-05 final-review fix round, Fix #1: `used_at` is now set by two
+    distinct causes (genuine upload, or an HC re-Send invalidating this
+    token) the DB can't distinguish, so the copy must not assert certain
+    success — and must never regress back to claiming it."""
     lead = await _make_lead(db, hc_user)
     raw_token = await _make_token(db, lead, used_at=datetime.now(UTC) - timedelta(hours=1))
 
@@ -109,8 +156,11 @@ async def test_used_token_returns_200_used_state_with_spec_message(
     assert body["state"] == "used"
     assert body["hc_name"] is None
     assert body["message"] == (
-        "Your reports have already been uploaded successfully. No further action needed."
+        "This upload link is no longer active. If you haven't uploaded your results "
+        "yet, please check your email for the most recent message from your health "
+        "coach, or contact them directly for a new link."
     )
+    assert "already been uploaded successfully" not in body["message"]
 
 
 async def test_expired_token_returns_200_expired_state_with_spec_message_and_hc_name(
@@ -233,6 +283,37 @@ async def test_get_expired_state_reachable_once_payment_status_is_paid_but_windo
     raw_token = await _make_token(
         db, lead, expires_at=datetime.now(UTC) - timedelta(days=1)
     )
+
+    resp = await http_client.get(f"/api/upload/{raw_token}")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["state"] == "expired"
+
+
+async def test_get_paid_lead_with_anomalous_none_expiry_returns_expired_not_500(
+    http_client: AsyncClient, hc_user: User, db: AsyncSession
+):
+    """PHASE-05 final-review fix round, Fix #2 regression test: a paid Lead
+    can end up with a token whose `expires_at` is STILL `None` if the
+    webhook hit its anomalous-unused-token-count branch (0 or 2+ unused
+    tokens at payment time — `razorpay_webhook_unexpected_unused_token_count`)
+    and skipped activation. Before the fix, `_resolve_token`'s unguarded
+    `upload_token.expires_at < datetime.now(UTC)` raised `TypeError:
+    '<' not supported between instances of 'NoneType' and 'datetime'` for
+    this Lead — an unrecoverable 500 on a public, Lead-facing page, with no
+    way for the HC to re-Send a working link (payment_status is already
+    "paid", past the Send-allowed set). Must now fail closed to a normal
+    "expired" response instead.
+
+    Deliberately does NOT use this file's `_make_token` helper: that
+    helper's `expires_at=expires_at or (default)` treats an explicitly
+    passed `expires_at=None` as "use the default" (`None` is falsy), so it
+    can never actually persist a `None` row — the row is built directly
+    here to guarantee the anomalous shape this test exists to cover."""
+    lead = await _make_lead(db, hc_user, payment_status="paid")
+    raw_token = os.urandom(32).hex()
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    db.add(LeadUploadToken(lead_id=lead.id, token_hash=token_hash, expires_at=None))
+    await db.flush()
 
     resp = await http_client.get(f"/api/upload/{raw_token}")
     assert resp.status_code == 200, resp.text
@@ -623,7 +704,9 @@ async def test_post_to_used_token_returns_same_state_shape_as_get_no_upload_proc
     body = resp.json()
     assert body["state"] == "used"
     assert body["message"] == (
-        "Your reports have already been uploaded successfully. No further action needed."
+        "This upload link is no longer active. If you haven't uploaded your results "
+        "yet, please check your email for the most recent message from your health "
+        "coach, or contact them directly for a new link."
     )
     mock_put.assert_not_called()
     lead_files = (await db.execute(
