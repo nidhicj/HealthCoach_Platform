@@ -33,6 +33,7 @@ Decisions made during the 2026-08-24 redesign session with SoJo, encoded here so
 | D-5 | **The AI's draft panel is never sent to the Lead automatically.** The HC reviews it on a single-purpose, intentionally minimal screen (Lead's questionnaire-derived summary, then an editable test list) and one action both finalizes and sends — there is no separate "save draft" state. | SoJo's explicit call: this screen is temporary/minimal by design, and a save-without-send state risks a reviewed-but-forgotten panel sitting unsent while the Lead waits. The HC is assumed busy; the flow is built for lowest possible HC effort, not for iterative drafting. |
 | D-6 | **The blood-report upload link gets an OTP gate**, delivered to the Lead's email today, with the schema left open for a phone/SMS channel later (not built now). | Closes a real trust gap this spec's own history had already identified and shelved: PHASE-02's carry-over notes flagged "deferred OTP" as a considered-but-not-built idea for exactly this kind of link. Today, possessing the upload URL is the *only* proof of identity — if it's forwarded or intercepted, someone else can complete the upload as the Lead. OTP raises the bar to "controls the Lead's own registered contact channel," without requiring Leads to have platform accounts (a deliberate non-goal elsewhere in this spec). |
 | D-7 | **The AI output becomes two distinct artifacts, not one.** The **draft test recommendation** (Stage 3 — Lead's questionnaire summary + AI-suggested additional tests, HC-reviewed before the Lead ever sees it) is a *different* artifact from the **pre-consultation brief** (Stage 6 — the full clinical brief generated after blood report upload, unchanged concept from the original design, now enriched with the confirmed appointment time and meeting link). The two are never conflated in this doc's terminology — see Domain terms. | Keeps the existing "no partial pre-consultation brief" non-goal intact and true: the draft test recommendation is not a preview of the clinical brief, it's a distinct, earlier artifact with a different purpose (test-panel review, not consultation prep). |
+| D-8 | **One Lead-facing "next steps" email, not two.** Sent once, at the moment the HC clicks Send (Stage 3 step 8) — not resent at payment success. It presents two numbered steps: Step 1 (book & pay) and Step 2 (upload blood test results), each with a real button from the first send. The Step 2 button is never dead: `lead_upload_tokens` is issued at Send-time (moved out of Stage 4, where it originally sat), but its `expires_at` is left NULL until `leads.payment_status` flips to `paid` — the upload page checks payment status before anything else, and shows a plain-language "complete your consultation booking first" state (not the OTP/upload UI) if clicked early. The "leave buffer time for your blood test" note lives in this email's Step 2 copy, not on the payment/scheduling page — added 2026-08-25 (SoJo). | Rejected sending two separate emails ("email blasting" — SoJo's words) once it became clear the second email added nothing the first couldn't already carry: the upload link doesn't need Stage 4 to *complete* before it can exist, only before it can be *used*, and that's a server-side gate, not a reason to withhold the link itself. Delaying the `expires_at` clock to payment-success time (rather than starting it at issuance) keeps the original 14-day upload window intact regardless of how long the Lead takes to get around to booking — a Lead who takes 10 days to book still gets the full 14 days to complete their blood test, not 4. |
 
 ---
 
@@ -134,22 +135,24 @@ flowchart TD
     subgraph HCReview["HC Reviews Draft Panel"]
         F5 --> H1[HC opens review screen:\nLead summary + editable test list]
         H1 --> H2[HC edits if needed, clicks Send]
-        H2 --> H3[test_recommendation finalized\nemailed to Lead]
+        H2 --> H3[test_recommendation finalized\nlead_upload_tokens issued, expires_at NULL — D-8\nsingle next-steps email sent: Step 1 book+pay, Step 2 upload]
     end
 
-    subgraph Payment["Payment + Scheduling Handoff"]
-        H3 --> P1[Lead opens payment link]
+    subgraph Payment["Step 1 — Book & Pay"]
+        H3 --> P1[Lead clicks Step 1 button]
         P1 --> P2[Razorpay Order created\nHC's own connected account]
         P2 --> P3[Lead pays via hosted checkout]
         P3 --> P4{payment.captured webhook}
-        P4 -->|success| P5[leads.payment_status = paid\nLead handed off to scheduling link]
+        P4 -->|success| P5[leads.payment_status = paid\nexpires_at set to NOW + 14 days — D-8\nLead handed off to scheduling link]
         P4 -->|failure/timeout| P6[Lead sees retry — nothing held, safe to retry]
-        P5 --> P7[Lead books slot externally\nnote: leave buffer for blood test]
-        P7 --> P8[System issues upload token\n+ records scheduled_at, meeting_link]
+        P5 --> P7[Lead books slot externally\nresulting scheduled_at/meeting_link reach this system]
     end
 
-    subgraph Upload["Blood Report Upload — OTP Verified"]
-        P8 --> U1[Lead opens upload link]
+    subgraph Upload["Step 2 — Blood Report Upload, OTP Verified"]
+        H3 -.->|same email, present but gated| U0{leads.payment_status\nequals paid?}
+        P7 -.-> U0
+        U0 -->|no| U0N[Complete your consultation\nbooking first — no OTP/upload UI]
+        U0 -->|yes| U1[Lead opens upload link]
         U1 --> U2[System emails OTP to Lead]
         U2 --> U3[Lead enters OTP]
         U3 --> U4{OTP valid?}
@@ -210,34 +213,35 @@ Fires immediately after Stage 2 for the AI draft; the HC action that follows is 
 5. System emails the HC: *"A new Lead completed their questionnaire — review the recommended tests before they're sent."* This email links to the real, built HC review screen (Stage 3 continued) — the redesign's own fix for the dead-link bug that prompted it. The Stage 6/7 brief-ready email still has an unrelated instance of that same bug class, unresolved — see Open questions.
 6. HC opens the review screen: first, a summary of the Lead built from their questionnaire responses; then, an editable list of the AI-drafted tests (standard baseline shown but not editable here — that's an HC's own Test Panel setting; additions are add/remove-editable).
 7. HC edits the additions list if they disagree with the AI, then clicks **Send** — a single action.
-8. On Send: `leads.test_recommendation` (the final, Lead-facing version) is written from the HC's edited list, `leads.status` → `tests_recommended`, and the system sends the Lead their next-steps email (test panel + payment + scheduling — Stage 4).
+8. On Send: `leads.test_recommendation` (the final, Lead-facing version) is written from the HC's edited list, `leads.status` → `tests_recommended`. System also issues the Lead's `lead_upload_tokens` row now (D-8) — `expires_at` left NULL, activated at payment success (Stage 4 step 3) — and sends the Lead a single next-steps email covering both remaining steps at once (Stage 4): Step 1, book & pay; Step 2, upload blood test results (button present now, gated server-side until Step 1 completes).
 9. There is no separate "save without sending" state (D-5) — closing the review screen without clicking Send leaves `leads.draft_test_recommendation` as the only record; the HC can reopen the same screen later to finish.
 
 ### Stage 4 — Lead pays, scheduling handoff
 
-1. System sends the Lead an email: bulleted list of finalized recommended tests, a "Pay & Schedule" link, brief explanation.
-2. Lead opens the link. System creates a Razorpay Order against the HC's connected account (D-2) for `hc_leadgen_config.consultation_fee_inr`.
-3. Lead completes payment via Razorpay's hosted checkout (test mode during dev — mock UPI/card/netbanking, both success and induced-failure paths).
-4. Razorpay sends a `payment.captured` webhook. System verifies the HMAC-SHA256 signature, checks idempotency (Razorpay retries webhooks — a given payment must only be processed once), and on success sets `leads.payment_status = paid`, `leads.payment_reference`, `leads.paid_at`.
-5. On payment failure or webhook timeout: nothing was held (D-3 — payment and scheduling are decoupled, so there's no reservation to release). Lead sees a plain "payment didn't go through, try again" state and can retry freely.
-6. On payment success: Lead is handed off to the HC's configured `scheduling_link` (external — mechanism not designed here). Page includes a note: *"Please leave enough time before your consultation to also complete your blood test — that's your responsibility to schedule."*
-7. Once the Lead has booked (confirmed by whatever mechanism the external scheduler provides — out of scope to design here, but the resulting appointment time and meeting link must reach this system so Stage 6's brief can include them), system records `leads.scheduled_at` and `leads.meeting_link`, issues the `lead_upload_tokens` row (raw token never stored — SHA-256 hash; 14-day expiry), and `leads.status` → `consultation_scheduled`.
-8. Lead receives their upload link and the same meeting link, in the scheduling confirmation.
+Both of this stage's steps were already emailed to the Lead in one message at the end of Stage 3 (D-8) — nothing is (re-)sent here. Stage 4 is what happens when the Lead clicks Step 1 of that email.
+
+1. Lead clicks the "Book your consultation" button. System creates a Razorpay Order against the HC's connected account (D-2) for `hc_leadgen_config.consultation_fee_inr`.
+2. Lead completes payment via Razorpay's hosted checkout (test mode during dev — mock UPI/card/netbanking, both success and induced-failure paths).
+3. Razorpay sends a `payment.captured` webhook. System verifies the HMAC-SHA256 signature, checks idempotency (Razorpay retries webhooks — a given payment must only be processed once), and on success sets `leads.payment_status = paid`, `leads.payment_reference`, `leads.paid_at`. This is also the moment `lead_upload_tokens.expires_at` for this Lead's already-issued token (Stage 3 step 8) gets set to `NOW() + 14 days` (D-8) — the Step 2 button in the Lead's inbox becomes usable from this instant, with no new email required.
+4. On payment failure or webhook timeout: nothing was held (D-3 — payment and scheduling are decoupled, so there's no reservation to release), and the upload token's `expires_at` stays NULL (Step 2 stays gated). Lead sees a plain "payment didn't go through, try again" state and can retry freely.
+5. On payment success: Lead is handed off to the HC's configured `scheduling_link` (external — mechanism not designed here). The "leave enough time before your consultation to also complete your blood test" note is not repeated here — it's already in the Stage-3 email's Step 2 copy (D-8), on the record without cluttering this handoff.
+6. Once the Lead has booked (confirmed by whatever mechanism the external scheduler provides — out of scope to design here, but the resulting appointment time and meeting link must reach this system so Stage 6's brief can include them), system records `leads.scheduled_at` and `leads.meeting_link`, and `leads.status` → `consultation_scheduled`. No email is sent for this — the external scheduler's own confirmation (calendar invite, etc.) covers it; this system's side is silent bookkeeping.
 
 ### Stage 5 — Lead uploads blood report (OTP-verified)
 
-1. Lead opens `tapas.app/upload/:token`.
-2. System validates token server-side before rendering any UI (hash match, not expired, not yet used). Invalid states show a plain-language message only — no upload UI shown.
-3. **OTP gate (D-6, new)**: on a valid token, system emails a short-lived numeric OTP to the Lead's registered email (`otp_channel = 'email'`; schema supports future `'sms'`, not built). Upload UI does not render until the Lead enters the correct code.
-4. Lead enters the OTP. System checks hash match, expiry (short — minutes, not days), and attempt count (rate-limited to prevent brute force). Wrong/expired code: Lead can request a new one (does not consume or invalidate the underlying upload token).
-5. On OTP success: page renders — HC name, upload instructions, consent notice for health data storage, file upload area.
-6. Lead selects files. Client-side pre-validation: PDF/JPEG/PNG only, ≤10 MB per file, ≤5 files, ≤30 MB total.
-7. On submit: server re-validates MIME type via magic bytes (not file extension), re-checks size.
-8. Each file uploaded to R2 at key: `leads/<lead_id>/reports/<epoch_ms>_<sanitized_filename>`.
-9. `lead_files` row created per file after R2 confirms success. Token NOT consumed on upload failure — Lead can retry (does not require a fresh OTP if the underlying token session is still verified).
-10. Token marked `used_at = NOW()` after all files accepted successfully.
-11. `leads.status` → `report_uploaded`.
-12. System attempts text extraction from each uploaded PDF (unchanged from original design — empty result on scan/handwritten reports feeds a gap note into the brief, not an error).
+1. Lead clicks the "Upload your results" button — same button, same email, since Stage 3 step 8 (D-8). Opens `tapas.app/upload/:token`.
+2. **Payment gate (D-8, new)**: system first checks `leads.payment_status` for this token's Lead. If not `paid`, render a plain-language "Complete your consultation booking first" state — no OTP prompt, no upload UI, no error (the link itself is valid, just not yet usable). This check runs before the existing token validation below, and independently of it.
+3. System validates token server-side before rendering any UI (hash match, `expires_at` not NULL and not passed, not yet used). Invalid states show a plain-language message only — no upload UI shown. (A token with `expires_at` still NULL cannot reach this step — the payment gate above already caught it.)
+4. **OTP gate (D-6)**: on a valid, paid, unexpired token, system emails a short-lived numeric OTP to the Lead's registered email (`otp_channel = 'email'`; schema supports future `'sms'`, not built). Upload UI does not render until the Lead enters the correct code.
+5. Lead enters the OTP. System checks hash match, expiry (short — minutes, not days), and attempt count (rate-limited to prevent brute force). Wrong/expired code: Lead can request a new one (does not consume or invalidate the underlying upload token).
+6. On OTP success: page renders — HC name, upload instructions, consent notice for health data storage, file upload area.
+7. Lead selects files. Client-side pre-validation: PDF/JPEG/PNG only, ≤10 MB per file, ≤5 files, ≤30 MB total.
+8. On submit: server re-validates MIME type via magic bytes (not file extension), re-checks size.
+9. Each file uploaded to R2 at key: `leads/<lead_id>/reports/<epoch_ms>_<sanitized_filename>`.
+10. `lead_files` row created per file after R2 confirms success. Token NOT consumed on upload failure — Lead can retry (does not require a fresh OTP if the underlying token session is still verified).
+11. Token marked `used_at = NOW()` after all files accepted successfully.
+12. `leads.status` → `report_uploaded`.
+13. System attempts text extraction from each uploaded PDF (unchanged from original design — empty result on scan/handwritten reports feeds a gap note into the brief, not an error).
 
 ### Stage 6 — Pre-consultation brief generated and sent
 
@@ -339,7 +343,7 @@ Constraint: `UNIQUE (hc_user_id, email)` — prevents duplicate leads from the s
 | `id`              | UUID PK                               |                                                                                                        |
 | `lead_id`         | UUID FK → leads.id ON DELETE CASCADE |                                                                                                        |
 | `token_hash`      | TEXT NOT NULL UNIQUE                  | SHA-256 of raw token. Raw token never stored. Base pattern identical to `client_invite_tokens` (ADR-0005). |
-| `expires_at`      | TIMESTAMPTZ NOT NULL                  | 14 days from creation.                                                                                 |
+| `expires_at`      | TIMESTAMPTZ                           | NULL until `leads.payment_status` flips to `paid` (D-8) — the row is created at Stage 3 Send-time, before payment, so the 14-day upload window is deliberately not started until the Lead can actually act on it. Set to `NOW() + 14 days` at that moment. NULL also functions as the payment gate's underlying signal (Stage 5 step 2), though the endpoint checks `leads.payment_status` directly rather than inferring it from this column, to keep the two concerns (payment state, token expiry) independently correct. |
 | `used_at`         | TIMESTAMPTZ                           | Null = not yet used. Set after successful upload session.                                              |
 | `otp_hash`        | TEXT                                  | SHA-256 of the current OTP. Null until first OTP send. Regenerated on each resend.                     |
 | `otp_expires_at`  | TIMESTAMPTZ                           | Short-lived — minutes, not days. Null until first OTP send.                                            |
@@ -439,7 +443,7 @@ Deliberately named and scoped independently of `hc_leadgen_config` — this tabl
 | `GET`   | `/api/leads`                           | List leads, cursor-paginated, filterable by `status`                                                                                                                                                    |
 | `GET`   | `/api/leads/:id`                       | Lead detail — responses, recommendation, payment status, schedule, files (with download URLs), brief. Not yet built — see Open questions.                                                               |
 | `PATCH` | `/api/leads/:id`                       | Update status: `not_a_fit` or `archived` only. Status transitions are one-way. Not yet built.                                                                                                            |
-| `POST`  | `/api/leads/:id/remind`                | Issue a new upload token and resend the upload link email. Old token remains valid until its own expiry. Not yet built.                                                                                  |
+| `POST`  | `/api/leads/:id/remind`                | Resend the Stage 3 next-steps email (D-8's single email — Step 1 book & pay, Step 2 upload) if the Lead lost it. Does not reissue `lead_upload_tokens` — Stage 3 Send already created one durable token per Lead; only the email is resent. Not yet built.                                                                                  |
 | `POST`  | `/api/leads/:id/convert`               | Atomic conversion: create client, create M000, link lead → client. Not yet built.                                                                                                                        |
 | `POST`  | `/api/leads/purge-expired`             | Purge all leads past `lead_expiry_days`. Returns count of records deleted. Not yet built.                                                                                                                |
 
@@ -451,7 +455,7 @@ Deliberately named and scoped independently of `hc_leadgen_config` — this tabl
 | `POST` | `/api/intake/:slug`                 | None        | Submit questionnaire → create lead → trigger draft recommendation. Rate-limited: 5 req/hour/IP via `slowapi`.                                                        |
 | `POST` | `/api/leads/:id/payment/order`      | Lead's payment link | Create a Razorpay Order against the HC's connected account for the configured consultation fee.                                                                     |
 | `POST` | `/api/payments/webhook`             | Razorpay HMAC signature | Server-to-server webhook receiver. Verifies signature, idempotent on Razorpay's retry behavior, advances `leads.payment_status`.                                     |
-| `GET`  | `/api/upload/:token`                | Token       | Validate token; return HC name and contextual copy for the upload page. Does not by itself unlock the upload UI — OTP verification is a separate step (D-6).        |
+| `GET`  | `/api/upload/:token`                | Token       | Validate token; return HC name and contextual copy for the upload page. Checks the payment gate first (D-8) — a valid token for a not-yet-`paid` Lead returns a distinct "complete your booking first" state, not the upload page's normal contextual copy. Passing the payment gate does not by itself unlock the upload UI either — OTP verification is a separate step (D-6).        |
 | `POST` | `/api/upload/:token/otp/send`       | Token       | Send (or resend) an OTP to the Lead's registered email.                                                                                                              |
 | `POST` | `/api/upload/:token/otp/verify`     | Token       | Verify the entered OTP. On success, unlocks the upload UI for this token session.                                                                                    |
 | `POST` | `/api/upload/:token/files`          | Token + OTP-verified | Upload blood report files (multipart). Validates MIME via magic bytes. Stores to R2. Creates `lead_files` rows. Triggers brief generation after all files accepted. |
@@ -530,6 +534,7 @@ Blood report files are stored on behalf of the Lead and accessible only to the H
 | HC's `users.first_name`/`users.last_name` are null and HC opens `/settings/onboarding`                                          | `POST /api/leadgen/config/init` returns a structured "profile incomplete" response (not a 500 or raw constraint error). Frontend redirects HC to `/settings/profile` to complete their name, then back to leadgen setup.                                                                                                                              |
 | Lead opens an expired upload link                                                                                               | Page shows: *"This upload link has expired. Please contact [HC Name] for a new link."* No upload UI shown, no OTP sent.                                                                                                                                                                                                                                 |
 | Lead opens an already-used upload link                                                                                          | Page shows: *"Your reports have already been uploaded successfully. No further action needed."*                                                                                                                                                                                                                                                          |
+| Lead clicks the Step 2 (upload) button before completing Step 1 (D-8)                                                            | Token is valid (it was issued at Stage 3 Send-time) but `leads.payment_status != paid`, so `expires_at` is still NULL. `GET /api/upload/:token` returns the payment-gate state, not the normal token-validation outcome. Page shows: *"Please complete your consultation booking first — then come back to this same link to upload your results."* No OTP sent, no upload UI, no error (this is expected, not a failure).                                                                                                                                                                                                                                 |
 
 ---
 
@@ -572,6 +577,10 @@ Blood report files are stored on behalf of the Lead and accessible only to the H
 
 ### Blood report upload — OTP
 
+- [ ] `lead_upload_tokens` row is created at Stage 3 Send-time (D-8), not after payment — verify it exists and resolves to a valid token immediately after the HC's Send action, before any payment has occurred
+- [ ] `lead_upload_tokens.expires_at` is NULL immediately after issuance and is set to `NOW() + 14 days` only when the owning Lead's `payment_status` becomes `paid` — never before
+- [ ] `GET /api/upload/:token` for an unpaid Lead's token returns the payment-gate state (D-8), not the normal token-validation response, and never renders OTP/upload UI
+- [ ] The same token, re-checked after `payment_status` flips to `paid`, passes the payment gate and proceeds to normal token validation — no new token or new email required
 - [ ] Upload UI does not render any file-picker element until OTP verification succeeds
 - [ ] Correct OTP within expiry unlocks the upload UI for that token session
 - [ ] Incorrect OTP is rejected, `otp_attempts` increments, rate limit enforced
@@ -638,3 +647,4 @@ Blood report files are stored on behalf of the Lead and accessible only to the H
 | 2026-08-21 | Resolved the "Unit_006 PHASE-01 as a prerequisite" open question. | `Unit_006_PlatformFoundations` PHASE-01 Tasks 4-6 landed self-service `first_name`/`last_name`. |
 | 2026-08-24 | **Major redesign**, prompted by a post-ship review of PHASE-03 finding the HC notification email pointed at a Lead Detail page that doesn't exist, escalated with SoJo into a full rework of Stages 3-8: rule-based test recommendation replaced with LLM drafting + mandatory HC review/send step (D-4, D-5); native Razorpay payment added, HC-owned account per D-2 (payment was previously a documented non-goal — now core to the flow); payment and scheduling deliberately decoupled (D-3); blood-report upload link hardened with an OTP gate (D-6); the AI brief split into two distinct artifacts, draft test recommendation and pre-consultation brief, never conflated (D-7); pipeline grew from six stages to eight. Original Stage 3-6 content preserved in git history for this file, not duplicated here. | Payment mechanism and merchant-of-record posture decided in a separate SoJo planning session (handover brief, 2026-08-24) and confirmed compatible with `Unit_004_OneStopSpot` F4's existing HC-owned-Razorpay pattern; the rest of the redesign (AI recommendation, OTP, decoupled scheduling) worked through directly with SoJo, flaw by flaw, before any implementation began. |
 | 2026-08-25 | PHASE-04 shipped (Stage 3: AI-drafted test recommendation + HC review/send screen). Retracted this doc's incorrect claim (introduced 2026-08-24) that the Stage 6/7 brief-ready email's dead Lead-Detail-page CTA was already resolved — it wasn't; that email is unchanged PHASE-03 code and the CTA is still live and broken in production today. Added two Open questions: the still-broken Stage 6/7 CTA (owner: PHASE-06), and a Lead-visibility gap if the Stage-3 HC review email fails to send (owner: SoJo, decide before PHASE-05). | PHASE-04's final whole-phase review (opus) caught both the false claim and the underlying unowned gap — see `.superpowers/sdd/PHASE-04-ai-test-recommendation-and-hc-review/progress.md` for the full review record. |
+| 2026-08-25 | **D-8 added**: Stage 3-5 redesigned around a single Lead-facing "next steps" email (not two), sent once at Send-time, with both a "book & pay" button and an "upload results" button present from the start — SoJo's explicit rejection of a second, later email as "email blasting." `lead_upload_tokens` issuance moved from Stage 4 (after payment) to Stage 3 step 8 (Send-time); its `expires_at` stays NULL until payment succeeds, so the 14-day upload window still starts from a meaningful moment, not from issuance. Stage 5 gets a new payment-status gate ahead of the existing OTP gate. The "leave buffer time for your blood test" note moved from the Stage 4 scheduling page into the email's Step 2 copy. Diagram, data model, API surface, edge cases, and acceptance criteria all updated to match. | Working through the Lead-facing email's design directly with SoJo after PHASE-04 shipped — the original design (separate emails for panel, payment/scheduling, and upload) undersold what one well-structured email could do, and actually held up worse against "don't ship dead CTAs" (this session's own recurring lesson) than the gated-single-email design once the token-timing question was resolved. |
