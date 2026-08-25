@@ -95,8 +95,17 @@ export default function PayPage() {
     if (cancelledRef.current) return;
     setHcName(ctx.hc_name);
     setFeeInr(ctx.consultation_fee_inr);
-    if (ctx.payment_status === "paid" && ctx.scheduling_link) {
-      setSchedulingLink(ctx.scheduling_link);
+    // "Paid" is driven by `payment_status` ALONE — `scheduling_link` is a
+    // separate, independently-optional piece of HC config (the Setup tab
+    // lets an HC save a fee and leave scheduling_link blank). Gating "paid"
+    // on both meant a Lead who genuinely paid but whose HC never configured
+    // a scheduling link would never reach this branch — stuck seeing the Pay
+    // button again forever, with no indication they'd already paid (review
+    // finding). `schedulingLink` is still stored so the render below can
+    // show the CTA when present and a distinct fallback message when not,
+    // same technique as the `feeUnconfigured` case further down this file.
+    if (ctx.payment_status === "paid") {
+      setSchedulingLink(ctx.scheduling_link ?? null);
       setStatus("paid");
     } else {
       setStatus("ready");
@@ -127,9 +136,11 @@ export default function PayPage() {
       if (cancelledRef.current) return;
       try {
         const ctx = await getLeadPaymentContext(id);
-        if (ctx.payment_status === "paid" && ctx.scheduling_link) {
+        // Same payment_status-alone gate as applyContext above — see the
+        // comment there.
+        if (ctx.payment_status === "paid") {
           if (cancelledRef.current) return;
-          setSchedulingLink(ctx.scheduling_link);
+          setSchedulingLink(ctx.scheduling_link ?? null);
           setStatus("paid");
           return;
         }
@@ -232,22 +243,35 @@ export default function PayPage() {
     );
   }
 
-  if (status === "paid" && schedulingLink) {
+  if (status === "paid") {
     return (
       <main className="mx-auto max-w-md px-4 py-16 text-center">
         <h1 className="font-heading text-2xl font-bold text-foreground">Payment received</h1>
-        <p className="mt-3 font-sans text-sm text-foreground">
-          Thank you — your consultation fee has been received. Use the link below to schedule
-          your session with {hcName}.
-        </p>
-        <a
-          href={schedulingLink}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-6 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-        >
-          Schedule your consultation
-        </a>
+        {schedulingLink ? (
+          <>
+            <p className="mt-3 font-sans text-sm text-foreground">
+              Thank you — your consultation fee has been received. Use the link below to schedule
+              your session with {hcName}.
+            </p>
+            <a
+              href={schedulingLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-6 inline-block rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
+              Schedule your consultation
+            </a>
+          </>
+        ) : (
+          // scheduling_link is independently-optional HC config (see the
+          // comment on applyContext above) — a paid Lead whose HC hasn't set
+          // one up yet gets a clear "contact them directly" fallback instead
+          // of either a broken CTA or (the bug this replaces) being bounced
+          // back to the Pay button as if they hadn't paid.
+          <p className="mt-3 font-sans text-sm text-foreground">
+            {`Thank you — your consultation fee has been received. ${hcName} hasn't set up online scheduling yet. Please contact them directly to book your consultation.`}
+          </p>
+        )}
       </main>
     );
   }
