@@ -352,6 +352,8 @@ def test_send_finalized_test_recommendation_email_calls_resend_with_correct_args
             lead_name="Rajesh Kumar",
             hc_name="Dr. Priya Sharma",
             test_list=["CBC", "HbA1c", "Lipid Profile"],
+            pay_link="https://app.tapas.health/pay/lead-1",
+            upload_link="https://app.tapas.health/upload/rawtoken123",
         )
 
     mock_send.assert_called_once()
@@ -376,6 +378,8 @@ def test_send_finalized_test_recommendation_email_raises_when_key_missing(monkey
             lead_name="Test Lead",
             hc_name="Test HC",
             test_list=["CBC"],
+            pay_link="https://app.tapas.health/pay/lead-1",
+            upload_link="https://app.tapas.health/upload/rawtoken123",
         )
 
 
@@ -388,6 +392,8 @@ def test_send_finalized_test_recommendation_email_escapes_special_chars():
             lead_name="Lead <script>",
             hc_name="HC & Co",
             test_list=["Test <script>alert(1)</script>", "Normal Test"],
+            pay_link="https://app.tapas.health/pay/lead-1",
+            upload_link="https://app.tapas.health/upload/rawtoken123",
         )
     html = mock_send.call_args[0][0]["html"]
     assert "<script>" not in html
@@ -413,24 +419,30 @@ def test_send_finalized_test_recommendation_email_subject_distinct_from_body_ope
             lead_name="Rajesh Kumar",
             hc_name="Dr. Priya Sharma",
             test_list=["CBC"],
+            pay_link="https://app.tapas.health/pay/lead-1",
+            upload_link="https://app.tapas.health/upload/rawtoken123",
         )
     call_kwargs = mock_send.call_args[0][0]
     subject = call_kwargs["subject"]
-    assert subject == "Your recommended tests — Dr. Priya Sharma"
+    assert subject == "Your next steps with Dr. Priya Sharma"
     assert (
-        "Your health coach, Dr. Priya Sharma, recommends the following "
-        "tests before your first consultation:" in call_kwargs["html"]
+        "Thank you for connecting with Dr. Priya Sharma. To continue working "
+        "with them, here's what's next:" in call_kwargs["html"]
     )
     assert subject != (
-        "Your health coach, Dr. Priya Sharma, recommends the following "
-        "tests before your first consultation:"
+        "Thank you for connecting with Dr. Priya Sharma. To continue working "
+        "with them, here's what's next:"
     )
 
 
-def test_send_finalized_test_recommendation_email_no_payment_or_scheduling_cta():
-    """PHASE-04 Scope: no payment/scheduling infrastructure exists yet
-    (ships in PHASE-05) — this email must not include a payment link, a
-    scheduling link, or copy implying the Lead can act right now."""
+def test_send_finalized_test_recommendation_email_includes_pay_and_upload_ctas():
+    """PHASE-05 Task 4 (SPEC-0001 D-8): unlike the PHASE-04 interim copy this
+    replaced (which deliberately had NO payment/scheduling CTA, since that
+    infrastructure didn't exist yet), this email now always includes both a
+    payment CTA and an upload CTA, unconditionally — the function has no
+    payment-state awareness, so both links must always be present and
+    correctly built from the exact `pay_link`/`upload_link` its caller
+    passed in."""
     mock_send = MagicMock()
     with patch("resend.Emails.send", mock_send), patch("src.lib.email._get_api_key", return_value="test_key_123"):
         from src.lib.email import send_finalized_test_recommendation_email
@@ -439,8 +451,13 @@ def test_send_finalized_test_recommendation_email_no_payment_or_scheduling_cta()
             lead_name="Rajesh Kumar",
             hc_name="Dr. Priya Sharma",
             test_list=["CBC", "HbA1c"],
+            pay_link="https://app.tapas.health/pay/lead-1",
+            upload_link="https://app.tapas.health/upload/rawtoken123",
         )
-    html = mock_send.call_args[0][0]["html"].lower()
-    for forbidden in ("pay", "razorpay", "schedule", "book", "checkout", "click here to"):
-        assert forbidden not in html, f"unexpected CTA-like text: {forbidden!r}"
-    assert "href=" not in html
+    html = mock_send.call_args[0][0]["html"]
+    assert 'href="https://app.tapas.health/pay/lead-1"' in html
+    assert 'href="https://app.tapas.health/upload/rawtoken123"' in html
+    assert "Step 1 of 2" in html
+    assert "Step 2 of 2" in html
+    assert "Book your consultation" in html
+    assert "Upload your results" in html

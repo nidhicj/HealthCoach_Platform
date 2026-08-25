@@ -1,6 +1,7 @@
 """Public Lead-facing upload endpoints (Unit_003 PHASE-03). No auth — resolved by
-the raw upload token mailed to the Lead in Stage 3 (see `intake.py`'s
-`submit_intake_questionnaire`, which mints `LeadUploadToken.token_hash`).
+the raw upload token mailed to the Lead in Stage 3 (see `leads.py`'s
+`send_test_recommendation`, which mints `LeadUploadToken.token_hash` at
+Send-time — PHASE-05 Task 4, SPEC-0001 D-8).
 
 Security note: like `intake.py`, responses here are a strict allowlist — build
 response models field-by-field, never `.model_validate()` a full ORM object.

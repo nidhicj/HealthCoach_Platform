@@ -2,14 +2,22 @@
 Unit_003 PHASE-04 Task 5:
   GET  /api/leads/:id/test-recommendation
   POST /api/leads/:id/test-recommendation/send
+
+PHASE-05 Task 4 (SPEC-0001 D-8) extended `POST .../send` to also mint (and,
+on re-Send, invalidate-then-remint) this Lead's `LeadUploadToken`, and
+extended the outbound email's signature with `pay_link`/`upload_link` — see
+the "upload token minting" section below.
 """
+import hashlib
 import uuid
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import Lead, LeadQuestionnaireResponse, User
+from src.config import get_settings
+from src.db.models import Lead, LeadQuestionnaireResponse, LeadUploadToken, User
 from tests.integration.conftest import auth_headers
 
 pytestmark = pytest.mark.asyncio
@@ -284,11 +292,18 @@ async def test_send_triggers_lead_facing_email_with_correct_args(
         )
     assert r.status_code == 201, r.text
 
+    # PHASE-05 Task 4: signature grew `pay_link`/`upload_link` — asserted
+    # precisely in test_send_email_receives_pay_and_upload_links_matching_
+    # minted_token below (upload_link embeds a freshly random raw token that
+    # can't be predicted here, so ANY stands in for both new kwargs in this
+    # test, which is only about the pre-existing four).
     mock_email.assert_called_once_with(
         to=lead.email,
         lead_name="Jane Doe",
         hc_name="Asha Rao",
         test_list=_DRAFT["all_tests"],
+        pay_link=ANY,
+        upload_link=ANY,
     )
 
 
@@ -454,11 +469,15 @@ async def test_send_falls_back_to_generic_hc_name_when_names_unset(
         )
     assert r.status_code == 201, r.text
 
+    # PHASE-05 Task 4: see the ANY note in
+    # test_send_triggers_lead_facing_email_with_correct_args above.
     mock_email.assert_called_once_with(
         to=lead.email,
         lead_name="Jane Doe",
         hc_name="Your Coach",
         test_list=_DRAFT["all_tests"],
+        pay_link=ANY,
+        upload_link=ANY,
     )
 
 
@@ -501,3 +520,114 @@ async def test_double_send_overwrites_and_resends_email(http_client, hc_headers,
 
     # Email fired once per Send — not suppressed on the second call.
     assert mock_email.call_count == 2
+
+
+# ── PHASE-05 Task 4 (SPEC-0001 D-8): upload token minting on Send ───────────
+
+
+async def test_send_mints_upload_token_with_null_expiry_and_used_at(
+    http_client, hc_headers, hc_user, db
+):
+    """Send now mints the Lead's `LeadUploadToken` up front (no longer at
+    intake time — that path was removed in PHASE-04). `expires_at` stays
+    NULL until PHASE-05 Task 6's payment webhook activates it; `used_at`
+    stays NULL until the Lead actually uploads (PHASE-03 Task 6)."""
+    await _set_hc_name(db, hc_user)
+    lead = await _make_lead(db, hc_user)
+
+    with patch(_PATCH_SEND_EMAIL):
+        r = await http_client.post(
+            f"/api/leads/{lead.id}/test-recommendation/send",
+            headers=hc_headers,
+            json={"additions": _DRAFT["additions"]},
+        )
+    assert r.status_code == 201, r.text
+
+    tokens = (await db.execute(
+        select(LeadUploadToken).where(LeadUploadToken.lead_id == lead.id)
+    )).scalars().all()
+    assert len(tokens) == 1
+    assert tokens[0].expires_at is None
+    assert tokens[0].used_at is None
+
+
+async def test_send_email_receives_pay_and_upload_links_matching_minted_token(
+    http_client, hc_headers, hc_user, db
+):
+    """`pay_link`/`upload_link` are constructed from the lead id / raw
+    token, and the raw token embedded in `upload_link` hashes to exactly the
+    `LeadUploadToken` row Send just minted — proves the Lead's email carries
+    a link that actually resolves to the live DB row, not some other value."""
+    await _set_hc_name(db, hc_user, first="Asha", last="Rao")
+    lead = await _make_lead(db, hc_user)
+
+    with patch(_PATCH_SEND_EMAIL) as mock_email:
+        r = await http_client.post(
+            f"/api/leads/{lead.id}/test-recommendation/send",
+            headers=hc_headers,
+            json={"additions": _DRAFT["additions"]},
+        )
+    assert r.status_code == 201, r.text
+
+    mock_email.assert_called_once()
+    kwargs = mock_email.call_args.kwargs
+    assert kwargs["to"] == lead.email
+    assert kwargs["lead_name"] == "Jane Doe"
+    assert kwargs["hc_name"] == "Asha Rao"
+    assert kwargs["test_list"] == _DRAFT["all_tests"]
+
+    frontend_url = get_settings().frontend_url
+    assert kwargs["pay_link"] == f"{frontend_url}/pay/{lead.id}"
+
+    upload_prefix = f"{frontend_url}/upload/"
+    assert kwargs["upload_link"].startswith(upload_prefix)
+    raw_token = kwargs["upload_link"][len(upload_prefix):]
+    assert len(raw_token) == 64  # os.urandom(32).hex()
+
+    token_row = (await db.execute(
+        select(LeadUploadToken).where(LeadUploadToken.lead_id == lead.id)
+    )).scalar_one()
+    assert token_row.token_hash == hashlib.sha256(raw_token.encode()).hexdigest()
+
+
+async def test_second_send_invalidates_first_token_and_mints_fresh_one(
+    http_client, hc_headers, hc_user, db
+):
+    """Re-send idempotency (PHASE-05 Task 4 brief, "Re-send idempotency"
+    section): a second Send invalidates any prior unused `LeadUploadToken`
+    row for this Lead (`used_at` set) before minting a fresh one — keeps
+    "the Lead's live token" unambiguous for Task 6's payment webhook, and
+    stops a stale link from an earlier email from being usable to upload a
+    second time."""
+    await _set_hc_name(db, hc_user)
+    lead = await _make_lead(db, hc_user)
+
+    with patch(_PATCH_SEND_EMAIL) as mock_email:
+        r1 = await http_client.post(
+            f"/api/leads/{lead.id}/test-recommendation/send",
+            headers=hc_headers,
+            json={"additions": _DRAFT["additions"]},
+        )
+        assert r1.status_code == 201, r1.text
+        first_upload_link = mock_email.call_args.kwargs["upload_link"]
+
+        r2 = await http_client.post(
+            f"/api/leads/{lead.id}/test-recommendation/send",
+            headers=hc_headers,
+            json={"additions": _DRAFT["additions"]},
+        )
+        assert r2.status_code == 201, r2.text
+        second_upload_link = mock_email.call_args.kwargs["upload_link"]
+
+    # The email reflects the new link on the second Send, not the first.
+    assert first_upload_link != second_upload_link
+
+    tokens = (await db.execute(
+        select(LeadUploadToken)
+        .where(LeadUploadToken.lead_id == lead.id)
+        .order_by(LeadUploadToken.created_at)
+    )).scalars().all()
+    assert len(tokens) == 2
+    assert tokens[0].used_at is not None  # first token invalidated
+    assert tokens[1].used_at is None  # only the fresh token is still unused
+    assert tokens[1].expires_at is None

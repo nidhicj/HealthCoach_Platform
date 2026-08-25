@@ -6,7 +6,7 @@ email removed).
 """
 import json
 import uuid as uuid_mod
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 from uuid import UUID
 
 import pytest
@@ -748,11 +748,19 @@ async def test_whole_flow_submit_review_and_send_compose_correctly_end_to_end(
     expected_final_all_tests = ["CBC", "HbA1c", "TSH", "Lipid Profile", "Iron Panel"]
     assert send_body["test_recommendation"]["all_tests"] == expected_final_all_tests
 
+    # PHASE-05 Task 4 (SPEC-0001 D-8): signature grew `pay_link`/`upload_link`
+    # — `upload_link` embeds a freshly random raw token that can't be
+    # predicted here, so ANY stands in for both (see the dedicated
+    # pay_link/upload_link-content assertions in
+    # tests/integration/test_leads_hc.py::
+    # test_send_email_receives_pay_and_upload_links_matching_minted_token).
     mock_send_email.assert_called_once_with(
         to="whole-flow-lead@example.com",
         lead_name="Jane Doe",
         hc_name="Asha Rao",
         test_list=expected_final_all_tests,
+        pay_link=ANY,
+        upload_link=ANY,
     )
 
     # Real DB state reflects the HC's edits — not the raw AI draft — and the
@@ -765,3 +773,13 @@ async def test_whole_flow_submit_review_and_send_compose_correctly_end_to_end(
     # The raw AI draft persists untouched — /send only ever writes
     # test_recommendation, never mutates draft_test_recommendation.
     assert lead.draft_test_recommendation == expected_draft
+
+    # PHASE-05 Task 4: Send also mints this Lead's upload token — none
+    # existed after intake submission (asserted earlier in this file), one
+    # exists now, unused and not yet expiry-activated.
+    tokens_after_send = (await db.execute(
+        select(LeadUploadToken).where(LeadUploadToken.lead_id == lead_id)
+    )).scalars().all()
+    assert len(tokens_after_send) == 1
+    assert tokens_after_send[0].used_at is None
+    assert tokens_after_send[0].expires_at is None

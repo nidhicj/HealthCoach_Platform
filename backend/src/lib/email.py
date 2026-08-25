@@ -268,17 +268,25 @@ def send_finalized_test_recommendation_email(
     lead_name: str,
     hc_name: str,
     test_list: list[str],
+    pay_link: str,
+    upload_link: str,
 ) -> None:
     """Notify the Lead that their health coach has finalized their
-    recommended test panel. Sent to the Lead (`to` is the Lead's email) by
-    the HC's Send action. SPEC-0001 Stage 3 step 8 / Stage 4.
+    recommended test panel, and give them their two next steps: book +
+    pay for a first consultation, and upload blood test results. Sent to
+    the Lead (`to` is the Lead's email) by the HC's Send action.
+    SPEC-0001 Stage 3 step 8 / Stage 4. Copy is PHASE-05 Task 4's approved
+    copy (task-4-brief.md) — this replaces the PHASE-04 interim version,
+    which deliberately omitted any payment/scheduling CTA because that
+    infrastructure didn't exist yet.
 
-    Deliberately omits any payment or scheduling call-to-action and does not
-    imply the Lead can take an immediate next action: that infrastructure
-    (native Razorpay payment, scheduling handoff) does not exist yet and
-    ships in PHASE-05. This is a known, deliberate interim state — PHASE-05
-    must revise this copy once payment/scheduling exists, to add the actual
-    next-step link/CTA.
+    Both `pay_link` and `upload_link` are always real and clickable from the
+    moment this email is sent — Step 2's gating (upload only usable once
+    Step 1/payment is complete) happens server-side on the upload page
+    (PHASE-05 Task 6), not by withholding the link here. This function has
+    no payment-state awareness and must not gain any conditional logic about
+    whether payment has happened — it only constructs and sends the copy
+    below with whatever links its caller passes in.
     """
     api_key = _get_api_key()
     if not api_key:
@@ -288,8 +296,11 @@ def send_finalized_test_recommendation_email(
 
     safe_lead = html.escape(lead_name)
     safe_hc = html.escape(hc_name)
-
-    tests_html = "".join(f"<li>{html.escape(test)}</li>" for test in test_list)
+    # Individually escaped like the rest of this file's list-of-strings
+    # interpolations (see the old version of this function, and
+    # send_action_items_email's items_html) before joining into the running
+    # sentence the approved copy calls for.
+    safe_test_list = ", ".join(html.escape(test) for test in test_list)
 
     # Subject is a plain-text mail header, not HTML — must use raw values,
     # not the HTML-escaped ones (which would leak entities like &#x27; into
@@ -298,9 +309,17 @@ def send_finalized_test_recommendation_email(
     # file's convention (see send_action_items_email's subject) — this is
     # the exact regression class PHASE-03's Task 4 shipped and had to fix
     # in its own review round; do not repeat it here.
-    subject = f"Your recommended tests — {hc_name}"
+    subject = f"Your next steps with {hc_name}"
     safe_subject = html.escape(subject)
 
+    # `pay_link`/`upload_link` are NOT html.escape()'d before going into their
+    # `href` attributes — matches this file's existing convention for every
+    # other internally-constructed link (see `lead_detail_link` in
+    # send_lead_brief_ready_email/send_lead_brief_failed_email, `review_link`
+    # in send_test_recommendation_review_email, `portal_url` in
+    # send_check_in_reminder_email): these URLs are built server-side from
+    # `settings.frontend_url` plus a UUID or hex token, never from
+    # user-supplied text, so there is nothing in them that needs escaping.
     body_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -314,10 +333,25 @@ def send_finalized_test_recommendation_email(
   </div>
   <div style="background: #ffffff; padding: 28px 24px; border-radius: 0 0 8px 8px; border: 1px solid #E8EDE5;">
     <p style="font-size: 15px; margin-top: 0;">Hi {safe_lead},</p>
-    <p style="font-size: 15px;">Your health coach, {safe_hc}, recommends the following tests before your first consultation:</p>
-    <ul style="font-size: 14px; line-height: 1.8;">{tests_html}</ul>
-    <p style="font-size: 15px;">{safe_hc} will be in touch with next steps.</p>
+    <p style="font-size: 15px;">Thank you for connecting with {safe_hc}. To continue working with them, here's what's next:</p>
+
+    <p style="font-size: 13px; font-weight: bold; text-transform: uppercase; color: #888; margin: 20px 0 4px;">Step 1 of 2 — Book your first consultation</p>
+    <p style="font-size: 15px; margin-top: 0;">Choose a time that works for you and complete payment to confirm your slot.</p>
+    <p style="margin: 16px 0 24px;">
+      <a href="{pay_link}" style="background: #5C6652; color: #F7F4EE; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-size: 14px;">Book your consultation</a>
+    </p>
+
     <hr style="border: none; border-top: 1px solid #E8EDE5; margin: 20px 0;">
+
+    <p style="font-size: 13px; font-weight: bold; text-transform: uppercase; color: #888; margin: 20px 0 4px;">Step 2 of 2 — Upload your blood test results</p>
+    <p style="font-size: 15px; margin-top: 0;">{safe_hc} recommends: {safe_test_list}.</p>
+    <p style="font-size: 15px;">Please leave enough time before your consultation to get these done. Once your consultation is booked, use the button below to upload your results — this same link will work once Step 1 is complete.</p>
+    <p style="margin: 16px 0 24px;">
+      <a href="{upload_link}" style="background: #5C6652; color: #F7F4EE; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-size: 14px;">Upload your results</a>
+    </p>
+
+    <hr style="border: none; border-top: 1px solid #E8EDE5; margin: 20px 0;">
+    <p style="font-size: 15px;">{safe_hc} will be in touch with next steps.</p>
     <p style="font-size: 12px; color: #888;">Sent via Tapas · your health coaching platform</p>
   </div>
 </body>

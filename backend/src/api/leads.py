@@ -9,8 +9,14 @@ a Lead summary built from `LeadQuestionnaireResponse` rows plus
 POST /api/leads/:id/test-recommendation/send — HC finalizes the panel (with
 their own edits to `additions`; the `standard` baseline is not editable here —
 D-4) into `leads.test_recommendation`, and the Lead-facing email goes out
-(Task 4's `send_finalized_test_recommendation_email`).
+(Task 4's `send_finalized_test_recommendation_email`). As of PHASE-05 Task 4
+(SPEC-0001 D-8), this same endpoint also mints the Lead's `LeadUploadToken` —
+see that function's docstring below for why Send, not intake submission, is
+where the upload token is issued.
 """
+import hashlib
+import os
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -18,7 +24,8 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
 from src.api.deps import DbDep, HcClaimsDep, TenantDep
-from src.db.models import Lead, LeadQuestionnaireResponse, User
+from src.config import get_settings
+from src.db.models import Lead, LeadQuestionnaireResponse, LeadUploadToken, User
 from src.lib.email import send_finalized_test_recommendation_email
 from src.telemetry.log import get_logger
 
@@ -195,6 +202,27 @@ async def send_test_recommendation(
     in this codebase, which is what justifies allowing double-Send above.
     `status_code=201` on this route mirrors `send_client_diet_chart`'s status
     code for the same shape of action.
+
+    PHASE-05 Task 4 addition (SPEC-0001 D-8): every Send also mints a fresh
+    `LeadUploadToken` for this Lead — the raw token is embedded in the
+    Lead-facing email's upload link, and `expires_at` is left `NULL` until
+    Task 6's payment webhook activates it. A raw token cannot be recovered
+    from its stored hash, so a second Send cannot resend the SAME link even
+    if that were desired — instead, mirroring `clients.py::create_invite`'s
+    invalidate-then-mint pattern in full, any of this Lead's prior unused
+    `LeadUploadToken` rows (`used_at IS NULL`) are marked `used_at = now()`
+    before the new one is inserted. This is required, not just tidiness:
+    Task 6 activates payment by setting `expires_at` on "the Lead's
+    `LeadUploadToken` row" — if a re-Send left multiple unused rows alive,
+    that activation would be ambiguous, and a Lead could end up with two
+    simultaneously-valid upload links (one from a stale earlier email),
+    enabling a duplicate upload (duplicate `lead_files` rows, a second brief
+    generation). Invalidating old unused tokens at mint-time keeps "the
+    Lead's live token" unambiguous. Token minting is folded into this
+    endpoint's single existing commit below rather than given its own commit
+    boundary — there is no reason for the token row and the
+    `test_recommendation`/`status` finalization to ever be durable
+    independently of each other.
     """
     lead = await _get_owned_lead(db, lead_id, hc_id)
 
@@ -237,7 +265,32 @@ async def send_test_recommendation(
     }
     lead.test_recommendation = test_recommendation
     lead.status = "tests_recommended"
+
+    # Invalidate this Lead's prior unused upload tokens before minting a
+    # fresh one — mirrors clients.py::create_invite's invalidate-then-mint
+    # pattern in full. See this function's docstring above ("PHASE-05 Task 4
+    # addition") for why this is required, not optional.
+    existing_upload_tokens = (await db.execute(
+        select(LeadUploadToken).where(
+            LeadUploadToken.lead_id == lead.id,
+            LeadUploadToken.used_at.is_(None),
+        )
+    )).scalars().all()
+    now = datetime.now(timezone.utc)
+    for tok in existing_upload_tokens:
+        tok.used_at = now  # mark consumed
+
+    raw_upload_token = os.urandom(32).hex()
+    upload_token_hash = hashlib.sha256(raw_upload_token.encode()).hexdigest()
+    # expires_at stays NULL until Task 6's payment webhook activates it
+    # (SPEC-0001 D-8) — the row is mintable pre-payment, but not yet usable.
+    db.add(LeadUploadToken(lead_id=lead.id, token_hash=upload_token_hash, expires_at=None))
+
     await db.commit()
+
+    settings = get_settings()
+    pay_link = f"{settings.frontend_url}/pay/{lead.id}"
+    upload_link = f"{settings.frontend_url}/upload/{raw_upload_token}"
 
     hc_user = await db.get(User, UUID(hc_id))
     hc_first = (hc_user.first_name if hc_user else None) or ""
@@ -246,10 +299,12 @@ async def send_test_recommendation(
     # send_finalized_test_recommendation_email's copy (src/lib/email.py) if
     # both names are unset. Unreachable today — Stage 1 leadgen setup gates
     # on both first/last name being present (PHASE-01/PHASE-06) — but cheap
-    # to guard. "Your Coach" (not "Your health coach") deliberately avoids a
-    # literal duplicate where the template already reads "Your health coach,
-    # {hc_name}, recommends..." — substituting "Your health coach" there
-    # would repeat the phrase back to back.
+    # to guard. "Your Coach" reads acceptably at every point the PHASE-05
+    # Task 4 copy substitutes `{hc_name}` (subject "...with Your Coach",
+    # "connecting with Your Coach", "Your Coach recommends: ...", "Your Coach
+    # will be in touch...") — verified against the current copy, unlike the
+    # PHASE-04 copy this replaced, which had a specific back-to-back-phrase
+    # collision this fallback was originally chosen to dodge.
     hc_name = f"{hc_first} {hc_last}".strip() or "Your Coach"
 
     # Non-blocking — matches this codebase's established convention for
@@ -267,6 +322,8 @@ async def send_test_recommendation(
             lead_name=lead.full_name,
             hc_name=hc_name,
             test_list=all_tests,
+            pay_link=pay_link,
+            upload_link=upload_link,
         )
     except Exception as exc:
         logger.error(
