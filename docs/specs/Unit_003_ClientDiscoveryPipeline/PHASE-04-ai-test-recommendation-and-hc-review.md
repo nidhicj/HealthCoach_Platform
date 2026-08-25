@@ -1,0 +1,126 @@
+# PHASE-04: AI-drafted test recommendation + HC review/send
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` to implement this plan task-by-task.
+
+**Unit**: Unit_003_ClientDiscoveryPipeline
+**Status**: Draft
+**Verification date**: TBD — fill in after implementation and verification
+**Implements**: `SPEC-0001-client-discovery-pipeline.md` §Stage 3 (AI drafts test recommendation, HC reviews and sends), §Decisions log D-4/D-5/D-7, §LLM involvement (`lead_test_recommendation` task type), §Acceptance criteria → "AI test recommendation and HC review"
+**ADRs implemented**: ADR-0003 (LLM strategy) — new `lead_test_recommendation` task type, follows the existing prompt-file + schema + `parse_or_retry` + `write_llm_call` pattern established by `generate_lead_brief`/`generate_mom_draft`. ADR-0005 (auth strategy) — the new `GET`/`POST /api/leads/:id/*` endpoints are the first HC-authenticated, tenant-scoped Lead-management endpoints; follow the existing `require_role('hc')` + `current_tenant()` + cross-tenant-404 convention already used throughout this codebase.
+
+---
+
+## 0. Prerequisites
+
+Anthem rules from CLAUDE.md apply. Preflight every substantive response per PREFLIGHT.md. Context Missing for anything product-specific I haven't provided. Ready?
+
+## 1. Scope
+
+This phase replaces PHASE-02's rule-based, keyword-matched test recommendation with an LLM call that reads the Lead's actual questionnaire answers, and adds the mandatory HC review-and-send step the redesigned pipeline requires before any recommendation reaches a Lead (SPEC-0001 D-4, D-5). Concretely: a new LLM orchestration function, a real behavior change to the already-shipped `POST /api/intake/:slug` endpoint, two new HC-facing endpoints (the first in this codebase's `leads.py`, which doesn't exist yet), one new frontend review screen, and updated email functions.
+
+**Not in scope** (explicitly deferred to later phases per the approved redesign plan):
+- Payment (PHASE-05). This phase's "Send" action emails the Lead their finalized test panel, but **without** a payment/scheduling call-to-action — that CTA gets added when PHASE-05 ships, since the payment infrastructure doesn't exist yet. Document this clearly in the email so it doesn't read as a broken promise (no "click here to pay" link pointing at nothing).
+- Scheduling handoff, upload token issuance timing change (PHASE-05) — this phase does **not** touch `lead_upload_tokens` at all. Upload token issuance moves out of the intake flow entirely (it used to fire immediately in PHASE-02) — PHASE-05 is responsible for issuing it after scheduling completes. This phase's modified `POST /api/intake/:slug` must stop issuing tokens, but does not need to issue them anywhere else yet.
+- OTP-secured upload, two-part brief threading (PHASE-06).
+- `hc_payment_accounts`, Razorpay account connection UI (PHASE-05) — not touched here.
+- The Lead Detail page and the rest of `/api/leads/*` (list, patch, remind, convert, purge-expired) — still entirely unplanned, per SPEC-0001's Open questions. This phase adds exactly two endpoints under `/api/leads/:id/test-recommendation*` and nothing else to that namespace.
+
+## 2. Deliverables planned
+
+- `backend/prompts/lead_test_recommendation.md` (new) — YAML frontmatter (`task_type: lead_test_recommendation`, version `1.0.0`), prompt body per SPEC-0001's Inputs/Output rows for this task type.
+- `backend/src/llm_service/schemas/lead_test_recommendation.py` (new) — `LeadTestRecommendationSchema` Pydantic model (an `additions: list[{test: str, rationale: str}]` shape).
+- `backend/src/llm_service/__init__.py` — add `generate_lead_test_recommendation(...)`: new orchestration function, does not raise on failure (mirrors `generate_lead_brief`'s D-2-equivalent contract — this function is called from a public, Lead-facing endpoint and must never turn a Lead's questionnaire submission into a 500).
+- `backend/src/api/intake.py` — **modify** `POST /api/intake/:slug` (existing PHASE-02 endpoint): remove the rule-based `_build_test_recommendation`-style keyword matching, remove `lead_upload_tokens` issuance, remove the immediate Lead-facing "here are your tests" email. Replace with: create the `leads` row (unchanged), call `generate_lead_test_recommendation()`, write `leads.draft_test_recommendation`, set `leads.status = 'tests_drafted'`, send the HC a new "review this panel" email.
+- `backend/src/lib/email.py` — add `send_test_recommendation_review_email(...)` (to the HC, "a new Lead is ready for your review") and `send_finalized_test_recommendation_email(...)` (to the Lead, sent by the HC's Send action — tests only, no payment/scheduling CTA, per Scope above).
+- `backend/src/api/leads.py` (new file) — `GET /api/leads/:id/test-recommendation` (HC-authenticated; returns the Lead's questionnaire-derived summary + `draft_test_recommendation`), `POST /api/leads/:id/test-recommendation/send` (HC-authenticated; accepts the HC's edited additions list, writes `leads.test_recommendation`, advances status to `tests_recommended`, triggers the Lead email — single action, per D-5, no separate save-draft endpoint).
+- `backend/src/main.py` — register `leads_router`.
+- `backend/tests/integration/test_intake_public.py` (existing, PHASE-02) — update the tests that currently assert rule-based recommendation/token-issuance/Lead-email behavior; those assertions describe behavior this phase removes.
+- `backend/tests/integration/test_leads_hc.py` (new) — the two new HC endpoints: happy path, cross-tenant 404, malformed edit payloads, send-with-no-edits (AI draft passes through verbatim), send-with-edits (HC's list wins).
+- `backend/tests/unit/test_lead_test_recommendation_schema.py` (new) — schema validation, mirroring `test_lead_brief_schema.py`'s pattern from PHASE-03.
+- `frontend/src/lib/api/leads.ts` (new) — Zod-typed API client for the two new endpoints.
+- `frontend/src/app/(app)/leads/[leadId]/test-recommendation/page.tsx` (new, or wherever nav placement lands — confirm with the "Shared surfaces" convention before building; this is the **first** authenticated Lead-facing frontend surface in this unit, there is no existing `/leads/*` route tree to extend) — the HC review screen: Lead's questionnaire-derived summary, then an editable additions list (standard baseline shown read-only), a single **Send** button.
+
+## 3. Decisions to carry into implementation
+
+These are already made (SPEC-0001's Decisions log) — implementers should not re-litigate them, only implement them correctly:
+
+- **D-4**: standard baseline stays deterministic, HC-configured, unedited by the AI or by this phase's review screen. Only `additions` are AI-drafted and HC-editable.
+- **D-5**: no draft-save state on the review screen. The screen is stateless between visits except for what's already persisted in `draft_test_recommendation` (AI's output) — the HC's in-progress edits during a session live in frontend state only, discarded if they navigate away without clicking Send. Re-opening the screen re-loads the AI's original draft, not a half-edited version. (If SoJo wants edits to survive a navigation-away without an explicit save concept, that's a scope question to raise, not to assume — flag as a question if it comes up during implementation, don't silently add a persistence layer this decision explicitly avoided.)
+- **D-7**: the draft/review artifact is never called a "brief" anywhere in code, comments, prompts, or UI copy — that term is reserved for the Stage 6 `lead_brief` artifact. Use "test recommendation" / "panel" consistently, matching the SPEC's own terminology discipline.
+- The non-raising contract for `generate_lead_test_recommendation()` matters as much here as it did for `generate_lead_brief()` in PHASE-03 — this function's caller is `POST /api/intake/:slug`, a **public, unauthenticated, Lead-facing** endpoint. A Lead's questionnaire submission must succeed regardless of whether the AI drafting succeeds, exactly like PHASE-03's blood-report upload had to succeed regardless of brief generation. Treat this with the same rigor PHASE-03's Task 3 got (that task went through a real fix round for exactly this class of bug — a pre-`try` exception path that could still raise. Do not repeat it here.)
+
+## 4. Source docs to consult before implementing
+
+- `docs/specs/Unit_003_ClientDiscoveryPipeline/SPEC-0001-client-discovery-pipeline.md` — §Stage 3, §Decisions log D-4/D-5/D-7, §Data (`leads.draft_test_recommendation`/`leads.test_recommendation`), §API surface, §LLM involvement (`lead_test_recommendation` row), §Edge cases, §Acceptance criteria
+- `docs/specs/Unit_003_ClientDiscoveryPipeline/PHASE-02-public-intake-and-lab-recommendation.md` — the existing `_build_test_recommendation`-style logic being removed, and `POST /api/intake/:slug`'s current full shape (read this before touching `intake.py` — you are modifying shipped, tested code, not writing on a blank file)
+- `docs/specs/Unit_003_ClientDiscoveryPipeline/PHASE-03-blood-report-upload-and-brief-generation.md` — the `generate_lead_brief()` orchestration shape and its D-2-equivalent non-raising contract (Task 3's fix-round history there is exactly the failure mode to avoid this time)
+- Existing code, read directly as prior art: `backend/src/llm_service/__init__.py` (`generate_lead_brief` — orchestration shape, non-raising pattern), `backend/src/llm_service/prompts.py`, `backend/src/llm_service/schemas/lead_brief.py` (schema + `to_brief_text()`-style pattern, though this phase's schema is simpler — a single `additions` list, no `to_..._text()` method needed since nothing renders this as a flat string), `backend/src/api/intake.py` (current full implementation — you are editing this, read it whole), `backend/src/api/upload.py` (the closest existing precedent for an HC-authenticated, tenant-scoped, single-Lead endpoint pattern — though `upload.py`'s endpoints are public/Lead-facing, not HC-facing; for the HC-facing pattern, read `backend/src/api/clients.py` or `backend/src/api/sessions.py` for `require_role('hc')` + `current_tenant()` + cross-tenant-404 conventions instead), `backend/src/lib/email.py` (existing email function conventions — `html.escape()`, brand CSS, Resend call shape)
+
+## 5. Verification
+
+Verification should cover, at minimum, every checkbox under SPEC-0001's §Acceptance criteria → "AI test recommendation and HC review", plus:
+- Full backend + frontend suite green
+- Manual browser walkthrough: submit a real questionnaire → confirm the HC review email arrives → open the review screen → edit the additions list → click Send → confirm the Lead receives the finalized-panel email (no payment/scheduling CTA) → confirm `leads.test_recommendation` matches the HC's edited list, not the raw AI draft
+- Confirm the `POST /api/intake/:slug` regression: a Lead's submission still succeeds end-to-end even if the LLM call is made to fail (mock/induce a failure) — this is the single most important thing to verify given PHASE-03's own history of getting this exact class of contract wrong on the first attempt
+
+---
+
+## Implementation Plan
+
+Ordered task breakdown, executed via `superpowers:subagent-driven-development` — one fresh implementer + reviewer per task, matching PHASE-01/02/03's execution discipline this session.
+
+### Task 1 — `backend/prompts/lead_test_recommendation.md` + `backend/src/llm_service/schemas/lead_test_recommendation.py`
+
+Prompt file: YAML frontmatter matching this codebase's established format (read `brief_assemble.md` and `lead_brief.md` for the exact field set and mirror it — `version`, `created`, `notes`; include `task_type: lead_test_recommendation` per the same reasoning PHASE-03's Task 2 already established for `lead_brief.md`'s `task_type` field — SPEC-0001 §LLM involvement explicitly requires it even though it's read only by convention, not by `load_prompt()`). Prompt body: given the HC's standard baseline test list (context, not to be duplicated in the output) and the Lead's questionnaire responses, ask the LLM to suggest additional tests warranted by what the Lead actually wrote, each with a short rationale. Placeholder substitution for baseline tests + questionnaire Q&A pairs, empty-questionnaire-safe (a Lead with no notable free-text answers should yield an empty or minimal `additions` list, not a hallucinated one — the prompt should explicitly instruct the LLM not to invent conditions that aren't supported by the Lead's actual answers).
+
+`LeadTestRecommendationSchema(BaseModel)`: `additions: list[AdditionItem]` where `AdditionItem` has `test: str` and `rationale: str`. No `to_..._text()` method needed — this schema's output is consumed structurally by the review screen (a real editable list), not flattened into a display string the way `BriefSchema`/`LeadBriefSchema` are.
+
+Unit tests for the schema: valid payload parses, empty `additions` list is valid (not an error — some Leads genuinely warrant nothing beyond baseline), malformed items rejected.
+
+### Task 2 — `generate_lead_test_recommendation()` in `backend/src/llm_service/__init__.py`
+
+New function. Signature: `async def generate_lead_test_recommendation(db: AsyncSession, *, lead_id: UUID, hc_user_id: UUID, request_id: UUID | None = None) -> list[dict] | None` (returns the `additions` list on success, `None` on any failure — simpler return shape than `generate_lead_brief`'s tuple since there's no separate "text" artifact to also return; confirm this shape is what Task 3's caller actually needs, adjust if a different shape is more natural once you see the real call site). Loads `Lead`, `HcLeadgenConfig.test_panel` for the standard baseline list, `LeadQuestionnaireResponse` rows. Builds the prompt, calls `call_openrouter`, `parse_or_retry` against `LeadTestRecommendationSchema`, `write_llm_call` with `hc_user_id=hc_user_id, client_id=None, session_id=None, use_case="lead_test_recommendation"`.
+
+**Critical — apply PHASE-03 Task 3's lesson directly**: wrap the ENTIRE function body in try/except from the very first line that could raise (config/prompt loading included, not just the LLM call itself) — PHASE-03's `generate_lead_brief()` shipped with exactly this bug in its first version (config/prompt loading happened before the `try:` block) and it took a full review-and-fix-round to catch. Do not reproduce it here on the second attempt at the same pattern. On any failure: log it, write an `llm_calls` row with `error_message` set (matching the existing convention), return `None`. Never let an exception from this function reach `POST /api/intake/:slug`.
+
+Tests: success path (LLM returns valid additions, `llm_calls` row written, function returns the list), failure path (LLM raises, or returns unparseable content — function does NOT raise, returns `None`, `llm_calls` row still written with `error_message` set — write this test the same way PHASE-03's `test_missing_prompt_file_returns_none_none_and_writes_error_row` proved its equivalent contract, including a case where the failure happens before config/prompt loading completes), empty-additions-is-valid-success case.
+
+### Task 3 — Modify `POST /api/intake/:slug` in `backend/src/api/intake.py`
+
+Read the current full implementation first — you are editing shipped, tested (PHASE-02) code, not writing fresh. Remove: the rule-based/keyword-matched recommendation logic, `lead_upload_tokens` issuance, the immediate Lead-facing recommendation email. Add: after creating the `leads` row (unchanged), call `generate_lead_test_recommendation()` (Task 2). If it returns a list: write `leads.draft_test_recommendation = {"standard": <HC's configured baseline>, "additions": <AI's list>, "all_tests": <baseline + additions>}` (preserve the existing JSON shape other code may still assume, per SPEC-0001's Data section). If it returns `None`: write `leads.draft_test_recommendation` with an empty `additions` list and the baseline only (per SPEC-0001's edge case: "HC review screen falls back to standard-baseline-only" — do this fallback construction here in the endpoint, not inside `generate_lead_test_recommendation()`, since that function's contract is "return the AI's list or None," not "decide what the fallback shape looks like"). `leads.status = 'tests_drafted'`. Send the HC the new review-request email (Task 4). Rate limiting (5 req/hour/IP) and the `UNIQUE(hc_user_id, email)` 409 behavior are unchanged from PHASE-02 — do not touch that logic.
+
+Update `backend/tests/integration/test_intake_public.py`: remove/replace tests that assert the old rule-based recommendation, immediate token issuance, or immediate Lead email — these describe behavior this task deletes. Add tests for the new behavior: `draft_test_recommendation` populated, `tests_drafted` status, HC review email sent, and — the most important test — a Lead's submission still returns success even when `generate_lead_test_recommendation` is mocked to fail.
+
+### Task 4 — Email functions in `backend/src/lib/email.py`
+
+`send_test_recommendation_review_email(to, hc_name, lead_name, review_link)` — to the HC, mirrors this file's existing conventions (`html.escape()` on every interpolated value, existing brand CSS, distinct short subject per this file's established pattern — not the subject/body-duplication mistake PHASE-03's Task 4 shipped and had to fix in its own review round). `review_link` points at the frontend review screen (Task 6) — confirm the exact route once Task 6's actual path is decided, don't guess a URL structure independently in this task if Task 6 hasn't been dispatched yet (sequence these two tasks so the route is settled before this email hardcodes a path, or use a placeholder the controller reconciles).
+
+`send_finalized_test_recommendation_email(to, lead_name, hc_name, test_list)` — to the Lead, sent by the Send action (Task 5). Per Scope above: tests only, brief explanation, **no payment/scheduling link or CTA** — that infrastructure doesn't exist yet (PHASE-05). Write the copy so it doesn't read as broken (e.g. "Your health coach recommends the following tests before your first consultation. [HC Name] will follow up with next steps." rather than implying an immediate action the Lead can't actually take yet). Flag this explicitly in your task report as something PHASE-05 will need to revise once payment/scheduling exists — this is a known, deliberate interim state, not an oversight.
+
+### Task 5 — `backend/src/api/leads.py` (new file) — the two HC-facing endpoints
+
+`GET /api/leads/:id/test-recommendation` — `require_role('hc')` + `current_tenant()`, cross-tenant 404 (mirror the exact pattern from `backend/src/api/clients.py` or `backend/src/api/sessions.py` — read one of them first). Returns a Lead summary built from `LeadQuestionnaireResponse` rows (question/answer pairs) plus `leads.draft_test_recommendation`. 404 if the lead doesn't exist or belongs to a different HC; consider what should happen if `draft_test_recommendation` is still null (LLM call hasn't completed, or Task 3's fallback wasn't written yet somehow) — this shouldn't be reachable in practice since Task 3 always writes something before the review email fires, but don't crash on it if it happens; return a structured "not ready yet" response instead of a 500.
+
+`POST /api/leads/:id/test-recommendation/send` — same auth pattern. Request body: the HC's edited additions list (baseline is never in the edit payload — it's not editable here, per D-4). Single action (D-5): writes `leads.test_recommendation = {"standard": ..., "additions": <HC's list>, "all_tests": ...}`, sets `leads.status = 'tests_recommended'`, sends the Lead email (Task 4's `send_finalized_test_recommendation_email`, non-blocking/try-except per this codebase's existing convention for outbound email that must never fail the primary action). Idempotency: what happens if the HC calls Send twice (double-click, or an accidental second submission)? Decide and document — likely: allow re-send (overwrites `test_recommendation`, re-sends the email) rather than erroring, since there's no stated reason a second send should be blocked, but confirm this is a reasonable default rather than assuming silently if the behavior has any subtlety once you're implementing it.
+
+Register `leads_router` in `backend/src/main.py`.
+
+Tests in `backend/tests/integration/test_leads_hc.py`: GET happy path, GET cross-tenant 404, GET for a lead with null `draft_test_recommendation` (structured response, not 500), POST send with no edits (AI draft passes through verbatim into `test_recommendation`), POST send with HC edits (edited list wins, not the raw draft), POST send cross-tenant 404, POST send triggers the Lead email (mock and assert the call), unauthenticated → 401, client-role JWT → 403/404 per this codebase's existing convention.
+
+### Task 6 — Frontend: `frontend/src/lib/api/leads.ts` + the HC review screen
+
+API client: Zod schemas for both endpoints' request/response shapes, matching Task 5's actual shipped contract exactly (read the real backend code, don't guess field names). Mirror this codebase's established authenticated-API-client pattern (check `frontend/src/lib/api/clients.ts` or `frontend/src/lib/api/settings.ts` for the convention — auth header handling, error surfacing).
+
+Frontend page: read this codebase's `frontend/AGENTS.md` warning about non-standard Next.js APIs before writing any routing/layout code. Confirm nav placement (where does an HC actually reach this screen from — the review email's link is the primary entry point, but should there also be an in-app nav path?) — per SPEC-0001's Shared surfaces convention, this is new HC-facing UI and needs nav placement confirmed with SoJo, not assumed. If this can't be resolved during implementation, build the page reachable via direct URL (from the email link) and flag the nav-placement question explicitly rather than silently picking a spot in the sidebar — the SPEC's own Shared surfaces section documents this exact class of mistake happening twice already this session and asks future phases not to repeat it.
+
+Page content: Lead's questionnaire-derived summary (read-only), the AI's baseline tests (read-only, per D-4), an editable additions list — add/remove entries — build this using your own judgment for a genuinely easy-to-use editable list UI (per SoJo's explicit instruction in the design discussion: "I'll leave it to your expertise to build a very user friendly editable list"), a single **Send** button that calls the send endpoint and shows success/error state. No save-draft affordance (D-5) — don't build one even as a "nice to have."
+
+Verification: `npx tsc --noEmit` (0 new errors beyond this repo's documented pre-existing baseline), `npm run build`.
+
+### Task 7 — Whole-task integration test + manual verification
+
+Integration test exercising the full Stage 2→3 path in one flow: submit questionnaire → assert `draft_test_recommendation` populated + HC email sent → call the GET review endpoint → call the send endpoint with edits → assert `test_recommendation` reflects the edits + Lead email sent + status is `tests_recommended`.
+
+Manual browser walkthrough per §5 Verification above — this is the first phase this session where the HC review screen must actually be clicked through in a real browser before considering the phase done, not just typechecked.
+
+**Verification, end to end**: every checkbox under SPEC-0001's "AI test recommendation and HC review" acceptance criteria section, full backend + frontend suite green, the induced-LLM-failure regression proven (not just asserted in a comment), manual walkthrough completed.
