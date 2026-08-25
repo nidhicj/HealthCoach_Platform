@@ -5,9 +5,7 @@ Security note: responses here are a strict allowlist. Never call `.model_validat
 field-by-field so a future column addition to those tables can't silently leak
 through this public endpoint.
 """
-import hashlib
-import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -17,8 +15,8 @@ from sqlalchemy.exc import IntegrityError
 
 from src.api.deps import DbDep
 from src.config import get_settings
-from src.db.models import HcLeadgenConfig, Lead, LeadQuestionnaireResponse, LeadUploadToken, User
-from src.lib.email import send_lead_test_recommendation_email
+from src.db.models import HcLeadgenConfig, Lead, LeadQuestionnaireResponse, User
+from src.lib.email import send_test_recommendation_review_email
 from src.lib.rate_limit import limiter
 from src.telemetry.log import get_logger
 
@@ -46,11 +44,6 @@ _DUPLICATE_EMAIL_MESSAGE_TEMPLATE = (
 _FULL_NAME_KEY = "full_name"
 _EMAIL_KEY = "email"
 _PHONE_KEY = "phone"
-
-# Stage 3 — SPEC-0001 "Lab recommendation and token" acceptance criteria: 14-day
-# expiry, identical TTL convention to `ClientInviteToken` (see clients.py's
-# `_INVITE_TTL_DAYS` and `create_invite`'s token-generation pattern, mirrored below).
-_UPLOAD_TOKEN_TTL_DAYS = 14
 
 
 class IntakeConfigOut(BaseModel):
@@ -143,50 +136,6 @@ def _validate_intake_responses(questionnaire: list[dict], responses: dict[str, o
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=errors)
 
 
-def _build_test_recommendation(test_panel: dict, responses: dict[str, str]) -> dict:
-    """Pure function, no DB/HTTP — SPEC-0001 Stage 3 steps 2-5.
-
-    `test_panel` is `HcLeadgenConfig.test_panel`:
-    `{"standard_tests": [...], "condition_rules": [{"keywords": [...], "tests": [...]}]}`.
-    `responses` is `{question_key: response_text}` for this submission's non-empty
-    answers (mirrors `lead_questionnaire_responses.response_text`).
-
-    Matching is case-insensitive Python substring containment against each
-    condition rule's keywords (PHASE-02 Decision D-4: SPEC-0001's "ILIKE" language
-    describes matching *semantics*, not a literal SQL query — this runs against data
-    already in memory from Stage 2). Deliberately loose: a keyword that is a
-    substring of a longer word in the response still counts as a match.
-
-    Only `all_tests` is deduplicated (first-seen order preserved) — a test can
-    appear in both `standard` and a matched condition rule's `tests`, but only once
-    in `all_tests`. `additions` records one entry per matched rule per response,
-    with `triggered_by` set to the first keyword of that rule to match.
-    """
-    standard_tests: list[str] = list(test_panel.get("standard_tests") or [])
-    condition_rules: list[dict] = test_panel.get("condition_rules") or []
-
-    additions: list[dict] = []
-    all_tests: list[str] = list(standard_tests)
-
-    for response_text in responses.values():
-        if not response_text:
-            continue
-        response_lower = response_text.lower()
-        for rule in condition_rules:
-            matched_keyword = next(
-                (kw for kw in rule.get("keywords") or [] if kw.lower() in response_lower),
-                None,
-            )
-            if matched_keyword is None:
-                continue
-            for test in rule.get("tests") or []:
-                additions.append({"test": test, "triggered_by": matched_keyword})
-                if test not in all_tests:
-                    all_tests.append(test)
-
-    return {"standard": standard_tests, "additions": additions, "all_tests": all_tests}
-
-
 @router.post("/{hc_slug}", status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/hour")
 async def submit_intake_questionnaire(
@@ -231,7 +180,13 @@ async def submit_intake_questionnaire(
     responses: dict[str, object] = body.model_extra or {}
     _validate_intake_responses(questionnaire, responses)
 
+    # Captured as plain locals for the same reason as `email_value`/
+    # `full_name_value` below — `db.commit()`/`db.rollback()` further down
+    # expire ORM-managed attributes, and reading `user.email` after that point
+    # would trigger an implicit lazy reload that fails outside the async
+    # greenlet context.
     hc_name = f"{user.first_name} {user.last_name}".strip()
+    hc_email = user.email
 
     def _answer_text(key: str) -> str | None:
         answer = responses.get(key)
@@ -258,12 +213,6 @@ async def submit_intake_questionnaire(
     )
     db.add(lead)
 
-    # Stage 3 (test recommendation matching) needs each question's response text
-    # alongside `lead_id` — built here, inside the same loop that creates the
-    # LeadQuestionnaireResponse rows, so it's available after the try/except below
-    # without re-reading anything off the (possibly-expired-on-rollback) ORM objects.
-    response_texts: dict[str, str] = {}
-
     try:
         await db.flush()  # assigns lead.id and surfaces a UNIQUE(hc_user_id, email)
         # violation now, before any LeadQuestionnaireResponse rows are added.
@@ -276,8 +225,6 @@ async def submit_intake_questionnaire(
                 question_text=question["text"],
                 response_text=answer_text,
             ))
-            if answer_text is not None:
-                response_texts[question["key"]] = answer_text
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -294,43 +241,86 @@ async def submit_intake_questionnaire(
             ) from None
         raise
 
-    # ── Stage 3 (SPEC-0001) — lab test recommendation, upload token, email ──────
-    # Fires inline, no separate endpoint. A separate transaction from Stage 2's:
-    # the Lead + questionnaire responses above are already durably committed: a
-    # failure here (or in the email send below) must not undo that real, correctly
-    # captured submission.
-    recommendation = _build_test_recommendation(test_panel, response_texts)
-    lead.test_recommendation = recommendation
+    # ── Stage 3 (SPEC-0001, PHASE-04) — AI-drafted test recommendation, HC review
+    # email. Fires inline, no separate endpoint. A separate transaction from
+    # Stage 2's: the Lead + questionnaire responses above are already durably
+    # committed — a failure here (AI drafting, or the email send below) must not
+    # undo that real, correctly captured submission. `lead_upload_tokens`
+    # issuance and the immediate Lead-facing recommendation email that used to
+    # fire here (PHASE-02) are gone: PHASE-05 issues the upload token after
+    # payment+scheduling instead, and the Lead now only hears from their HC once
+    # the HC has reviewed and sent the finalized panel (Stage 3 continued, not
+    # built by this endpoint).
+    #
+    # Local import mirrors this codebase's existing convention for calling into
+    # `src.llm_service` from an API module (see `src.api.upload`/`src.api.sessions`
+    # call sites for `generate_lead_brief`/`generate_brief`/`generate_mom_draft`).
+    from src.llm_service import generate_lead_test_recommendation
+
+    standard_tests: list[str] = list((test_panel or {}).get("standard_tests") or [])
+
+    # `generate_lead_test_recommendation()` is documented and tested to never
+    # raise (its whole contract, mirroring PHASE-03's `generate_lead_brief`
+    # D-2 contract) — but this call is still wrapped defensively, the same way
+    # `src.api.upload`'s call to `generate_lead_brief` is, so that even a
+    # contract violation here cannot flip this public, unauthenticated
+    # endpoint's response away from "the Lead's submission succeeded", which is
+    # already durably true by this point.
+    try:
+        additions = await generate_lead_test_recommendation(
+            db, lead_id=lead_id, hc_user_id=hc_user_id
+        )
+    except Exception as exc:  # pragma: no cover — defensive only; contract says this never fires
+        logger = get_logger(
+            request_id=getattr(request.state, "request_id", ""), hc_id=str(hc_user_id)
+        )
+        logger.error(
+            "lead_test_recommendation_generation_unexpected_raise",
+            lead_id=str(lead_id),
+            error=str(exc),
+        )
+        additions = None
+
+    # `None` (AI drafting failed, for any reason) falls back to a standard-
+    # baseline-only draft — SPEC-0001's documented edge case for this failure
+    # mode ("HC review screen falls back to standard-baseline-only"). This is
+    # not an error state for the Lead's submission: the HC can still review and
+    # send a panel manually.
+    if additions is None:
+        additions = []
+    draft_test_recommendation = {
+        "standard": standard_tests,
+        "additions": additions,
+        "all_tests": standard_tests + [a["test"] for a in additions],
+    }
+    lead.draft_test_recommendation = draft_test_recommendation
     # Reassign the same local the response is built from below (not a new
     # variable) so IntakeSubmissionOut.status reflects the Lead's actual final
     # state, not the pre-Stage-3 "questionnaire_submitted" snapshot.
-    lead_status = "tests_recommended"
+    lead_status = "tests_drafted"
     lead.status = lead_status
-
-    raw_token = os.urandom(32).hex()
-    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-    expires_at = datetime.now(UTC) + timedelta(days=_UPLOAD_TOKEN_TTL_DAYS)
-    db.add(LeadUploadToken(lead_id=lead_id, token_hash=token_hash, expires_at=expires_at))
     await db.commit()
 
-    # D-2: email delivery failure must not fail this request — the Lead's
-    # submission, recommendation, and upload token are already committed above.
-    # Caught broadly and logged, never re-raised.
+    # Non-blocking, matching this codebase's existing convention for outbound
+    # email that must never fail the primary request (see `send_lead_brief_ready_email`
+    # / `send_lead_brief_failed_email` call sites in `src.api.upload`, and
+    # `send_check_in_reminder_email` in `src.api.check_ins`): the Lead's
+    # submission and the AI draft are already durably committed above, so a
+    # failure to notify the HC must not turn a successful submission into an
+    # error response for the Lead.
     try:
-        send_lead_test_recommendation_email(
-            to=email_value,
-            lead_name=full_name_value,
+        send_test_recommendation_review_email(
+            to=hc_email,
             hc_name=hc_name,
-            recommended_tests=recommendation["all_tests"],
-            upload_link=f"{get_settings().frontend_url}/upload/{raw_token}",
-            expiry_days=_UPLOAD_TOKEN_TTL_DAYS,
+            lead_name=full_name_value,
+            review_link=f"{get_settings().frontend_url}/leads/{lead_id}/test-recommendation",
         )
     except Exception as exc:
         logger = get_logger(
             request_id=getattr(request.state, "request_id", ""), hc_id=str(hc_user_id)
         )
         logger.error(
-            "lead_test_recommendation_email_failed", lead_id=str(lead_id), error=str(exc)
+            "test_recommendation_review_email_failed", lead_id=str(lead_id), error=str(exc)
         )
 
     return IntakeSubmissionOut(lead_id=lead_id, status=lead_status)

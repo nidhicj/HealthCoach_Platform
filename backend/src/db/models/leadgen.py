@@ -43,6 +43,7 @@ class Lead(Base):
     email: Mapped[str] = mapped_column(Text, nullable=False)
     phone: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False)
+    draft_test_recommendation: Mapped[dict | None] = mapped_column(JSONB)
     test_recommendation: Mapped[dict | None] = mapped_column(JSONB)
     brief_text: Mapped[str | None] = mapped_column(Text)
     brief_llm_call_id: Mapped[UUID | None] = mapped_column(ForeignKey("llm_calls.id"))
