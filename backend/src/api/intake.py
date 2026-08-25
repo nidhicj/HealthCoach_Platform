@@ -288,10 +288,20 @@ async def submit_intake_questionnaire(
     # send a panel manually.
     if additions is None:
         additions = []
+    # `all_tests` must stay deduplicated, first-seen order preserved — the same
+    # guarantee the removed rule-based `_build_test_recommendation()` provided
+    # (SPEC-0001 D-4: downstream logic already assumes `all_tests` has no
+    # duplicates). `LeadTestRecommendationSchema` doesn't itself guarantee the
+    # LLM won't suggest a test already in the HC's standard baseline.
+    all_tests = list(standard_tests)
+    for addition in additions:
+        test = addition["test"]
+        if test not in all_tests:
+            all_tests.append(test)
     draft_test_recommendation = {
         "standard": standard_tests,
         "additions": additions,
-        "all_tests": standard_tests + [a["test"] for a in additions],
+        "all_tests": all_tests,
     }
     lead.draft_test_recommendation = draft_test_recommendation
     # Reassign the same local the response is built from below (not a new
@@ -299,7 +309,32 @@ async def submit_intake_questionnaire(
     # state, not the pre-Stage-3 "questionnaire_submitted" snapshot.
     lead_status = "tests_drafted"
     lead.status = lead_status
-    await db.commit()
+
+    # `generate_lead_test_recommendation()` shares this request's live DB session,
+    # and its own never-raise contract means it swallows DB-level failures
+    # internally too (not just LLM/validation failures) — including inside its
+    # own `write_llm_call` failure-logging path (`_write_failure_row`'s bare
+    # `except Exception: pass`). A DB-level failure there never raises up to the
+    # `except` block above; the function just returns `None` like any other
+    # ordinary failure — so we can't detect it before now. And SQLAlchemy gives
+    # no reliable "is this session dirty" flag to check proactively either
+    # (verified: `SessionTransaction.is_active` stays True even after a Postgres
+    # transaction is left aborted by a swallowed statement failure) — the first
+    # and only place this actually surfaces is the next real statement against
+    # the session, i.e. the commit below, which would otherwise raise (a
+    # DBAPIError wrapping `InFailedSqlTransactionError`, or `PendingRollbackError`
+    # depending on exactly how the session got dirtied) even though the Lead's
+    # `leads`/`LeadQuestionnaireResponse` rows are already durably committed
+    # earlier in this request. Recover by rolling back and retrying the commit
+    # once — `db.rollback()` expires `lead`, so its fallback fields are
+    # re-applied before the retry.
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        lead.draft_test_recommendation = draft_test_recommendation
+        lead.status = lead_status
+        await db.commit()
 
     # Non-blocking, matching this codebase's existing convention for outbound
     # email that must never fail the primary request (see `send_lead_brief_ready_email`

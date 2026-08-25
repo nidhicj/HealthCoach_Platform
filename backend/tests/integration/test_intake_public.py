@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import pytest
+import sqlalchemy as sa
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -498,6 +499,105 @@ async def test_ai_drafting_raises_submission_still_succeeds_with_fallback_draft(
         select(LeadUploadToken).where(LeadUploadToken.lead_id == lead_id)
     )).scalars().all()
     assert tokens == []
+
+
+async def test_ai_addition_duplicating_standard_test_not_duplicated_in_all_tests(
+    http_client: AsyncClient, hc_user, hc_headers, db
+):
+    """Review finding 1 (task-3 fix round): the removed rule-based
+    `_build_test_recommendation()` deduped `all_tests` first-seen — nothing
+    guarantees `LeadTestRecommendationSchema`'s AI-drafted `additions` won't
+    suggest a test already in the HC's standard baseline, so this endpoint must
+    restore that guarantee itself. Without it, a duplicate would show up twice
+    on the HC review screen and, once sent, twice to the Lead."""
+    config = await _configure_with_test_panel(http_client, hc_user, hc_headers, db)
+    ai_additions = [
+        {"test": "CBC", "rationale": "Already part of standard baseline, LLM suggested anyway"},
+        {"test": "Vitamin D", "rationale": "Reported fatigue"},
+    ]
+
+    with patch(_PATCH_GENERATE, new_callable=AsyncMock, return_value=ai_additions), \
+         patch(_PATCH_REVIEW_EMAIL):
+        resp = await http_client.post(
+            f"/api/intake/{config['hc_slug']}",
+            json=_valid_payload(email="dedup-lead@example.com"),
+        )
+    assert resp.status_code == 201, resp.text
+    lead_id = UUID(resp.json()["lead_id"])
+
+    lead = await db.get(Lead, lead_id)
+    assert lead.draft_test_recommendation == {
+        "standard": ["CBC", "HbA1c", "TSH", "Lipid Profile"],
+        "additions": ai_additions,  # additions itself is untouched — only all_tests dedups
+        "all_tests": ["CBC", "HbA1c", "TSH", "Lipid Profile", "Vitamin D"],
+    }
+    # "CBC" must appear exactly once, not twice.
+    assert lead.draft_test_recommendation["all_tests"].count("CBC") == 1
+
+
+async def test_real_db_failure_swallowed_inside_ai_drafting_does_not_500_the_submission(
+    http_client: AsyncClient, hc_user, hc_headers, db, monkeypatch
+):
+    """Review finding 2 (task-3 fix round): `generate_lead_test_recommendation()`
+    shares this request's live DB session, and its own never-raise contract means
+    it swallows DB-level failures internally too — including inside its own
+    `write_llm_call` failure-logging path (`_write_failure_row`'s bare
+    `except Exception: pass`). Such a failure never raises up to this endpoint's
+    `except` block around the call (it returns `None`, indistinguishable from an
+    ordinary LLM failure) — so without recovery at the point that actually
+    surfaces it, the fallback `db.commit()` would raise against a dirty session
+    and 500 the response, even though the Lead's `leads` row was already durably
+    committed earlier in this same request.
+
+    Uses the REAL (unmocked) `generate_lead_test_recommendation` — a mocked
+    `side_effect` is an `AsyncMock` that never touches the real session, so it
+    cannot reproduce this bug class. Instead: `call_openrouter` is replaced with
+    one that raises a plain (non-DB) error — routing execution into
+    `generate_lead_test_recommendation`'s own failure-logging path — and
+    `write_llm_call` (that failure-logging path's own DB write) is replaced with
+    a function that issues a genuinely malformed SQL statement against the real
+    session. That's a real Postgres-level failure (confirmed via a standalone
+    script against this same test DB: it leaves the session's transaction usable
+    for nothing further, `InFailedSqlTransactionError` on the very next
+    statement, until an explicit rollback — `SessionTransaction.is_active`
+    itself stays `True` throughout, so that flag can't be used to detect it),
+    not a Mock — exactly the class of failure this fix has to survive.
+    """
+    config = await _configure_with_test_panel(http_client, hc_user, hc_headers, db)
+
+    async def _broken_write_llm_call(session, **kwargs):
+        # Genuinely invalid SQL against the real session, executed from inside
+        # generate_lead_test_recommendation's own failure-logging path — mirrors
+        # what a real DB-level failure inside write_llm_call's own INSERT would
+        # leave behind: a transaction that needs a rollback before anything else
+        # will run on this session.
+        await session.execute(sa.text("SELECT * FROM this_table_does_not_exist_xyz"))
+
+    monkeypatch.setattr(
+        "src.llm_service.call_openrouter",
+        AsyncMock(side_effect=RuntimeError("openrouter outage")),
+    )
+    monkeypatch.setattr("src.llm_service.write_llm_call", _broken_write_llm_call)
+
+    with patch(_PATCH_REVIEW_EMAIL) as mock_email:
+        resp = await http_client.post(
+            f"/api/intake/{config['hc_slug']}",
+            json=_valid_payload(email="db-failure-lead@example.com"),
+        )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["status"] == "tests_drafted"
+    lead_id = UUID(body["lead_id"])
+
+    lead = await db.get(Lead, lead_id)
+    assert lead is not None
+    assert lead.status == "tests_drafted"
+    assert lead.draft_test_recommendation == {
+        "standard": ["CBC", "HbA1c", "TSH", "Lipid Profile"],
+        "additions": [],
+        "all_tests": ["CBC", "HbA1c", "TSH", "Lipid Profile"],
+    }
+    mock_email.assert_called_once()  # HC still notified, same as every other fallback case.
 
 
 async def test_review_email_delivery_failure_does_not_fail_request_and_draft_persists(
