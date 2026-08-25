@@ -8,6 +8,7 @@ _PII_KEYS = frozenset({
     "transcript", "transcript_content", "mom_content", "snippet_content",
     "original_text", "hc_modified_text", "refresh_token",
     "prompt_text", "completion_text",
+    "order_id",
 })
 
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+")

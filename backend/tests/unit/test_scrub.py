@@ -27,6 +27,16 @@ def test_scrub_ip_truncation_ipv4():
     assert result["ip"] == "192.168.1.0"
 
 
+def test_scrub_order_id_key():
+    """PHASE-05 final-review fix round, Minor A: SPEC-0001's DPDP criterion
+    that payment references never appear in structured logs — payments.py's
+    webhook error paths log `order_id` unscrubbed without this."""
+    event = {"event": "razorpay_webhook_no_matching_lead", "order_id": "order_abc123"}
+    result = scrub(event)
+    assert result["order_id"] == "<redacted>"
+    assert result["event"] == "razorpay_webhook_no_matching_lead"
+
+
 def test_scrub_nested_transcript():
     event = {"data": {"transcript_content": "Patient said they feel stressed"}}
     result = scrub(event)
