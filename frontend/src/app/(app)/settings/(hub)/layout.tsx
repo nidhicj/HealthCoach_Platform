@@ -7,9 +7,17 @@ import { cn } from "@/lib/utils";
 import { logout } from "@/lib/api/auth";
 import { clearToken } from "@/lib/auth/tokens";
 
+// "Payments" nav placement is PROVISIONAL (PHASE-05 Task 7) — SoJo's
+// confirmation was requested but unavailable during that task's autonomous
+// execution run; built at the brief's recommended default (a hub-level entry,
+// not nested under /settings/onboarding) so it's reachable by
+// Unit_004_OneStopSpot's future F4 work too, per SPEC-0001's Shared surfaces
+// convention. Flagged in that task's report — do not treat this placement as
+// final without SoJo's sign-off.
 const SETTINGS_SECTIONS = [
   { href: "/settings/profile", label: "Profile" },
   { href: "/settings/onboarding", label: "Onboarding" },
+  { href: "/settings/payments", label: "Payments" },
 ] as const;
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
