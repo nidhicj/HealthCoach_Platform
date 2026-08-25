@@ -22,6 +22,7 @@ from src.api.leadgen import router as leadgen_router
 from src.api.leads import router as leads_router
 from src.api.me import router as me_router
 from src.api.payment_accounts import router as payment_accounts_router
+from src.api.payments import router as payments_router
 from src.api.sessions import router as sessions_router
 from src.api.settings import router as settings_router
 from src.api.upload import router as upload_router
@@ -120,6 +121,7 @@ app.include_router(upload_router)
 app.include_router(settings_router)
 app.include_router(calendar_router)
 app.include_router(payment_accounts_router)
+app.include_router(payments_router)
 
 
 @app.get("/health", include_in_schema=False)
