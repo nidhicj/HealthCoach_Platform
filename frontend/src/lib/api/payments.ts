@@ -35,7 +35,7 @@ import { API_URL } from "@/lib/config";
  * than pattern-matching on `.message` text.
  */
 
-const LeadPaymentContextSchema = z.object({
+export const LeadPaymentContextSchema = z.object({
   hc_name: z.string(),
   consultation_fee_inr: z.number().nullable(),
   payment_status: z.string(),
@@ -48,7 +48,7 @@ const LeadPaymentContextSchema = z.object({
 
 export type LeadPaymentContext = z.infer<typeof LeadPaymentContextSchema>;
 
-const CreatePaymentOrderSchema = z.object({
+export const CreatePaymentOrderSchema = z.object({
   order_id: z.string(),
   key_id: z.string(),
   amount_paise: z.number(),

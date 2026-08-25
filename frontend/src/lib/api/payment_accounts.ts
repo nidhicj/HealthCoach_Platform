@@ -27,7 +27,7 @@ import { fetchWithAuth } from "@/lib/auth/client";
  *   `{error, message}` shapes, same convention as `payments.ts`.
  */
 
-const PaymentAccountStatusSchema = z.object({
+export const PaymentAccountStatusSchema = z.object({
   connected: z.boolean(),
 });
 

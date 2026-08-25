@@ -9,6 +9,8 @@ import { ClientFileOutSchema } from "@/lib/api/files";
 import { ActionItemOutSchema } from "@/lib/api/actionItems";
 import { CheckInOutSchema } from "@/lib/api/checkIns";
 import { CalendarStatusSchema, CalendarEventSchema } from "@/lib/api/calendar";
+import { LeadPaymentContextSchema, CreatePaymentOrderSchema } from "@/lib/api/payments";
+import { PaymentAccountStatusSchema } from "@/lib/api/payment_accounts";
 
 const NOW = new Date().toISOString();
 
@@ -347,5 +349,73 @@ describe("CalendarEventSchema", () => {
     expect(() =>
       CalendarEventSchema.parse({ ...googleShapedEvent, html_link: undefined }),
     ).toThrow();
+  });
+});
+
+// ── LeadPaymentContext / CreatePaymentOrder / PaymentAccountStatus
+// (PHASE-05 final-review fix round, Minor B) ─────────────────────────────────
+
+describe("LeadPaymentContextSchema", () => {
+  const valid = {
+    hc_name: "Asha Rao",
+    consultation_fee_inr: 1500,
+    payment_status: "unpaid",
+    scheduling_link: null,
+  };
+
+  it("parses a valid payment context", () => {
+    expect(() => LeadPaymentContextSchema.parse(valid)).not.toThrow();
+  });
+
+  it("allows a null consultation_fee_inr", () => {
+    const result = LeadPaymentContextSchema.parse({ ...valid, consultation_fee_inr: null });
+    expect(result.consultation_fee_inr).toBeNull();
+  });
+
+  it("allows scheduling_link to be omitted entirely, not just null", () => {
+    const { scheduling_link: _scheduling_link, ...withoutSchedulingLink } = valid;
+    expect(() => LeadPaymentContextSchema.parse(withoutSchedulingLink)).not.toThrow();
+  });
+
+  it("throws when hc_name is missing", () => {
+    expect(() => LeadPaymentContextSchema.parse({ ...valid, hc_name: undefined })).toThrow();
+  });
+});
+
+describe("CreatePaymentOrderSchema", () => {
+  const valid = { order_id: "order_abc123", key_id: "rzp_test_key123", amount_paise: 150000 };
+
+  it("parses a valid create-order response", () => {
+    expect(() => CreatePaymentOrderSchema.parse(valid)).not.toThrow();
+  });
+
+  it("throws when amount_paise is not a number", () => {
+    expect(() =>
+      CreatePaymentOrderSchema.parse({ ...valid, amount_paise: "150000" }),
+    ).toThrow();
+  });
+
+  it("throws when order_id is missing", () => {
+    expect(() => CreatePaymentOrderSchema.parse({ ...valid, order_id: undefined })).toThrow();
+  });
+});
+
+describe("PaymentAccountStatusSchema", () => {
+  it("parses a connected status", () => {
+    const result = PaymentAccountStatusSchema.parse({ connected: true });
+    expect(result.connected).toBe(true);
+  });
+
+  it("parses a not-connected status", () => {
+    const result = PaymentAccountStatusSchema.parse({ connected: false });
+    expect(result.connected).toBe(false);
+  });
+
+  it("throws when connected is missing", () => {
+    expect(() => PaymentAccountStatusSchema.parse({})).toThrow();
+  });
+
+  it("throws when connected is not a boolean", () => {
+    expect(() => PaymentAccountStatusSchema.parse({ connected: "true" })).toThrow();
   });
 });
