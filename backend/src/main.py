@@ -19,6 +19,7 @@ from src.api.clients import router as clients_router
 from src.api.files import router as files_router
 from src.api.intake import router as intake_router
 from src.api.leadgen import router as leadgen_router
+from src.api.leads import router as leads_router
 from src.api.me import router as me_router
 from src.api.sessions import router as sessions_router
 from src.api.settings import router as settings_router
@@ -112,6 +113,7 @@ app.include_router(diet_charts_router)
 app.include_router(supplements_router)
 app.include_router(scheduler_router)
 app.include_router(leadgen_router)
+app.include_router(leads_router)
 app.include_router(intake_router)
 app.include_router(upload_router)
 app.include_router(settings_router)
