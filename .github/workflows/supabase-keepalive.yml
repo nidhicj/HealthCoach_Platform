@@ -11,11 +11,11 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Ping Supabase Auth health endpoint
+      - name: Query Supabase to register database activity
         run: |
           HTTP_STATUS=$(curl -s -o /tmp/response.json -w "%{http_code}" \
-            "${{ secrets.SUPABASE_URL }}/auth/v1/health" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}")
+            "${{ secrets.SUPABASE_URL }}/rest/v1/prep_recipes?select=id&limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}")
           echo "HTTP status: $HTTP_STATUS"
           cat /tmp/response.json
           if [ "$HTTP_STATUS" != "200" ]; then
